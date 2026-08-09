@@ -1,19 +1,124 @@
 import Foundation
 import Network
 
-struct ProxyCheckResult: Equatable {
+struct ProxyCheckResult: Equatable, Sendable {
     var isSuccess: Bool
     var message: String
 }
 
+struct ProxyCheckDetail: Identifiable, Equatable, Sendable {
+    var target: String
+    var isSuccess: Bool
+    var message: String
+    var elapsedMilliseconds: Int
+
+    var id: String { target }
+}
+
+struct ProxyCheckReport: Equatable, Sendable {
+    var details: [ProxyCheckDetail]
+
+    var successCount: Int { details.filter(\.isSuccess).count }
+    var isSuccess: Bool { successCount > 0 }
+    var message: String {
+        let prefix = isSuccess ? "检测成功" : "检测失败"
+        return "\(prefix) · \(successCount)/\(details.count) 个目标可访问"
+    }
+}
+
 enum ProxyConnectivityChecker {
-    private static let queue = DispatchQueue(label: "com.yaklang.instance-dock.proxy-check")
+    static let defaultTimeout: TimeInterval = 10
+    static let defaultTargetStrings = [
+        "https://example.com/",
+        "https://baidu.com/",
+        "https://google.com/",
+    ]
+    private static let queue = DispatchQueue(label: "com.yaklang.ytray.proxy-check")
+    private static let fallbackTarget = URL(string: defaultTargetStrings[0])!
+
+    static func normalizeTarget(_ rawValue: String) throws -> URL {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw YTrayError.invalidURL(rawValue) }
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard var components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host,
+              !host.isEmpty,
+              components.user == nil,
+              components.password == nil,
+              components.port.map({ (1...65_535).contains($0) }) ?? true else {
+            throw YTrayError.invalidURL(rawValue)
+        }
+        components.scheme = scheme
+        if components.path.isEmpty { components.path = "/" }
+        guard let url = components.url else { throw YTrayError.invalidURL(rawValue) }
+        return url
+    }
+
+    static func checkDefaultTargets(
+        endpoint: ProxyEndpoint,
+        username: String,
+        password: String,
+        customTarget: String,
+        timeout: TimeInterval = defaultTimeout
+    ) async -> ProxyCheckReport {
+        var targets = defaultTargetStrings.compactMap { try? normalizeTarget($0) }
+        var validationFailures: [ProxyCheckDetail] = []
+        let trimmedCustomTarget = customTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedCustomTarget.isEmpty {
+            do {
+                let customURL = try normalizeTarget(trimmedCustomTarget)
+                if !targets.contains(where: {
+                    $0.absoluteString.caseInsensitiveCompare(customURL.absoluteString) == .orderedSame
+                }) {
+                    targets.append(customURL)
+                }
+            } catch {
+                validationFailures.append(ProxyCheckDetail(
+                    target: trimmedCustomTarget,
+                    isSuccess: false,
+                    message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                    elapsedMilliseconds: 0
+                ))
+            }
+        }
+
+        let checked = await withTaskGroup(of: IndexedProxyCheckDetail.self) { group in
+            for (index, target) in targets.enumerated() {
+                group.addTask {
+                    let startedAt = ContinuousClock.now
+                    let result = await check(
+                        endpoint: endpoint,
+                        username: username,
+                        password: password,
+                        target: target,
+                        timeout: timeout
+                    )
+                    let duration = startedAt.duration(to: .now)
+                    let milliseconds = Int(duration.components.seconds * 1_000)
+                        + Int(duration.components.attoseconds / 1_000_000_000_000_000)
+                    return IndexedProxyCheckDetail(index: index, detail: ProxyCheckDetail(
+                        target: target.absoluteString,
+                        isSuccess: result.isSuccess,
+                        message: result.message,
+                        elapsedMilliseconds: milliseconds
+                    ))
+                }
+            }
+            var values: [IndexedProxyCheckDetail] = []
+            for await value in group { values.append(value) }
+            return values.sorted { $0.index < $1.index }.map(\.detail)
+        }
+        return ProxyCheckReport(details: checked + validationFailures)
+    }
 
     static func check(
         endpoint: ProxyEndpoint,
         username: String,
         password: String,
-        timeout: TimeInterval = 6
+        target: URL = fallbackTarget,
+        timeout: TimeInterval = defaultTimeout
     ) async -> ProxyCheckResult {
         await withCheckedContinuation { continuation in
             let parameters: NWParameters = endpoint.scheme == .https ? .tls : .tcp
@@ -41,6 +146,7 @@ enum ProxyConnectivityChecker {
                         endpoint: endpoint,
                         username: username,
                         password: password,
+                        target: target,
                         completion: completion
                     )
                 case .failed(let error):
@@ -87,9 +193,17 @@ enum ProxyConnectivityChecker {
     }
 
     static func probeRequest(username: String, password: String) -> Data {
+        probeRequest(target: fallbackTarget, username: username, password: password)
+    }
+
+    static func probeRequest(target: URL, username: String, password: String) -> Data {
+        let host = target.host ?? "www.example.com"
+        let port = target.port ?? (target.scheme?.lowercased() == "http" ? 80 : 443)
+        let authorityHost = host.contains(":") ? "[\(host)]" : host
+        let authority = "\(authorityHost):\(port)"
         var lines = [
-            "CONNECT www.example.com:443 HTTP/1.1",
-            "Host: www.example.com:443",
+            "CONNECT \(authority) HTTP/1.1",
+            "Host: \(authority)",
             "Proxy-Connection: close",
         ]
         if !username.isEmpty || !password.isEmpty {
@@ -104,10 +218,11 @@ enum ProxyConnectivityChecker {
         endpoint: ProxyEndpoint,
         username: String,
         password: String,
+        target: URL,
         completion: ProxyCheckCompletion
     ) {
         let usedCredentials = !username.isEmpty || !password.isEmpty
-        connection.send(content: probeRequest(username: username, password: password), completion: .contentProcessed { error in
+        connection.send(content: probeRequest(target: target, username: username, password: password), completion: .contentProcessed { error in
             if let error {
                 completion.finish(ProxyCheckResult(
                     isSuccess: false,
@@ -143,6 +258,11 @@ enum ProxyConnectivityChecker {
         @unknown default: return error.localizedDescription
         }
     }
+}
+
+private struct IndexedProxyCheckDetail: Sendable {
+    var index: Int
+    var detail: ProxyCheckDetail
 }
 
 private final class ProxyCheckCompletion: @unchecked Sendable {

@@ -201,7 +201,7 @@ struct CustomLaunchWizard: View {
             .background(Brand.orange.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13))
             Toggle("记住此浏览器，作为下次快速启动的默认选择", isOn: $rememberBrowser)
                 .toggleStyle(.checkbox)
-            Label("无论使用哪种模式，Instance Dock 都会创建独立用户目录，并把调试服务限制在本机回环地址。",
+            Label("无论使用哪种模式，YTray 都会创建独立用户目录，并把调试服务限制在本机回环地址。",
                   systemImage: "lock.shield").font(.caption).foregroundStyle(.secondary)
         }
     }

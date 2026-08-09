@@ -3,7 +3,7 @@ import Darwin
 import SwiftUI
 
 @main
-enum InstanceDockMain {
+enum YTrayMain {
     @MainActor
     static func main() {
         if let index = CommandLine.arguments.firstIndex(of: "--browser-process") {
@@ -14,19 +14,19 @@ enum InstanceDockMain {
         let application = NSApplication.shared
         if let index = CommandLine.arguments.firstIndex(of: "--render-widget") {
             let output = index + 1 < CommandLine.arguments.count
-                ? CommandLine.arguments[index + 1] : "/tmp/instance-dock-widget.png"
+                ? CommandLine.arguments[index + 1] : "/tmp/ytray-widget.png"
             renderWidget(application: application, output: output)
             return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--render-wizard") {
             let output = index + 1 < CommandLine.arguments.count
-                ? CommandLine.arguments[index + 1] : "/tmp/instance-dock-wizard.png"
+                ? CommandLine.arguments[index + 1] : "/tmp/ytray-wizard.png"
             renderWizard(application: application, output: output)
             return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--render-dock-icon") {
             let output = index + 1 < CommandLine.arguments.count
-                ? CommandLine.arguments[index + 1] : "/tmp/instance-dock-icon.png"
+                ? CommandLine.arguments[index + 1] : "/tmp/ytray-icon.png"
             let source = index + 2 < CommandLine.arguments.count
                 ? CommandLine.arguments[index + 2] : "/Applications/Google Chrome.app"
             let badge = index + 3 < CommandLine.arguments.count
@@ -36,8 +36,19 @@ enum InstanceDockMain {
         }
         if let index = CommandLine.arguments.firstIndex(of: "--render-tray-icon") {
             let output = index + 1 < CommandLine.arguments.count
-                ? CommandLine.arguments[index + 1] : "/tmp/instance-dock-tray-icon.png"
+                ? CommandLine.arguments[index + 1] : "/tmp/ytray-tray-icon.png"
             renderTrayIcon(application: application, output: output)
+            return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--render-edge-dock") {
+            let output = index + 1 < CommandLine.arguments.count
+                ? CommandLine.arguments[index + 1] : "/tmp/ytray-edge-dock.png"
+            do {
+                try YTrayEdgeDockController.renderPreview(to: URL(fileURLWithPath: output))
+            } catch {
+                fputs("edge dock render failed: \(error)\n", stderr)
+                exit(1)
+            }
             return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--smoke-browser"),
@@ -99,7 +110,7 @@ enum InstanceDockMain {
             guard let tiff = icon.tiffRepresentation,
                   let bitmap = NSBitmapImageRep(data: tiff),
                   let png = bitmap.representation(using: .png, properties: [:]) else {
-                throw InstanceDockError.launchFailed("无法生成 Dock 图标 PNG")
+                throw YTrayError.launchFailed("无法生成 Dock 图标 PNG")
             }
             try png.write(to: URL(fileURLWithPath: output), options: .atomic)
             print("dock icon rendered: \(output) badge=\(normalized)")
@@ -138,7 +149,7 @@ enum InstanceDockMain {
     @MainActor
     private static func renderWidget(application: NSApplication, output: String) {
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-render-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-render-\(UUID().uuidString)", isDirectory: true)
         let store = InstanceStore(applicationDirectory: scratch)
         if let runtime = store.defaultRuntime {
             var samples: [BrowserInstance] = []
@@ -147,7 +158,7 @@ enum InstanceDockMain {
                     let thumbnail = renderSampleThumbnail(
                         in: scratch,
                         name: "running-\(index)",
-                        title: index == 1 ? "Instance Dock 使用说明" : "本地调试控制台",
+                        title: index == 1 ? "YTray 使用说明" : "本地调试控制台",
                         accent: index == 1 ? .systemOrange : .systemBlue
                     )
                     samples.append(BrowserInstance(
@@ -164,7 +175,7 @@ enum InstanceDockMain {
                         startURL: "chrome://newtab",
                         thumbnailPath: thumbnail?.path,
                         thumbnailUpdatedAt: Date(),
-                        lastPageTitle: index == 1 ? "Instance Dock 使用说明" : "本地调试控制台",
+                        lastPageTitle: index == 1 ? "YTray 使用说明" : "本地调试控制台",
                         dockBadge: DockBadgeLabel.defaultLabel(for: index)
                     ))
                 }
@@ -199,10 +210,12 @@ enum InstanceDockMain {
                 }
             }
             store.instances = samples
+            store.isProxyAdvancedExpanded = CommandLine.arguments.contains("--proxy-advanced")
         }
         let height = WidgetMetrics.height(
             runningCount: store.runningInstances.count,
-            historyCount: store.historyInstances.count
+            historyCount: store.historyInstances.count,
+            proxyAdvancedExpanded: store.isProxyAdvancedExpanded
         )
         let hosting = NSHostingView(rootView: WidgetView(
             store: store,
@@ -238,7 +251,7 @@ enum InstanceDockMain {
     @MainActor
     private static func renderWizard(application: NSApplication, output: String) {
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-wizard-render-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-wizard-render-\(UUID().uuidString)", isDirectory: true)
         let store = InstanceStore(applicationDirectory: scratch)
         if store.settings.defaultRuntimeID == nil {
             store.settings.defaultRuntimeID = store.runtimes.first?.id
@@ -319,12 +332,12 @@ enum InstanceDockMain {
     @MainActor
     private static func smokeBrowser(application: NSApplication, executablePath: String) {
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-browser-smoke-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-browser-smoke-\(UUID().uuidString)", isDirectory: true)
         let runtime = BrowserRuntime(name: "Smoke Chrome", version: "local",
                                      architecture: RuntimeInstaller.platform,
                                      executablePath: executablePath, source: .local)
         var settings = LaunchSettings()
-        settings.homeURL = "data:text/html,<title>Instance Dock Smoke</title><h1>Instance Dock</h1>"
+        settings.homeURL = "data:text/html,<title>YTray Smoke</title><h1>YTray</h1>"
         settings.debugPort = 17_777
         application.setActivationPolicy(.prohibited)
         Task { @MainActor in
@@ -343,14 +356,14 @@ enum InstanceDockMain {
                     for _ in 0..<50 {
                         if let app = NSRunningApplication(processIdentifier: launched.instance.processID),
                            app.bundleURL?.pathExtension.lowercased() == "app",
-                           app.bundleIdentifier?.hasPrefix("com.yaklang.InstanceDock") != true {
+                           app.bundleIdentifier?.hasPrefix("com.yaklang.YTray") != true {
                             runningApp = app
                             break
                         }
                         try? await Task.sleep(nanoseconds: 100_000_000)
                     }
                     guard let runningApp else {
-                        throw InstanceDockError.launchFailed("同 PID 没有切换为原始浏览器应用身份")
+                        throw YTrayError.launchFailed("同 PID 没有切换为原始浏览器应用身份")
                     }
                     let title = await ScreenshotService.currentPageTitle(
                         debugPort: launched.instance.debugPort,
@@ -373,8 +386,8 @@ enum InstanceDockMain {
                     )
                     let thumbnailAttributes = try? FileManager.default.attributesOfItem(atPath: thumbnail.path)
                     let thumbnailSize = (thumbnailAttributes?[.size] as? NSNumber)?.intValue ?? 0
-                    guard title == "Instance Dock Smoke", size > 0, thumbnailSize > 0 else {
-                        throw InstanceDockError.launchFailed("浏览器调试或截图验证未通过")
+                    guard title == "YTray Smoke", size > 0, thumbnailSize > 0 else {
+                        throw YTrayError.launchFailed("浏览器调试或截图验证未通过")
                     }
                     print("browser smoke passed: pid=\(launched.instance.processID) port=\(launched.instance.debugPort) badge=A bundle=\(runningApp.bundleIdentifier ?? "missing") name=\(runningApp.localizedName ?? "missing") title=\(title ?? "missing") screenshot=\(size) bytes thumbnail=\(thumbnailSize) bytes")
                 } catch {
@@ -403,7 +416,7 @@ enum InstanceDockMain {
     @MainActor
     private static func smokeLaunchState(application: NSApplication, executablePath: String) {
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-launch-state-smoke-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-launch-state-smoke-\(UUID().uuidString)", isDirectory: true)
         let runtime = BrowserRuntime(name: "Smoke Chrome", version: "local",
                                      architecture: RuntimeInstaller.platform,
                                      executablePath: executablePath, source: .local)

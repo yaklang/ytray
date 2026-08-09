@@ -2,7 +2,16 @@ import Foundation
 import Darwin
 
 enum BrowserLauncher {
-    static let proxyAuthenticationBootstrapURL = "data:text/html,<title>Instance Dock</title>"
+    static let proxyAuthenticationBootstrapURL = "data:text/html,<title>YTray</title>"
+
+    static func supportsCommandLineExtensions(runtimeKind: BrowserKind) -> Bool {
+        switch runtimeKind {
+        case .chrome, .chromeBeta, .chromeCanary:
+            return false
+        case .chromeForTesting, .chromium, .edge:
+            return true
+        }
+    }
 
     struct LaunchResult {
         let process: Process
@@ -57,9 +66,9 @@ enum BrowserLauncher {
             for line in settings.additionalFlags.components(separatedBy: .newlines) {
                 let flag = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !flag.isEmpty else { continue }
-                guard flag.hasPrefix("--") else { throw InstanceDockError.invalidFlag(flag) }
+                guard flag.hasPrefix("--") else { throw YTrayError.invalidFlag(flag) }
                 if LaunchSettings.blockedCustomPrefixes.contains(where: { flag.hasPrefix($0) }) {
-                    throw InstanceDockError.invalidFlag(flag)
+                    throw YTrayError.invalidFlag(flag)
                 }
                 arguments.append(flag)
             }
@@ -70,7 +79,7 @@ enum BrowserLauncher {
         }
         let target = settings.homeURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard target.hasPrefix("chrome://") || URL(string: target)?.scheme != nil else {
-            throw InstanceDockError.invalidURL(target)
+            throw YTrayError.invalidURL(target)
         }
         arguments.append(target)
         return arguments
@@ -81,7 +90,18 @@ enum BrowserLauncher {
                        dockBadge: String, restoring history: BrowserInstance? = nil) throws -> LaunchResult {
         let executable = URL(fileURLWithPath: runtime.executablePath)
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw InstanceDockError.invalidExecutable(executable.path)
+            throw YTrayError.invalidExecutable(executable.path)
+        }
+        let needsCommandLineExtension = mode != .isolated && (
+            plugins.contains(where: \.enabled)
+                || !settings.proxyUsername.isEmpty
+                || !settings.proxyPassword.isEmpty
+        )
+        guard !needsCommandLineExtension
+                || supportsCommandLineExtensions(runtimeKind: runtime.kind) else {
+            throw YTrayError.launchFailed(
+                "(runtime.displayTitle) 不接受命令行加载本地插件；请在快速配置中选择 Chrome for Testing、Chromium 或 Edge"
+            )
         }
         let id = history?.id ?? UUID()
         let normalizedBadge = try DockBadgeLabel.normalize(dockBadge)
@@ -147,7 +167,7 @@ enum BrowserLauncher {
             try? log.close()
             BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
             ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
-            throw InstanceDockError.launchFailed("找不到 Instance Dock 启动器")
+            throw YTrayError.launchFailed("找不到 YTray 启动器")
         }
         process.executableURL = launcher
         process.arguments = buildProcessArguments(
@@ -164,7 +184,7 @@ enum BrowserLauncher {
             try? log.close()
             BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
             ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
-            throw InstanceDockError.launchFailed(error.localizedDescription)
+            throw YTrayError.launchFailed(error.localizedDescription)
         }
         let instance = BrowserInstance(
             id: id, name: history?.name ?? "浏览器实例 \(ordinal)", runtimeID: runtime.id,

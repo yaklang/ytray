@@ -11,6 +11,9 @@ enum Brand {
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let store = InstanceStore()
+    private lazy var edgeDock = YTrayEdgeDockController(store: store) { [weak self] anchor, onLeft in
+        self?.showWidgetFromEdge(anchor: anchor, onLeft: onLeft)
+    }
     private let widgetPresentation = WidgetPresentationState()
     private var statusItem: NSStatusItem!
     private var widgetPanel: NSPanel?
@@ -19,13 +22,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let managerNavigation = ManagerNavigation()
     private var subscriptions: Set<AnyCancellable> = []
     private var hasPresentedWidget = false
+    private var widgetOrigin = WidgetOrigin.tray
+    private var suppressWidgetDismissalUntil = Date.distantPast
     private let focusSmoke = CommandLine.arguments.contains("--smoke-widget-focus")
     private let transientSmoke = CommandLine.arguments.contains("--smoke-widget-transient")
+    private let edgeWidgetSmoke = CommandLine.arguments.contains("--smoke-edge-widget-focus")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        EdgeDockPreferences.migrateLegacyIfNeeded()
         configureStatusItem()
-        UserDefaults.standard.removeObject(forKey: "instance-dock.widget-position.v1")
-        if focusSmoke || transientSmoke {
+        edgeDock.update()
+        UserDefaults.standard.removeObject(forKey: "ytray.widget-position.v1")
+        if edgeWidgetSmoke {
+            runEdgeWidgetSmoke()
+        } else if focusSmoke || transientSmoke {
             waitForStableTrayAnchor(focusOnPresentation: true)
         }
     }
@@ -34,7 +44,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func configureStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.autosaveName = "instance-dock.main"
+        statusItem.autosaveName = "ytray.main"
         guard let button = statusItem.button else { return }
         button.image = trayImage()
         button.imagePosition = .imageLeft
@@ -42,7 +52,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.target = self
         button.action = #selector(statusClicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        button.toolTip = "Instance Dock · 左键打开小组件 / 右键菜单"
+        button.toolTip = "YTray · 左键打开小组件 / 右键菜单"
         store.$instances.sink { [weak self] _ in
             Task { @MainActor in
                 self?.refreshStatusTitle()
@@ -51,6 +61,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }.store(in: &subscriptions)
         store.$runtimes.sink { [weak self] _ in
             Task { @MainActor in self?.updateWidgetSize() }
+        }.store(in: &subscriptions)
+        store.$isProxyAdvancedExpanded.sink { [weak self] _ in
+            Task { @MainActor in self?.updateWidgetSize(animated: false) }
         }.store(in: &subscriptions)
         store.$launchPhase.sink { [weak self] _ in
             Task { @MainActor in self?.refreshStatusTitle() }
@@ -83,7 +96,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "") .target = self
         menu.addItem(withTitle: "全部管理", action: #selector(showManagerAction), keyEquivalent: ",").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出 Instance Dock", action: #selector(quit), keyEquivalent: "q").target = self
+        let edgeItem = menu.addItem(
+            withTitle: EdgeDockPreferences.isEnabled ? "隐藏边缘小组件" : "显示边缘小组件",
+            action: #selector(toggleEdgeDock),
+            keyEquivalent: ""
+        )
+        edgeItem.target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "退出 YTray", action: #selector(quit), keyEquivalent: "q").target = self
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
@@ -93,6 +113,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func proxyLaunch() { store.launchConfigured(usePresetProxy: true) }
     @objc private func showWidgetAction() { showWidget() }
     @objc private func showManagerAction() { showManager(section: .quick) }
+    @objc private func toggleEdgeDock() { edgeDock.toggleEnabled() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func toggleWidget() {
@@ -101,6 +122,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func hideWidget() {
         widgetPanel?.orderOut(nil)
+        edgeDock.setWidgetPresented(false)
     }
 
     func showWidget(focus: Bool = true) {
@@ -114,34 +136,61 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func showWidget(anchor: NSRect, focus: Bool) {
-        let panel: NSPanel
-        if let existing = widgetPanel { panel = existing }
-        else {
-            panel = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: WidgetMetrics.width,
+        let panel = preparedWidgetPanel()
+        widgetOrigin = .tray
+        positionWidget(panel, anchor: anchor)
+        presentWidget(panel, focus: focus)
+    }
+
+    private func showWidgetFromEdge(anchor: NSRect, onLeft: Bool) {
+        let panel = preparedWidgetPanel()
+        edgeDock.setWidgetPresented(true)
+        widgetOrigin = .edge(anchor: anchor, onLeft: onLeft)
+        positionWidgetBesideEdge(panel, anchor: anchor, onLeft: onLeft)
+        hasPresentedWidget = true
+        suppressWidgetDismissalUntil = Date().addingTimeInterval(0.25)
+        panel.orderFrontRegardless()
+
+        // A non-activating edge panel delivers its mouse-up while another app is
+        // still active. Defer activation until that event has fully unwound;
+        // otherwise AppKit can immediately return focus to the previous app and
+        // the transient widget dismisses itself on the same click.
+        DispatchQueue.main.async { [weak self, weak panel] in
+            guard let self, let panel, panel.isVisible else { return }
+            self.focusWidget(panel)
+        }
+    }
+
+    private func preparedWidgetPanel() -> NSPanel {
+        if let widgetPanel { return widgetPanel }
+        let panel = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: WidgetMetrics.width,
                                                     height: currentWidgetHeight),
                                 styleMask: [.borderless], backing: .buffered, defer: false)
-            panel.isFloatingPanel = true
-            panel.level = .floating
-            panel.backgroundColor = .clear
-            panel.isOpaque = false
-            panel.hasShadow = true
-            panel.sharingType = .readOnly
-            panel.hidesOnDeactivate = false
-            panel.isMovableByWindowBackground = false
-            panel.isReleasedWhenClosed = false
-            panel.animationBehavior = .utilityWindow
-            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            panel.delegate = self
-            panel.contentViewController = NSHostingController(rootView: WidgetView(
-                store: store,
-                presentation: widgetPresentation,
-                openManager: { [weak self] section in self?.showManager(section: section) },
-                closeWidget: { [weak self] in self?.hideWidget() }
-            ))
-            widgetPanel = panel
-        }
-        positionWidget(panel, anchor: anchor)
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.sharingType = .readOnly
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = false
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .utilityWindow
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.delegate = self
+        panel.contentViewController = NSHostingController(rootView: WidgetView(
+            store: store,
+            presentation: widgetPresentation,
+            openManager: { [weak self] section in self?.showManager(section: section) },
+            closeWidget: { [weak self] in self?.hideWidget() }
+        ))
+        widgetPanel = panel
+        return panel
+    }
+
+    private func presentWidget(_ panel: NSPanel, focus: Bool) {
         hasPresentedWidget = true
+        edgeDock.setWidgetPresented(true)
         if focus {
             focusWidget(panel)
         } else {
@@ -234,6 +283,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func runEdgeWidgetSmoke() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let anchor = self.edgeDock.openWidgetForSmokeTest() else {
+                print("edge widget focus smoke failed: missing edge anchor")
+                NSApp.terminate(nil)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self, let panel = self.widgetPanel else {
+                    print("edge widget focus smoke failed: missing widget panel")
+                    NSApp.terminate(nil)
+                    return
+                }
+                let besideEdge = EdgeDockPreferences.isOnLeft
+                    ? panel.frame.minX >= anchor.maxX
+                    : panel.frame.maxX <= anchor.minX
+                let passed = panel.isVisible && panel.isKeyWindow && besideEdge
+                print("edge widget focus smoke \(passed ? "passed" : "failed"): visible=\(panel.isVisible) key=\(panel.isKeyWindow) besideEdge=\(besideEdge)")
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     private func trayAnchor() -> NSRect? {
         guard let button = statusItem?.button, let statusWindow = button.window else { return nil }
         button.superview?.layoutSubtreeIfNeeded()
@@ -277,6 +349,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.setFrame(frame, display: true, animate: false)
     }
 
+    private func positionWidgetBesideEdge(_ panel: NSPanel, anchor: NSRect, onLeft: Bool) {
+        let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else { return }
+        let frame = EdgeWidgetPositioning.frame(
+            size: NSSize(width: WidgetMetrics.width, height: currentWidgetHeight),
+            tabFrame: anchor,
+            onLeft: onLeft,
+            visibleFrame: screen.visibleFrame
+        )
+        panel.setFrame(frame, display: true, animate: false)
+    }
+
     func showManager(section: ManagerSection = .quick) {
         managerNavigation.selection = section
         let window: NSWindow
@@ -285,7 +371,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 720),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
-            window.title = "Instance Dock"
+            window.title = "YTray"
             window.minSize = NSSize(width: 880, height: 600)
             window.isReleasedWhenClosed = false
             window.sharingType = .readOnly
@@ -305,14 +391,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var currentWidgetHeight: CGFloat {
         WidgetMetrics.height(
             runningCount: store.runningInstances.count,
-            historyCount: store.historyInstances.count
+            historyCount: store.historyInstances.count,
+            proxyAdvancedExpanded: store.isProxyAdvancedExpanded
         )
     }
 
     private func updateWidgetSize(animated: Bool = true) {
         guard let panel = widgetPanel else { return }
-        guard let anchor = trayAnchor() else { return }
-        positionWidget(panel, anchor: anchor)
+        switch widgetOrigin {
+        case .tray:
+            guard let anchor = trayAnchor() else { return }
+            positionWidget(panel, anchor: anchor)
+        case .edge(let anchor, let onLeft):
+            positionWidgetBesideEdge(panel, anchor: anchor, onLeft: onLeft)
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -323,9 +415,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         guard let panel = notification.object as? NSPanel,
               panel === widgetPanel,
+              Date() >= suppressWidgetDismissalUntil,
               WidgetDismissalPolicy.shouldHide(
                 isPinned: widgetPresentation.isPinned,
-                hasAttachedSheet: panel.attachedSheet != nil
+                hasAttachedSheet: panel.attachedSheet != nil,
+                isBusy: store.proxyCheckPhase == .checking
               ) else { return }
 
         // Delay until the status-item action or menu tracking for the same click has completed.
@@ -334,11 +428,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, let panel,
                   panel.isVisible,
                   !panel.isKeyWindow,
+                  Date() >= self.suppressWidgetDismissalUntil,
                   WidgetDismissalPolicy.shouldHide(
                     isPinned: self.widgetPresentation.isPinned,
-                    hasAttachedSheet: panel.attachedSheet != nil
+                    hasAttachedSheet: panel.attachedSheet != nil,
+                    isBusy: self.store.proxyCheckPhase == .checking
                   ) else { return }
             panel.orderOut(nil)
+            self.edgeDock.setWidgetPresented(false)
         }
     }
 
@@ -347,14 +444,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 }
 
+private enum WidgetOrigin {
+    case tray
+    case edge(anchor: NSRect, onLeft: Bool)
+}
+
 @MainActor
 final class WidgetPresentationState: ObservableObject {
     @Published var isPinned = false
 }
 
 enum WidgetDismissalPolicy {
-    static func shouldHide(isPinned: Bool, hasAttachedSheet: Bool) -> Bool {
-        !isPinned && !hasAttachedSheet
+    static func shouldHide(
+        isPinned: Bool,
+        hasAttachedSheet: Bool,
+        isBusy: Bool = false
+    ) -> Bool {
+        !isPinned && !hasAttachedSheet && !isBusy
     }
 }
 
@@ -418,7 +524,7 @@ enum TrayIconRenderer {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "Instance Dock 浏览器实例管理"
+        image.accessibilityDescription = "YTray 浏览器实例管理"
         return image
     }
 }

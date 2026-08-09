@@ -18,7 +18,7 @@ enum ProxyAuthenticationExtension {
 
         let manifest: [String: Any] = [
             "manifest_version": 3,
-            "name": "Instance Dock Proxy Authentication",
+            "name": "YTray Proxy Authentication",
             "version": "1.0.0",
             "permissions": ["webRequest", "webRequestAuthProvider"],
             "host_permissions": ["<all_urls>"],
@@ -82,7 +82,7 @@ enum ProxyAuthenticationExtension {
     private static func javascriptLiteral(_ value: String) throws -> String {
         let data = try JSONEncoder().encode(value)
         guard let literal = String(data: data, encoding: .utf8) else {
-            throw InstanceDockError.launchFailed("无法生成代理认证配置")
+            throw YTrayError.launchFailed("无法生成代理认证配置")
         }
         return literal
     }

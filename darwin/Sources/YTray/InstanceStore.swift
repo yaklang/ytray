@@ -20,6 +20,8 @@ final class InstanceStore: NSObject, ObservableObject {
     @Published private(set) var restoringInstanceID: UUID?
     @Published private(set) var proxyCheckPhase: ProxyCheckPhase = .idle
     @Published private(set) var proxyCheckMessage = ""
+    @Published private(set) var proxyCheckReport: ProxyCheckReport?
+    @Published var isProxyAdvancedExpanded = false
 
     let applicationDirectory: URL
     private let stateURL: URL
@@ -30,28 +32,94 @@ final class InstanceStore: NSObject, ObservableObject {
     private var lastThumbnailAttempt: [UUID: Date] = [:]
     private var launchToken: UUID?
     private var launchingInstanceID: UUID?
+    private var proxyCheckToken: UUID?
 
     private static let thumbnailRefreshInterval: TimeInterval = 12
+    private static let applicationDirectoryName = "YTray"
+    private static let legacyApplicationDirectoryName = ["Instance", "Dock"].joined()
 
     var isLaunching: Bool {
         launchPhase == .preparing || launchPhase == .waiting
     }
 
-    init(applicationDirectory: URL? = nil, discoverSystemBrowsers: Bool = true) {
-        let base = applicationDirectory ?? FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        )[0].appendingPathComponent("InstanceDock", isDirectory: true)
+    init(
+        applicationDirectory: URL? = nil,
+        discoverSystemBrowsers: Bool = true,
+        legacyApplicationDirectory: URL? = nil
+    ) {
+        let supportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        let base = applicationDirectory ?? supportDirectory
+            .appendingPathComponent(Self.applicationDirectoryName, isDirectory: true)
+        let legacyBase = legacyApplicationDirectory ?? (applicationDirectory == nil
+            ? supportDirectory.appendingPathComponent(Self.legacyApplicationDirectoryName, isDirectory: true)
+            : nil)
+        if let legacyBase {
+            Self.moveLegacyApplicationDirectoryIfNeeded(from: legacyBase, to: base)
+        }
         self.applicationDirectory = base
         self.stateURL = base.appendingPathComponent("state.json")
         super.init()
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         load()
+        if let legacyBase {
+            rewriteManagedPaths(from: legacyBase, to: base)
+        }
         if discoverSystemBrowsers { refreshSystemBrowsers() }
         refreshProcessStates()
         NotificationCenter.default.addObserver(self, selector: #selector(processDidTerminate(_:)),
-                                               name: .instanceDockProcessDidTerminate, object: nil)
+                                               name: .ytrayProcessDidTerminate, object: nil)
         timer = Timer.scheduledTimer(timeInterval: 2, target: self,
                                      selector: #selector(refreshTimerFired), userInfo: nil, repeats: true)
+    }
+
+    private static func moveLegacyApplicationDirectoryIfNeeded(from legacy: URL, to current: URL) {
+        let fileManager = FileManager.default
+        guard legacy.standardizedFileURL != current.standardizedFileURL,
+              !fileManager.fileExists(atPath: current.path),
+              fileManager.fileExists(atPath: legacy.path) else { return }
+        do {
+            try fileManager.createDirectory(
+                at: current.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fileManager.moveItem(at: legacy, to: current)
+        } catch {
+            // Keep startup usable even if a preview-version directory cannot be moved.
+            // The new directory will be created below and the original data remains untouched.
+        }
+    }
+
+    private func rewriteManagedPaths(from legacy: URL, to current: URL) {
+        let oldPrefix = legacy.standardizedFileURL.path
+        let newPrefix = current.standardizedFileURL.path
+        guard oldPrefix != newPrefix else { return }
+        var changed = false
+
+        func migratedPath(_ path: String) -> String {
+            guard path == oldPrefix || path.hasPrefix(oldPrefix + "/") else { return path }
+            changed = true
+            return newPrefix + path.dropFirst(oldPrefix.count)
+        }
+
+        for index in runtimes.indices {
+            runtimes[index].executablePath = migratedPath(runtimes[index].executablePath)
+        }
+        for index in plugins.indices {
+            plugins[index].path = migratedPath(plugins[index].path)
+        }
+        for index in instances.indices {
+            instances[index].profilePath = migratedPath(instances[index].profilePath)
+            if let path = instances[index].thumbnailPath {
+                instances[index].thumbnailPath = migratedPath(path)
+            }
+            if let path = instances[index].lastScreenshotPath {
+                instances[index].lastScreenshotPath = migratedPath(path)
+            }
+        }
+        if changed { save() }
     }
 
     var runningInstances: [BrowserInstance] { instances.filter { $0.status == .running } }
@@ -85,7 +153,7 @@ final class InstanceStore: NSObject, ObservableObject {
     @discardableResult
     func addLocalRuntime(selectedURL: URL) -> BrowserRuntime? {
         guard let runtime = SystemBrowserDiscovery.inspect(selectedURL: selectedURL) else {
-            report(InstanceDockError.invalidExecutable(selectedURL.path)); return nil
+            report(YTrayError.invalidExecutable(selectedURL.path)); return nil
         }
         return upsert(runtime)
     }
@@ -106,7 +174,7 @@ final class InstanceStore: NSObject, ObservableObject {
 
     func removeRuntime(_ runtime: BrowserRuntime) {
         guard !runningInstances.contains(where: { $0.runtimeID == runtime.id }) else {
-            report(InstanceDockError.launchFailed("该运行时仍有实例正在运行")); return
+            report(YTrayError.launchFailed("该运行时仍有实例正在运行")); return
         }
         runtimes.removeAll { $0.id == runtime.id }
         if settings.defaultRuntimeID == runtime.id { settings.defaultRuntimeID = runtimes.first?.id }
@@ -121,7 +189,7 @@ final class InstanceStore: NSObject, ObservableObject {
             plugins.append(BrowserPlugin(name: manifest.name, version: manifest.version, path: directory.path,
                                           manifestVersion: manifest.manifestVersion))
             save()
-        } catch { report(InstanceDockError.invalidPlugin(directory.path)) }
+        } catch { report(YTrayError.invalidPlugin(directory.path)) }
     }
 
     func updatePlugin(_ plugin: BrowserPlugin) {
@@ -159,7 +227,7 @@ final class InstanceStore: NSObject, ObservableObject {
         }
         let runtimeID = configuration.defaultRuntimeID ?? runtimes.first?.id
         guard let runtimeID, let runtime = runtimes.first(where: { $0.id == runtimeID }) else {
-            finishLaunchFailure(InstanceDockError.noRuntime, token: token)
+            finishLaunchFailure(YTrayError.noRuntime, token: token)
             return
         }
         let selectedIDs = customPluginIDs ?? configuration.defaultPluginIDs
@@ -169,7 +237,7 @@ final class InstanceStore: NSObject, ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let badge = requestedBadge.isEmpty ? nextAvailableDockBadge() : try DockBadgeLabel.normalize(requestedBadge)
             if runningInstances.contains(where: { $0.dockBadge == badge }) {
-                throw InstanceDockError.launchFailed("Dock 角标 \(badge) 已被运行中的实例使用")
+                throw YTrayError.launchFailed("Dock 角标 \(badge) 已被运行中的实例使用")
             }
             let result = try BrowserLauncher.launch(
                 runtime: runtime,
@@ -185,7 +253,7 @@ final class InstanceStore: NSObject, ObservableObject {
             let instanceID = result.instance.id.uuidString
             result.process.terminationHandler = { _ in
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .instanceDockProcessDidTerminate,
+                    NotificationCenter.default.post(name: .ytrayProcessDidTerminate,
                                                     object: instanceID)
                 }
             }
@@ -254,10 +322,17 @@ final class InstanceStore: NSObject, ObservableObject {
     func updatePresetProxyPassword(_ value: String) {
         settings.presetProxyPassword = value
         resetProxyCheck()
+        save()
     }
 
     func updatePresetProxyRemark(_ value: String) {
         settings.presetProxyRemark = value
+        save()
+    }
+
+    func updatePresetProxyCheckTarget(_ value: String) {
+        settings.presetProxyCheckTarget = value
+        resetProxyCheck()
         save()
     }
 
@@ -268,7 +343,7 @@ final class InstanceStore: NSObject, ObservableObject {
         settings.presetProxyHost = endpoint.host
         settings.presetProxyPort = endpoint.port
         settings.presetProxyUsername = preset.username
-        settings.presetProxyPassword = ""
+        settings.presetProxyPassword = preset.password
         settings.presetProxyRemark = preset.remark
         resetProxyCheck()
         save()
@@ -284,6 +359,7 @@ final class InstanceStore: NSObject, ObservableObject {
             )
             let remark = settings.presetProxyRemark.trimmingCharacters(in: .whitespacesAndNewlines)
             let username = settings.presetProxyUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+            let password = settings.presetProxyPassword
             settings.presetProxyServer = normalized
             settings.presetProxyHost = try HTTPProxyAddress.split(normalized).host
             settings.presetProxyUsername = username
@@ -293,7 +369,12 @@ final class InstanceStore: NSObject, ObservableObject {
                     && $0.username == username
             }
             settings.recentProxyPresets.insert(
-                ProxyPreset(server: normalized, remark: remark, username: username),
+                ProxyPreset(
+                    server: normalized,
+                    remark: remark,
+                    username: username,
+                    password: password
+                ),
                 at: 0
             )
             settings.recentProxyPresets = Array(settings.recentProxyPresets.prefix(5))
@@ -320,19 +401,31 @@ final class InstanceStore: NSObject, ObservableObject {
             proxyCheckMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return
         }
+        let token = UUID()
+        proxyCheckToken = token
         proxyCheckPhase = .checking
-        proxyCheckMessage = "正在连接并验证代理…"
+        proxyCheckMessage = "检测中 · 最多 10 秒"
+        proxyCheckReport = nil
         let username = settings.presetProxyUsername.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = settings.presetProxyPassword
+        let customTarget = settings.presetProxyCheckTarget
+        if let normalized = try? ProxyConnectivityChecker.normalizeTarget(customTarget),
+           !customTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            settings.presetProxyCheckTarget = normalized.absoluteString
+            save()
+        }
         Task { [weak self] in
-            let result = await ProxyConnectivityChecker.check(
+            let report = await ProxyConnectivityChecker.checkDefaultTargets(
                 endpoint: endpoint,
                 username: username,
-                password: password
+                password: password,
+                customTarget: customTarget,
+                timeout: ProxyConnectivityChecker.defaultTimeout
             )
-            guard let self else { return }
-            self.proxyCheckPhase = result.isSuccess ? .success : .failure
-            self.proxyCheckMessage = result.message
+            guard let self, self.proxyCheckToken == token else { return }
+            self.proxyCheckReport = report
+            self.proxyCheckPhase = report.isSuccess ? .success : .failure
+            self.proxyCheckMessage = report.message
         }
     }
 
@@ -420,7 +513,7 @@ final class InstanceStore: NSObject, ObservableObject {
         guard instance.status == .running else { return }
         do {
             let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("InstanceDock", isDirectory: true)
+                .appendingPathComponent("YTray", isDirectory: true)
             let output = try await ScreenshotService.capture(debugPort: instance.debugPort,
                                                              instanceID: instance.id,
                                                              outputDirectory: pictures)
@@ -455,8 +548,10 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     private func resetProxyCheck() {
+        proxyCheckToken = nil
         proxyCheckPhase = .idle
         proxyCheckMessage = ""
+        proxyCheckReport = nil
     }
 
     @discardableResult
@@ -493,7 +588,15 @@ final class InstanceStore: NSObject, ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(state) else { return }
-        try? data.write(to: stateURL, options: .atomic)
+        do {
+            try data.write(to: stateURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o600))],
+                ofItemAtPath: stateURL.path
+            )
+        } catch {
+            return
+        }
     }
 
     private func refreshProcessStates() {
@@ -536,7 +639,7 @@ final class InstanceStore: NSObject, ObservableObject {
         ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
         if launchingInstanceID == id, let token = launchToken, isLaunching {
             finishLaunchFailure(
-                InstanceDockError.launchFailed("浏览器进程在完成启动前退出"),
+                YTrayError.launchFailed("浏览器进程在完成启动前退出"),
                 token: token
             )
         }
@@ -680,7 +783,7 @@ final class InstanceStore: NSObject, ObservableObject {
             let detail = stillRunning
                 ? "浏览器进程已经创建，但调试端口未在 15 秒内就绪"
                 : "浏览器进程在完成启动前退出"
-            finishLaunchFailure(InstanceDockError.launchFailed(detail), token: token)
+            finishLaunchFailure(YTrayError.launchFailed(detail), token: token)
             return
         }
         let usesProxyAuthentication = !(instance.settingsSnapshot?.proxyUsername ?? "").isEmpty
@@ -750,5 +853,5 @@ enum InstanceThumbnailStorage {
 }
 
 private extension Notification.Name {
-    static let instanceDockProcessDidTerminate = Notification.Name("InstanceDockProcessDidTerminate")
+    static let ytrayProcessDidTerminate = Notification.Name("YTrayProcessDidTerminate")
 }

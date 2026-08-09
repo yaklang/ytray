@@ -15,8 +15,17 @@ struct VisualEffect: NSViewRepresentable {
 enum WidgetMetrics {
     static let width: CGFloat = 390
 
-    static func height(runningCount: Int, historyCount: Int) -> CGFloat {
-        410 + runningListHeight(runningCount) + historyListHeight(historyCount)
+    static let collapsedProxyHeight: CGFloat = 136
+    static let expandedProxyHeight: CGFloat = 212
+
+    static func height(
+        runningCount: Int,
+        historyCount: Int,
+        proxyAdvancedExpanded: Bool = false
+    ) -> CGFloat {
+        let proxyHeight = proxyAdvancedExpanded ? expandedProxyHeight : collapsedProxyHeight
+        return 372 + (proxyHeight - collapsedProxyHeight)
+            + runningListHeight(runningCount) + historyListHeight(historyCount)
     }
 
     static func runningListHeight(_ count: Int) -> CGFloat {
@@ -91,9 +100,8 @@ struct WidgetView: View {
             .padding(14)
         }
         .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.14)))
         .frame(width: WidgetMetrics.width, height: preferredHeight)
-        .alert("Instance Dock", isPresented: errorPresented) {
+        .alert("YTray", isPresented: errorPresented) {
             Button("知道了") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
         .alert("清理全部历史？", isPresented: $showClearHistoryConfirmation) {
@@ -107,7 +115,8 @@ struct WidgetView: View {
     private var preferredHeight: CGFloat {
         WidgetMetrics.height(
             runningCount: store.runningInstances.count,
-            historyCount: store.historyInstances.count
+            historyCount: store.historyInstances.count,
+            proxyAdvancedExpanded: store.isProxyAdvancedExpanded
         )
     }
 
@@ -129,20 +138,27 @@ struct WidgetView: View {
             Button {
                 presentation.isPinned.toggle()
             } label: {
-                Image(systemName: presentation.isPinned ? "pin.fill" : "pin")
+                Image(systemName: isEffectivelyPinned ? "pin.fill" : "pin")
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
-            .foregroundStyle(presentation.isPinned ? Brand.orange : .secondary)
-            .help(presentation.isPinned ? "取消固定；失焦后自动隐藏" : "固定小组件")
-            .accessibilityLabel(presentation.isPinned ? "取消固定小组件" : "固定小组件")
+            .foregroundStyle(isEffectivelyPinned ? Brand.orange : .secondary)
+            .disabled(store.proxyCheckPhase == .checking)
+            .help(store.proxyCheckPhase == .checking
+                  ? "代理检测期间已临时固定"
+                  : presentation.isPinned ? "取消固定；失焦后自动隐藏" : "固定小组件")
+            .accessibilityLabel(isEffectivelyPinned ? "取消固定小组件" : "固定小组件")
             Button(action: closeWidget) {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
             }
             .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
             .foregroundStyle(.secondary)
         }
+    }
+
+    private var isEffectivelyPinned: Bool {
+        presentation.isPinned || store.proxyCheckPhase == .checking
     }
 
     private var newInstanceMenu: some View {
@@ -197,7 +213,7 @@ struct WidgetView: View {
             .frame(height: 28)
             .background(newInstanceHovered ? Brand.orange.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Brand.orange.opacity(newInstanceHovered ? 0.9 : 0.55)))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Brand.orange.opacity(newInstanceHovered ? 0.55 : 0.24)))
             .shadow(color: Brand.orange.opacity(newInstanceHovered ? 0.2 : 0), radius: 4, y: 1)
             .animation(.easeOut(duration: 0.12), value: newInstanceHovered)
             .onHover { newInstanceHovered = $0 }
@@ -224,7 +240,7 @@ struct WidgetView: View {
             .frame(height: WidgetMetrics.runningListHeight(store.runningInstances.count))
             .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Brand.orange.opacity(0.55)))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Brand.orange.opacity(0.24)))
         }
     }
 
@@ -314,6 +330,7 @@ struct WidgetView: View {
 
 struct ProxyPresetControl: View {
     @ObservedObject var store: InstanceStore
+    @State private var showProxyCheckDetails = false
 
     var body: some View {
         VStack(spacing: 7) {
@@ -377,21 +394,18 @@ struct ProxyPresetControl: View {
                     .frame(width: 46, alignment: .trailing)
             }
 
-            Divider()
-
-            HStack(spacing: 6) {
-                Label("高级设置", systemImage: "lock.shield")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .frame(width: 78, alignment: .leading)
-                TextField("用户名（可选）", text: proxyUsernameBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-                SecureField("密码（仅本次会话）", text: proxyPasswordBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-            }
-
             HStack(spacing: 7) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        store.isProxyAdvancedExpanded.toggle()
+                    }
+                } label: {
+                    Label(
+                        "高级",
+                        systemImage: store.isProxyAdvancedExpanded ? "chevron.up" : "chevron.down"
+                    )
+                }
+                .buttonStyle(SmallSecondaryButtonStyle())
                 proxyCheckStatus
                 Spacer(minLength: 4)
                 Button { store.checkPresetProxy() } label: {
@@ -411,28 +425,78 @@ struct ProxyPresetControl: View {
                 }
                 .buttonStyle(SmallOrangeButtonStyle())
             }
+
+            if store.isProxyAdvancedExpanded {
+                Divider()
+                    .transition(.opacity)
+                HStack(spacing: 6) {
+                    Label("认证", systemImage: "lock.shield")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .frame(width: 48, alignment: .leading)
+                    TextField("用户名（可选）", text: proxyUsernameBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                    SecureField("密码（随历史保存）", text: proxyPasswordBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+
+                HStack(spacing: 6) {
+                    Label("目标", systemImage: "scope")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .frame(width: 48, alignment: .leading)
+                    TextField("特定 URL / DOMAIN（可选）", text: proxyCheckTargetBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                    Text("自动补全 https://")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .padding(10)
-        .frame(height: 174)
+        .frame(height: store.isProxyAdvancedExpanded
+               ? WidgetMetrics.expandedProxyHeight
+               : WidgetMetrics.collapsedProxyHeight)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Brand.orange.opacity(0.35)))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Brand.orange.opacity(0.18)))
+        .sheet(isPresented: $showProxyCheckDetails) {
+            if let report = store.proxyCheckReport {
+                ProxyCheckDetailsView(report: report)
+            }
+        }
     }
 
     @ViewBuilder private var proxyCheckStatus: some View {
         switch store.proxyCheckPhase {
         case .idle:
-            Text("密码不会写入代理历史")
+            Text(store.settings.presetProxyPassword.isEmpty ? "" : "已保存认证")
                 .foregroundStyle(.tertiary)
         case .checking:
-            Text(store.proxyCheckMessage).foregroundStyle(.secondary)
+            Text(store.proxyCheckMessage)
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         case .success:
-            Label(store.proxyCheckMessage, systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+            proxyCheckResultButton(color: .green, systemImage: "checkmark.circle.fill")
         case .failure:
-            Label(store.proxyCheckMessage, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+            proxyCheckResultButton(color: .red, systemImage: "exclamationmark.triangle.fill")
         }
+    }
+
+    private func proxyCheckResultButton(color: Color, systemImage: String) -> some View {
+        Button { showProxyCheckDetails = true } label: {
+            Label(store.proxyCheckMessage, systemImage: systemImage)
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+        .help("点击查看每个检测目标的结果")
     }
 
     private var proxySchemeBinding: Binding<ProxyScheme> {
@@ -470,6 +534,13 @@ struct ProxyPresetControl: View {
         )
     }
 
+    private var proxyCheckTargetBinding: Binding<String> {
+        Binding(
+            get: { store.settings.presetProxyCheckTarget },
+            set: { store.updatePresetProxyCheckTarget($0) }
+        )
+    }
+
     private var proxyRemarkBinding: Binding<String> {
         Binding(
             get: { store.settings.presetProxyRemark },
@@ -482,6 +553,69 @@ struct ProxyPresetControl: View {
         return preset.remark.isEmpty
             ? "\(preset.server)\(identity)"
             : "\(preset.remark) · \(preset.server)\(identity)"
+    }
+}
+
+private struct ProxyCheckDetailsView: View {
+    @Environment(\.dismiss) private var dismiss
+    let report: ProxyCheckReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: report.isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(report.isSuccess ? .green : .red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(report.message).font(.system(size: 15, weight: .bold))
+                    Text("任意一个目标可访问，即表示代理检测成功；单项失败仍会保留在明细中。")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            VStack(spacing: 0) {
+                ForEach(report.details) { detail in
+                    HStack(spacing: 9) {
+                        Image(systemName: detail.isSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(detail.isSuccess ? .green : .red)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(detail.target)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(detail.message)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 8)
+                        Text(detail.elapsedMilliseconds == 0 ? "—" : "\(detail.elapsedMilliseconds) ms")
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 50)
+                    if detail.id != report.details.last?.id { Divider() }
+                }
+            }
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            HStack {
+                Text("总超时：10 秒")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("完成") { dismiss() }
+                    .buttonStyle(SmallOrangeButtonStyle())
+            }
+        }
+        .padding(18)
+        .frame(width: 430)
+        .frame(minHeight: 270)
     }
 }
 

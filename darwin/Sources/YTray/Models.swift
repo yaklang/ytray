@@ -6,7 +6,7 @@ enum RuntimeSource: String, Codable, CaseIterable {
     case system
     var title: String {
         switch self {
-        case .managed: return "Instance Dock 安装"
+        case .managed: return "YTray 安装"
         case .local: return "自定义路径"
         case .system: return "系统环境"
         }
@@ -86,10 +86,41 @@ struct ProxyPreset: Identifiable, Codable, Equatable, Hashable {
     var server: String
     var remark: String
     var username: String = ""
+    var password: String = ""
     var lastUsedAt = Date()
+
+    private enum CodingKeys: String, CodingKey {
+        case id, server, remark, username, password, lastUsedAt
+    }
+
+    init(
+        id: UUID = UUID(),
+        server: String,
+        remark: String,
+        username: String = "",
+        password: String = "",
+        lastUsedAt: Date = Date()
+    ) {
+        self.id = id
+        self.server = server
+        self.remark = remark
+        self.username = username
+        self.password = password
+        self.lastUsedAt = lastUsedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        server = try container.decode(String.self, forKey: .server)
+        remark = try container.decodeIfPresent(String.self, forKey: .remark) ?? ""
+        username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
+        password = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
+        lastUsedAt = try container.decodeIfPresent(Date.self, forKey: .lastUsedAt) ?? Date()
+    }
 }
 
-enum ProxyScheme: String, Codable, CaseIterable, Identifiable {
+enum ProxyScheme: String, Codable, CaseIterable, Identifiable, Sendable {
     case http
     case https
 
@@ -98,7 +129,7 @@ enum ProxyScheme: String, Codable, CaseIterable, Identifiable {
     var defaultPort: Int { self == .https ? 443 : 80 }
 }
 
-struct ProxyEndpoint: Equatable {
+struct ProxyEndpoint: Equatable, Sendable {
     var scheme: ProxyScheme
     var host: String
     var port: Int
@@ -117,14 +148,14 @@ enum HTTPProxyAddress {
               !normalizedHost.contains("/"),
               !normalizedHost.contains("@"),
               (1...65_535).contains(port) else {
-            throw InstanceDockError.invalidProxy("\(scheme.rawValue)://\(host):\(port)")
+            throw YTrayError.invalidProxy("\(scheme.rawValue)://\(host):\(port)")
         }
         var components = URLComponents()
         components.scheme = scheme.rawValue
         components.host = normalizedHost
         components.port = port
         guard let value = components.string else {
-            throw InstanceDockError.invalidProxy("\(scheme.rawValue)://\(host):\(port)")
+            throw YTrayError.invalidProxy("\(scheme.rawValue)://\(host):\(port)")
         }
         return value
     }
@@ -135,7 +166,7 @@ enum HTTPProxyAddress {
               let rawScheme = components.scheme,
               let scheme = ProxyScheme(rawValue: rawScheme),
               var host = components.host else {
-            throw InstanceDockError.invalidProxy(value)
+            throw YTrayError.invalidProxy(value)
         }
         if host.hasPrefix("[") && host.hasSuffix("]") {
             host.removeFirst()
@@ -151,7 +182,7 @@ enum HTTPProxyAddress {
 
     static func normalize(_ value: String) throws -> String {
         var candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !candidate.isEmpty else { throw InstanceDockError.invalidProxy(value) }
+        guard !candidate.isEmpty else { throw YTrayError.invalidProxy(value) }
         if !candidate.contains("://") { candidate = "http://\(candidate)" }
         guard var components = URLComponents(string: candidate),
               let scheme = components.scheme?.lowercased(),
@@ -165,12 +196,12 @@ enum HTTPProxyAddress {
               (components.path.isEmpty || components.path == "/"),
               components.query == nil,
               components.fragment == nil else {
-            throw InstanceDockError.invalidProxy(value)
+            throw YTrayError.invalidProxy(value)
         }
         components.scheme = scheme
         components.path = ""
         guard let normalized = components.string, URL(string: normalized) != nil else {
-            throw InstanceDockError.invalidProxy(value)
+            throw YTrayError.invalidProxy(value)
         }
         return normalized
     }
@@ -190,7 +221,7 @@ enum LaunchMode: String, Codable, CaseIterable {
 }
 
 struct LaunchSettings: Codable, Equatable {
-    static let currentConfigurationVersion = 3
+    static let currentConfigurationVersion = 4
     static let certificateDefaultMigrationVersion = 2
     static let defaultPresetProxyServer = "http://127.0.0.1:8083"
 
@@ -207,6 +238,7 @@ struct LaunchSettings: Codable, Equatable {
     var presetProxyUsername = ""
     var presetProxyPassword = ""
     var presetProxyRemark = ""
+    var presetProxyCheckTarget = ""
     var recentProxyPresets: [ProxyPreset] = []
     var debugPort = 9222
     var restrictWebRTC = true
@@ -226,7 +258,8 @@ struct LaunchSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case configurationVersion, defaultRuntimeID, homeURL, proxyServer, proxyUsername
         case presetProxyServer, presetProxyScheme, presetProxyHost, presetProxyPort
-        case presetProxyUsername, presetProxyRemark, recentProxyPresets
+        case presetProxyUsername, presetProxyPassword, presetProxyRemark, presetProxyCheckTarget
+        case recentProxyPresets
         case debugPort, restrictWebRTC
         case disableNotifications, ignoreCertificateErrors, additionalFlags
         case defaultPluginIDs, dockBadge
@@ -261,8 +294,9 @@ extension LaunchSettings {
             port: presetProxyPort
         )) ?? Self.defaultPresetProxyServer
         presetProxyUsername = try container.decodeIfPresent(String.self, forKey: .presetProxyUsername) ?? ""
-        presetProxyPassword = ""
+        presetProxyPassword = try container.decodeIfPresent(String.self, forKey: .presetProxyPassword) ?? ""
         presetProxyRemark = try container.decodeIfPresent(String.self, forKey: .presetProxyRemark) ?? ""
+        presetProxyCheckTarget = try container.decodeIfPresent(String.self, forKey: .presetProxyCheckTarget) ?? ""
         recentProxyPresets = try container.decodeIfPresent([ProxyPreset].self, forKey: .recentProxyPresets) ?? []
         debugPort = try container.decodeIfPresent(Int.self, forKey: .debugPort) ?? 9222
         restrictWebRTC = try container.decodeIfPresent(Bool.self, forKey: .restrictWebRTC) ?? true
@@ -365,7 +399,7 @@ struct PluginManifest: Decodable {
     }
 }
 
-enum InstanceDockError: LocalizedError {
+enum YTrayError: LocalizedError {
     case noRuntime
     case invalidExecutable(String)
     case invalidPlugin(String)

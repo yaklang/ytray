@@ -1,6 +1,6 @@
 import XCTest
 import Network
-@testable import InstanceDock
+@testable import YTray
 
 final class BrowserLauncherTests: XCTestCase {
     func testDockBadgeSequenceAndValidation() throws {
@@ -107,6 +107,77 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertEqual(settings.configurationVersion, LaunchSettings.currentConfigurationVersion)
     }
 
+    @MainActor
+    func testPreviewApplicationDataMigratesToYTrayWithoutLosingManagedPaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-brand-migration-test-\(UUID().uuidString)", isDirectory: true)
+        let legacy = root.appendingPathComponent("legacy", isDirectory: true)
+        let current = root.appendingPathComponent("YTray", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+
+        let runtime = BrowserRuntime(
+            name: "Chrome for Testing",
+            version: "151.0.0.0",
+            architecture: "macos-arm64",
+            executablePath: legacy.appendingPathComponent("Runtimes/151/chrome").path,
+            source: .managed,
+            browserKind: .chromeForTesting
+        )
+        let plugin = BrowserPlugin(
+            name: "Local extension",
+            version: "1.0",
+            path: legacy.appendingPathComponent("Plugins/local-extension").path,
+            manifestVersion: 3
+        )
+        let instance = BrowserInstance(
+            name: "管理员身份",
+            runtimeID: runtime.id,
+            runtimeName: runtime.name,
+            mode: .quick,
+            processID: 0,
+            debugPort: 9222,
+            profilePath: legacy.appendingPathComponent("Profiles/admin").path,
+            startURL: "https://example.com/admin",
+            status: .stopped,
+            lastScreenshotPath: legacy.appendingPathComponent("Screenshots/admin.png").path,
+            thumbnailPath: legacy.appendingPathComponent("Thumbnails/admin.png").path
+        )
+        var settings = LaunchSettings()
+        settings.defaultRuntimeID = runtime.id
+        settings.presetProxyRemark = "Yak MITM"
+        let state = PersistedState(
+            runtimes: [runtime],
+            plugins: [plugin],
+            instances: [instance],
+            settings: settings
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(state).write(to: legacy.appendingPathComponent("state.json"))
+
+        let store = InstanceStore(
+            applicationDirectory: current,
+            discoverSystemBrowsers: false,
+            legacyApplicationDirectory: legacy
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: current.appendingPathComponent("state.json").path))
+        XCTAssertEqual(store.runtimes.first?.executablePath,
+                       current.appendingPathComponent("Runtimes/151/chrome").path)
+        XCTAssertEqual(store.plugins.first?.path,
+                       current.appendingPathComponent("Plugins/local-extension").path)
+        XCTAssertEqual(store.instances.first?.profilePath,
+                       current.appendingPathComponent("Profiles/admin").path)
+        XCTAssertEqual(store.instances.first?.thumbnailPath,
+                       current.appendingPathComponent("Thumbnails/admin.png").path)
+        XCTAssertEqual(store.instances.first?.lastScreenshotPath,
+                       current.appendingPathComponent("Screenshots/admin.png").path)
+        XCTAssertEqual(store.settings.defaultRuntimeID, runtime.id)
+        XCTAssertEqual(store.settings.presetProxyRemark, "Yak MITM")
+    }
+
     func testProcessBootstrapExecutesOriginalBrowserWithoutChangingItsBundle() {
         let arguments = BrowserLauncher.buildProcessArguments(
             iconURL: URL(fileURLWithPath: "/tmp/instance-A.png"),
@@ -124,8 +195,16 @@ final class BrowserLauncherTests: XCTestCase {
     }
 
     func testWidgetUsesCompactStateDependentHeight() {
-        XCTAssertEqual(WidgetMetrics.height(runningCount: 0, historyCount: 0), 506)
-        XCTAssertEqual(WidgetMetrics.height(runningCount: 1, historyCount: 0), 512)
+        XCTAssertEqual(WidgetMetrics.height(runningCount: 0, historyCount: 0), 468)
+        XCTAssertEqual(WidgetMetrics.height(runningCount: 1, historyCount: 0), 474)
+        XCTAssertEqual(
+            WidgetMetrics.height(
+                runningCount: 0,
+                historyCount: 0,
+                proxyAdvancedExpanded: true
+            ),
+            544
+        )
         XCTAssertLessThan(WidgetMetrics.height(runningCount: 0, historyCount: 1), 560)
         XCTAssertEqual(
             WidgetMetrics.height(runningCount: 8, historyCount: 0),
@@ -157,16 +236,80 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertEqual(appKitTray, NSRect(x: 2_527, y: 1_416, width: 54, height: 24))
     }
 
+    func testEdgeDockDefaultsAboveCapTrayAndClampsInsideScreen() {
+        XCTAssertEqual(EdgeDockPreferences.defaultYPercent, 58)
+        let screen = NSRect(x: 0, y: 0, width: 1_440, height: 900)
+        let right = EdgeDockPositioning.frame(
+            screenFrame: screen,
+            onLeft: false,
+            yPercent: EdgeDockPreferences.defaultYPercent
+        )
+        XCTAssertEqual(right.maxX, screen.maxX)
+        XCTAssertEqual(right.midY, screen.height * 0.58, accuracy: 0.5)
+
+        let left = EdgeDockPositioning.frame(
+            screenFrame: screen,
+            onLeft: true,
+            yPercent: 100
+        )
+        XCTAssertEqual(left.minX, screen.minX)
+        XCTAssertLessThanOrEqual(left.maxY, screen.maxY - EdgeDockPositioning.screenMargin)
+    }
+
+    func testFullWidgetOpensInsideAndBesideEitherScreenEdge() {
+        let visible = NSRect(x: 0, y: 25, width: 1_440, height: 850)
+        let size = NSSize(width: 390, height: 468)
+        let rightTab = NSRect(x: 1_410, y: 470, width: 30, height: 112)
+        let right = EdgeWidgetPositioning.frame(
+            size: size,
+            tabFrame: rightTab,
+            onLeft: false,
+            visibleFrame: visible
+        )
+        XCTAssertEqual(right.maxX, rightTab.minX - EdgeWidgetPositioning.gap)
+        XCTAssertGreaterThanOrEqual(right.minY, visible.minY + EdgeWidgetPositioning.screenMargin)
+
+        let leftTab = NSRect(x: 0, y: 470, width: 30, height: 112)
+        let left = EdgeWidgetPositioning.frame(
+            size: size,
+            tabFrame: leftTab,
+            onLeft: true,
+            visibleFrame: visible
+        )
+        XCTAssertEqual(left.minX, leftTab.maxX + EdgeWidgetPositioning.gap)
+        XCTAssertLessThanOrEqual(left.maxY, visible.maxY - EdgeWidgetPositioning.screenMargin)
+    }
+
+    func testEdgeLaunchButtonsOnlyAppearWhileWidgetIsClosed() {
+        XCTAssertTrue(EdgeDockVisibilityPolicy.shouldShowLaunchButtons(
+            widgetPresented: false,
+            tabHovered: true
+        ))
+        XCTAssertFalse(EdgeDockVisibilityPolicy.shouldShowLaunchButtons(
+            widgetPresented: true,
+            tabHovered: true
+        ))
+        XCTAssertFalse(EdgeDockVisibilityPolicy.shouldShowLaunchButtons(
+            widgetPresented: false,
+            tabHovered: false
+        ))
+    }
+
     func testTransientWidgetDismissalPolicy() {
         XCTAssertTrue(WidgetDismissalPolicy.shouldHide(isPinned: false, hasAttachedSheet: false))
         XCTAssertFalse(WidgetDismissalPolicy.shouldHide(isPinned: true, hasAttachedSheet: false))
         XCTAssertFalse(WidgetDismissalPolicy.shouldHide(isPinned: false, hasAttachedSheet: true))
+        XCTAssertFalse(WidgetDismissalPolicy.shouldHide(
+            isPinned: false,
+            hasAttachedSheet: false,
+            isBusy: true
+        ))
     }
 
     @MainActor
     func testHistoryCanBeRenamedAndDeletedWithoutTouchingRunningInstances() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-history-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-history-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
         let runtimeID = UUID()
@@ -195,7 +338,7 @@ final class BrowserLauncherTests: XCTestCase {
     @MainActor
     func testHistoryKeepsNewestEntryPerDockBadgeAndCanClearAll() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-history-merge-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-history-merge-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let runtimeID = UUID()
@@ -233,7 +376,7 @@ final class BrowserLauncherTests: XCTestCase {
     @MainActor
     func testRemovingHistoryDeletesManagedThumbnailButKeepsExportedScreenshot() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-thumbnail-cleanup-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-thumbnail-cleanup-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let instanceID = UUID()
@@ -275,7 +418,7 @@ final class BrowserLauncherTests: XCTestCase {
     @MainActor
     func testLaunchFailureClearsLoadingStateAndReportsError() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-launch-state-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-launch-state-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
 
@@ -312,7 +455,7 @@ final class BrowserLauncherTests: XCTestCase {
     @MainActor
     func testProxyPresetHistoryKeepsFiveRecentEntriesWithRemarks() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-proxy-history-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-proxy-history-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
         XCTAssertEqual(store.settings.presetProxyServer, "http://127.0.0.1:8083")
@@ -321,17 +464,27 @@ final class BrowserLauncherTests: XCTestCase {
         for index in 1...6 {
             store.updatePresetProxyServer("127.0.0.1:\(8_000 + index)")
             store.updatePresetProxyRemark("代理 \(index)")
+            store.updatePresetProxyUsername("user-\(index)")
+            store.updatePresetProxyPassword("password-\(index)")
             XCTAssertNotNil(store.rememberPresetProxy())
         }
         XCTAssertEqual(store.settings.recentProxyPresets.count, 5)
         XCTAssertEqual(store.settings.recentProxyPresets.first?.server, "http://127.0.0.1:8006")
         XCTAssertEqual(store.settings.recentProxyPresets.first?.remark, "代理 6")
+        XCTAssertEqual(store.settings.recentProxyPresets.first?.username, "user-6")
+        XCTAssertEqual(store.settings.recentProxyPresets.first?.password, "password-6")
         XCTAssertFalse(store.settings.recentProxyPresets.contains { $0.server.hasSuffix(":8001") })
 
         store.updatePresetProxyRemark("最新备注")
         XCTAssertNotNil(store.rememberPresetProxy())
         XCTAssertEqual(store.settings.recentProxyPresets.count, 5)
         XCTAssertEqual(store.settings.recentProxyPresets.first?.remark, "最新备注")
+
+        store.updatePresetProxyUsername("")
+        store.updatePresetProxyPassword("")
+        store.selectProxyPreset(store.settings.recentProxyPresets[0])
+        XCTAssertEqual(store.settings.presetProxyUsername, "user-6")
+        XCTAssertEqual(store.settings.presetProxyPassword, "password-6")
 
         XCTAssertEqual(store.quickLaunchConfiguration(usePresetProxy: true)?.proxyServer,
                        "http://127.0.0.1:8006")
@@ -341,7 +494,7 @@ final class BrowserLauncherTests: XCTestCase {
     @MainActor
     func testProxyPresetAndBrowserSelectionPersistAcrossRestart() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-proxy-persistence-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-proxy-persistence-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let runtime = BrowserRuntime(
             name: "Chrome for Testing",
@@ -360,6 +513,7 @@ final class BrowserLauncherTests: XCTestCase {
             store.updatePresetProxyRemark("Yak MITM")
             store.updatePresetProxyUsername("yak-user")
             store.updatePresetProxyPassword("session-only-secret")
+            store.updatePresetProxyCheckTarget("internal.example.test/login")
             XCTAssertEqual(store.rememberPresetProxy(), "http://127.0.0.1:8083")
         }
 
@@ -368,21 +522,43 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertEqual(restored.settings.presetProxyServer, "http://127.0.0.1:8083")
         XCTAssertEqual(restored.settings.presetProxyRemark, "Yak MITM")
         XCTAssertEqual(restored.settings.presetProxyUsername, "yak-user")
-        XCTAssertEqual(restored.settings.presetProxyPassword, "")
+        XCTAssertEqual(restored.settings.presetProxyPassword, "session-only-secret")
+        XCTAssertEqual(restored.settings.presetProxyCheckTarget, "internal.example.test/login")
         XCTAssertEqual(restored.settings.recentProxyPresets.count, 1)
         XCTAssertEqual(restored.settings.recentProxyPresets.first?.remark, "Yak MITM")
         XCTAssertEqual(restored.settings.recentProxyPresets.first?.username, "yak-user")
+        XCTAssertEqual(restored.settings.recentProxyPresets.first?.password, "session-only-secret")
         XCTAssertTrue(restored.runningInstances.isEmpty)
 
         let stateData = try? Data(contentsOf: directory.appendingPathComponent("state.json"))
-        XCTAssertFalse(String(data: stateData ?? Data(), encoding: .utf8)?.contains("session-only-secret") ?? true)
+        XCTAssertTrue(String(data: stateData ?? Data(), encoding: .utf8)?.contains("session-only-secret") ?? false)
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("state.json").path
+        )
+        let permissions = (attributes?[.posixPermissions] as? NSNumber)?.intValue
+        XCTAssertEqual(permissions, 0o600)
+    }
+
+    func testLegacyProxyPresetWithoutPasswordStillDecodes() throws {
+        let data = Data(#"{"server":"http://127.0.0.1:8083","remark":"旧代理","username":"yak"}"#.utf8)
+        let preset = try JSONDecoder().decode(ProxyPreset.self, from: data)
+        XCTAssertEqual(preset.server, "http://127.0.0.1:8083")
+        XCTAssertEqual(preset.username, "yak")
+        XCTAssertEqual(preset.password, "")
     }
 
     func testProxyProbeBuildsBasicAuthenticationAndInterpretsResponses() {
         let request = ProxyConnectivityChecker.probeRequest(username: "yak", password: "secret")
         let requestText = String(data: request, encoding: .utf8) ?? ""
-        XCTAssertTrue(requestText.hasPrefix("CONNECT www.example.com:443 HTTP/1.1"))
+        XCTAssertTrue(requestText.hasPrefix("CONNECT example.com:443 HTTP/1.1"))
         XCTAssertTrue(requestText.contains("Proxy-Authorization: Basic eWFrOnNlY3JldA=="))
+
+        let customTarget = try? XCTUnwrap(ProxyConnectivityChecker.normalizeTarget("baidu.com/search"))
+        let customRequest = customTarget.map {
+            ProxyConnectivityChecker.probeRequest(target: $0, username: "", password: "")
+        }
+        XCTAssertTrue(String(data: customRequest ?? Data(), encoding: .utf8)?
+            .hasPrefix("CONNECT baidu.com:443 HTTP/1.1") ?? false)
 
         XCTAssertEqual(
             ProxyConnectivityChecker.interpretResponse(
@@ -400,9 +576,35 @@ final class BrowserLauncherTests: XCTestCase {
         )
     }
 
+    func testProxyTargetsNormalizeDomainsAndAnySuccessMakesReportSuccessful() throws {
+        XCTAssertEqual(ProxyConnectivityChecker.defaultTimeout, 10)
+        XCTAssertEqual(ProxyConnectivityChecker.defaultTargetStrings.count, 3)
+        XCTAssertEqual(
+            try ProxyConnectivityChecker.normalizeTarget("example.org/path?q=1").absoluteString,
+            "https://example.org/path?q=1"
+        )
+        XCTAssertEqual(
+            try ProxyConnectivityChecker.normalizeTarget("http://127.0.0.1:8080/health").absoluteString,
+            "http://127.0.0.1:8080/health"
+        )
+        XCTAssertThrowsError(try ProxyConnectivityChecker.normalizeTarget("ftp://example.org"))
+
+        let report = ProxyCheckReport(details: [
+            ProxyCheckDetail(target: "https://example.com/", isSuccess: false,
+                             message: "超时", elapsedMilliseconds: 10_000),
+            ProxyCheckDetail(target: "https://www.baidu.com/", isSuccess: true,
+                             message: "检测成功", elapsedMilliseconds: 120),
+            ProxyCheckDetail(target: "https://www.google.com/", isSuccess: false,
+                             message: "连接失败", elapsedMilliseconds: 500),
+        ])
+        XCTAssertTrue(report.isSuccess)
+        XCTAssertEqual(report.successCount, 1)
+        XCTAssertEqual(report.message, "检测成功 · 1/3 个目标可访问")
+    }
+
     func testProxyCheckerPerformsRealConnectAndDetectsAuthenticationFailure() async throws {
         let listener = try NWListener(using: .tcp, on: .any)
-        let queue = DispatchQueue(label: "instance-dock-tests.proxy-listener")
+        let queue = DispatchQueue(label: "ytray-tests.proxy-listener")
         let ready = expectation(description: "proxy listener ready")
         listener.stateUpdateHandler = { state in
             if case .ready = state { ready.fulfill() }
@@ -446,12 +648,24 @@ final class BrowserLauncherTests: XCTestCase {
         )
         XCTAssertFalse(rejected.isSuccess)
         XCTAssertTrue(rejected.message.contains("认证失败"))
+
+        let report = await ProxyConnectivityChecker.checkDefaultTargets(
+            endpoint: endpoint,
+            username: "yak",
+            password: "secret",
+            customTarget: "internal.example.test/health",
+            timeout: 2
+        )
+        XCTAssertTrue(report.isSuccess)
+        XCTAssertEqual(report.details.count, 4)
+        XCTAssertEqual(report.successCount, 4)
+        XCTAssertEqual(report.details.last?.target, "https://internal.example.test/health")
         listener.cancel()
     }
 
     func testProxyAuthenticationExtensionUsesRestrictedFilesAndLoadsInternally() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-proxy-auth-extension-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-proxy-auth-extension-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let instanceID = UUID()
         let extensionURL = try XCTUnwrap(ProxyAuthenticationExtension.write(
@@ -486,14 +700,23 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: extensionURL.path))
     }
 
-    func testRealChromeUsesGeneratedProxyAuthenticationExtensionWhenConfigured() async throws {
-        guard let executablePath = ProcessInfo.processInfo.environment["INSTANCE_DOCK_CHROME_PATH"],
+    func testOfficialChromeAndChromeForTestingExtensionCapabilitiesAreExplicit() {
+        XCTAssertFalse(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .chrome))
+        XCTAssertFalse(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .chromeBeta))
+        XCTAssertFalse(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .chromeCanary))
+        XCTAssertTrue(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .chromeForTesting))
+        XCTAssertTrue(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .chromium))
+        XCTAssertTrue(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .edge))
+    }
+
+    func testRealChromeForTestingUsesGeneratedProxyAuthenticationExtensionWhenConfigured() async throws {
+        guard let executablePath = ProcessInfo.processInfo.environment["YTRAY_CFT_PATH"],
               FileManager.default.isExecutableFile(atPath: executablePath) else {
-            throw XCTSkip("Set INSTANCE_DOCK_CHROME_PATH to run the real authenticated-proxy smoke test")
+            throw XCTSkip("Set YTRAY_CFT_PATH to run the real authenticated-proxy smoke test")
         }
 
         let listener = try NWListener(using: .tcp, on: .any)
-        let queue = DispatchQueue(label: "instance-dock-tests.authenticated-proxy")
+        let queue = DispatchQueue(label: "ytray-tests.authenticated-proxy")
         let ready = expectation(description: "authenticated proxy ready")
         let authorizedProbe = expectation(description: "Chrome sent authenticated proxy request")
         let fulfillAuthorizedProbe = TestOnce { authorizedProbe.fulfill() }
@@ -505,7 +728,7 @@ final class BrowserLauncherTests: XCTestCase {
             connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { data, _, _, _ in
                 let request = String(data: data ?? Data(), encoding: .utf8) ?? ""
                 let authorized = request.contains("Proxy-Authorization: Basic eWFrOnNlY3JldA==")
-                if authorized && request.contains("instance-dock-auth.invalid/probe") {
+                if authorized && request.contains("ytray-auth.invalid/probe") {
                     fulfillAuthorizedProbe.run()
                 }
                 let body = "<html><head><title>Proxy Auth Ready</title></head><body>ok</body></html>"
@@ -513,7 +736,7 @@ final class BrowserLauncherTests: XCTestCase {
                 if authorized {
                     response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
                 } else {
-                    response = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"Instance Dock\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    response = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"YTray\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 }
                 connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
                     connection.cancel()
@@ -526,7 +749,7 @@ final class BrowserLauncherTests: XCTestCase {
         let proxyPort = try XCTUnwrap(listener.port).rawValue
 
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-real-proxy-auth-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-real-proxy-auth-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let instanceID = UUID()
@@ -540,7 +763,10 @@ final class BrowserLauncherTests: XCTestCase {
         var settings = LaunchSettings()
         settings.proxyServer = "http://127.0.0.1:\(proxyPort)"
         settings.homeURL = "data:text/html,<title>Proxy Auth Bootstrap</title>"
-        settings.additionalFlags = "--headless=new\n--disable-gpu"
+        // Chrome's headless mode does not reliably activate unpacked extension
+        // service workers. Keep the opt-in integration test offscreen while
+        // exercising the same extension path used by the desktop app.
+        settings.additionalFlags = "--disable-gpu\n--window-position=-20000,-20000\n--window-size=800,600"
         let profile = directory.appendingPathComponent("Profile", isDirectory: true)
         let arguments = try BrowserLauncher.buildArguments(
             mode: .quick,
@@ -566,7 +792,7 @@ final class BrowserLauncherTests: XCTestCase {
         try await Task.sleep(nanoseconds: 900_000_000)
         try await ScreenshotService.navigate(
             debugPort: debugPort,
-            to: "http://instance-dock-auth.invalid/probe"
+            to: "http://ytray-auth.invalid/probe"
         )
         let title = await ScreenshotService.currentPageTitle(debugPort: debugPort, attempts: 60)
         await fulfillment(of: [authorizedProbe], timeout: 8)
@@ -576,7 +802,7 @@ final class BrowserLauncherTests: XCTestCase {
     @MainActor
     func testSelectingBrowserForQuickConfigurationDoesNotLaunchIt() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("instance-dock-runtime-selection-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ytray-runtime-selection-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
         let runtime = BrowserRuntime(
@@ -622,11 +848,11 @@ final class BrowserLauncherTests: XCTestCase {
         let arguments = try BrowserLauncher.buildArguments(
             mode: .quick,
             settings: settings,
-            profilePath: "/tmp/instance-dock-test-profile",
+            profilePath: "/tmp/ytray-test-profile",
             debugPort: 9333,
             plugins: []
         )
-        XCTAssertTrue(arguments.contains("--user-data-dir=/tmp/instance-dock-test-profile"))
+        XCTAssertTrue(arguments.contains("--user-data-dir=/tmp/ytray-test-profile"))
         XCTAssertTrue(arguments.contains("--remote-debugging-address=127.0.0.1"))
         XCTAssertTrue(arguments.contains("--remote-debugging-port=9333"))
         XCTAssertTrue(arguments.contains("--remote-allow-origins=http://127.0.0.1:9333"))

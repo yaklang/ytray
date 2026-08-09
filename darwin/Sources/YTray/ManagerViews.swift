@@ -34,7 +34,7 @@ struct ManagerView: View {
             List(ManagerSection.allCases, selection: $navigation.selection) { section in
                 Label(section.rawValue, systemImage: section.icon).tag(section)
             }
-            .navigationTitle("Instance Dock")
+            .navigationTitle("YTray")
             .tint(Brand.orange)
         } detail: {
             Group {
@@ -64,7 +64,7 @@ struct ManagerView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: store.launchPhase)
-        .alert("Instance Dock", isPresented: Binding(
+        .alert("YTray", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
         )) { Button("知道了") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
@@ -139,7 +139,7 @@ struct LaunchModeCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }.padding(18).frame(maxWidth: .infinity, minHeight: 190, alignment: .leading)
         .background(Brand.orange.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Brand.orange.opacity(0.35)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Brand.orange.opacity(0.18)))
     }
 }
 
@@ -233,7 +233,7 @@ struct SettingsPage: View {
             } header: { Text("浏览器精简与网络") }
             Section {
                 TextEditor(text: $store.settings.additionalFlags).font(.system(.body, design: .monospaced)).frame(minHeight: 130)
-                Text("每行一个 --flag。实例隔离、调试端口和插件参数由 Instance Dock 管理，不能在这里覆盖。")
+                Text("每行一个 --flag。实例隔离、调试端口和插件参数由 YTray 管理，不能在这里覆盖。")
                     .font(.caption).foregroundStyle(.secondary)
             } header: { Text("附加参数") }
             Section {

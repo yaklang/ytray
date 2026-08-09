@@ -47,13 +47,13 @@ enum ScreenshotService {
 
     static func navigate(debugPort: Int, to url: String) async throws {
         guard let parsedURL = URL(string: url), parsedURL.scheme != nil else {
-            throw InstanceDockError.invalidURL(url)
+            throw YTrayError.invalidURL(url)
         }
         let targets = try await pageTargets(debugPort: debugPort)
         let target = await visiblePage(in: targets)?.target
             ?? targets.first(where: { $0.type == "page" && $0.webSocketDebuggerUrl != nil })
         guard let value = target?.webSocketDebuggerUrl, let socketURL = URL(string: value) else {
-            throw InstanceDockError.launchFailed("找不到可恢复的浏览器标签页")
+            throw YTrayError.launchFailed("找不到可恢复的浏览器标签页")
         }
         let command: [String: Any] = [
             "id": 1,
@@ -66,11 +66,11 @@ enum ScreenshotService {
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   (json["id"] as? Int) == 1 else { continue }
             if let error = json["error"] as? [String: Any] {
-                throw InstanceDockError.launchFailed(error["message"] as? String ?? "恢复页面失败")
+                throw YTrayError.launchFailed(error["message"] as? String ?? "恢复页面失败")
             }
             return
         }
-        throw InstanceDockError.launchFailed("浏览器没有确认恢复页面")
+        throw YTrayError.launchFailed("浏览器没有确认恢复页面")
     }
 
     private static func visiblePage(in targets: [Target]) async -> (target: Target, state: PageState)? {
@@ -154,7 +154,7 @@ enum ScreenshotService {
                     ?? targets.first(where: { $0.type == "page" && $0.webSocketDebuggerUrl != nil })
                 guard let value = target?.webSocketDebuggerUrl,
                       let socketURL = URL(string: value) else {
-                    throw InstanceDockError.screenshotFailed("没有可截图的页面")
+                    throw YTrayError.screenshotFailed("没有可截图的页面")
                 }
                 return try await capture(
                     socketURL: socketURL,
@@ -169,7 +169,7 @@ enum ScreenshotService {
                 try await Task.sleep(nanoseconds: 250_000_000)
             }
         }
-        throw InstanceDockError.screenshotFailed(lastError)
+        throw YTrayError.screenshotFailed(lastError)
     }
 
     private static func pageTargets(debugPort: Int) async throws -> [Target] {
@@ -210,12 +210,12 @@ enum ScreenshotService {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   (json["id"] as? Int) == 1 else { continue }
             if let error = json["error"] as? [String: Any] {
-                throw InstanceDockError.screenshotFailed(error["message"] as? String ?? "CDP 返回错误")
+                throw YTrayError.screenshotFailed(error["message"] as? String ?? "CDP 返回错误")
             }
             guard let result = json["result"] as? [String: Any],
                   let encoded = result["data"] as? String,
                   let image = Data(base64Encoded: encoded) else {
-                throw InstanceDockError.screenshotFailed("CDP 没有返回图片")
+                throw YTrayError.screenshotFailed("CDP 没有返回图片")
             }
             let privateArtifact = outputURL != nil
             try FileManager.default.createDirectory(
@@ -239,7 +239,7 @@ enum ScreenshotService {
             }
             return url
         }
-        throw InstanceDockError.screenshotFailed("等待 CDP 截图响应超时")
+        throw YTrayError.screenshotFailed("等待 CDP 截图响应超时")
     }
 }
 
@@ -255,10 +255,10 @@ private enum RawWebSocket {
 
     private static func blockingExchange(url: URL, message: Data) throws -> [Data] {
         guard url.scheme == "ws", url.host == "127.0.0.1", let port = url.port else {
-            throw InstanceDockError.screenshotFailed("只允许连接本机 ws://127.0.0.1 调试端点")
+            throw YTrayError.screenshotFailed("只允许连接本机 ws://127.0.0.1 调试端点")
         }
         let descriptor = socket(AF_INET, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { throw InstanceDockError.screenshotFailed("无法创建 CDP socket") }
+        guard descriptor >= 0 else { throw YTrayError.screenshotFailed("无法创建 CDP socket") }
         defer { close(descriptor) }
         var noPipe: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout.size(ofValue: noPipe)))
@@ -275,7 +275,7 @@ private enum RawWebSocket {
                 Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        guard connected == 0 else { throw InstanceDockError.screenshotFailed("CDP WebSocket 连接失败") }
+        guard connected == 0 else { throw YTrayError.screenshotFailed("CDP WebSocket 连接失败") }
 
         let key = Data((0..<16).map { _ in UInt8.random(in: 0...255) }).base64EncodedString()
         let path = url.path + (url.query.map { "?\($0)" } ?? "")
@@ -290,15 +290,15 @@ private enum RawWebSocket {
         while buffer.range(of: Data("\r\n\r\n".utf8)) == nil {
             try receiveMore(into: &buffer, descriptor: descriptor)
             guard buffer.count < 64 * 1024 else {
-                throw InstanceDockError.screenshotFailed("CDP WebSocket 握手响应过大")
+                throw YTrayError.screenshotFailed("CDP WebSocket 握手响应过大")
             }
         }
         guard let headerEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else {
-            throw InstanceDockError.screenshotFailed("CDP WebSocket 握手不完整")
+            throw YTrayError.screenshotFailed("CDP WebSocket 握手不完整")
         }
         let header = String(decoding: buffer[..<headerEnd.upperBound], as: UTF8.self)
         guard header.hasPrefix("HTTP/1.1 101") else {
-            throw InstanceDockError.screenshotFailed("CDP WebSocket 握手被拒绝：\(header.components(separatedBy: .newlines).first ?? header)")
+            throw YTrayError.screenshotFailed("CDP WebSocket 握手被拒绝：\(header.components(separatedBy: .newlines).first ?? header)")
         }
         buffer.removeSubrange(..<headerEnd.upperBound)
         try sendAll(clientFrame(opcode: 0x1, payload: message), descriptor: descriptor)
@@ -354,7 +354,7 @@ private enum RawWebSocket {
             offset = 10
         }
         guard length <= 64 * 1024 * 1024 else {
-            throw InstanceDockError.screenshotFailed("CDP 截图响应超过 64 MB")
+            throw YTrayError.screenshotFailed("CDP 截图响应超过 64 MB")
         }
         let masked = second & 0x80 != 0
         let maskLength = masked ? 4 : 0
@@ -393,7 +393,7 @@ private enum RawWebSocket {
             guard let base = bytes.baseAddress else { return }
             while sent < data.count {
                 let count = Darwin.send(descriptor, base.advanced(by: sent), data.count - sent, 0)
-                guard count > 0 else { throw InstanceDockError.screenshotFailed("CDP WebSocket 写入失败") }
+                guard count > 0 else { throw YTrayError.screenshotFailed("CDP WebSocket 写入失败") }
                 sent += count
             }
         }
@@ -402,7 +402,7 @@ private enum RawWebSocket {
     private static func receiveMore(into buffer: inout Data, descriptor: Int32) throws {
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
         let count = Darwin.recv(descriptor, &bytes, bytes.count, 0)
-        guard count > 0 else { throw InstanceDockError.screenshotFailed("CDP WebSocket 读取失败或超时") }
+        guard count > 0 else { throw YTrayError.screenshotFailed("CDP WebSocket 读取失败或超时") }
         buffer.append(contentsOf: bytes.prefix(count))
     }
 }

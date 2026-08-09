@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "instance-dock-darwin",
+    name: "ytray-darwin",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "InstanceDock", targets: ["InstanceDock"]),
+        .executable(name: "YTray", targets: ["YTray"]),
     ],
     targets: [
-        .executableTarget(name: "InstanceDock", path: "Sources/InstanceDock"),
+        .executableTarget(name: "YTray", path: "Sources/YTray"),
         .testTarget(
-            name: "InstanceDockTests",
-            dependencies: ["InstanceDock"],
-            path: "Tests/InstanceDockTests"
+            name: "YTrayTests",
+            dependencies: ["YTray"],
+            path: "Tests/YTrayTests"
         ),
     ]
 )

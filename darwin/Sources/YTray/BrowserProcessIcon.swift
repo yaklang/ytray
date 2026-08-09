@@ -17,7 +17,7 @@ enum DockBadgeLabel {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard (1...2).contains(normalized.count),
               normalized.unicodeScalars.allSatisfy({ (65...90).contains(Int($0.value)) }) else {
-            throw InstanceDockError.launchFailed("Dock 角标只能是 1–2 个英文字母")
+            throw YTrayError.launchFailed("Dock 角标只能是 1–2 个英文字母")
         }
         return normalized
     }
@@ -39,7 +39,7 @@ enum BrowserProcessIcon {
         guard let tiff = rendered.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:]) else {
-            throw InstanceDockError.launchFailed("无法生成浏览器进程图标")
+            throw YTrayError.launchFailed("无法生成浏览器进程图标")
         }
         let output = iconURL(instanceID: instanceID, applicationDirectory: applicationDirectory)
         try png.write(to: output, options: .atomic)

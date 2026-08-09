@@ -17,7 +17,7 @@ enum RuntimeInstaller {
     static func fetchVersions() async throws -> [MirrorVersion] {
         let (data, response) = try await URLSession.shared.data(from: manifestURL)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw InstanceDockError.downloadFailed("镜像清单返回异常")
+            throw YTrayError.downloadFailed("镜像清单返回异常")
         }
         return try JSONDecoder().decode(MirrorManifest.self, from: data).versions
     }
@@ -26,15 +26,15 @@ enum RuntimeInstaller {
         guard let artifact = version.artifacts.first(where: {
             $0.os == "macos" && $0.arch == architecture && $0.format == "zip"
         }), let url = URL(string: artifact.url) else {
-            throw InstanceDockError.downloadFailed("版本 \(version.version) 没有 \(platform) ZIP")
+            throw YTrayError.downloadFailed("版本 \(version.version) 没有 \(platform) ZIP")
         }
         let (temporary, response) = try await URLSession.shared.download(from: url)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw InstanceDockError.downloadFailed("ZIP 下载返回异常")
+            throw YTrayError.downloadFailed("ZIP 下载返回异常")
         }
         let actualHash = try sha256(of: temporary)
         guard actualHash.caseInsensitiveCompare(artifact.sha256) == .orderedSame else {
-            throw InstanceDockError.downloadFailed("SHA-256 校验失败")
+            throw YTrayError.downloadFailed("SHA-256 校验失败")
         }
 
         let destination = applicationDirectory.appendingPathComponent("Runtimes/\(version.version)/\(platform)", isDirectory: true)
@@ -49,10 +49,10 @@ enum RuntimeInstaller {
         unzip.waitUntilExit()
         guard unzip.terminationStatus == 0 else {
             let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            throw InstanceDockError.downloadFailed(String(data: data, encoding: .utf8) ?? "ZIP 解压失败")
+            throw YTrayError.downloadFailed(String(data: data, encoding: .utf8) ?? "ZIP 解压失败")
         }
         guard let executable = locateChrome(in: destination) else {
-            throw InstanceDockError.downloadFailed("ZIP 内未找到 Google Chrome for Testing 可执行文件")
+            throw YTrayError.downloadFailed("ZIP 内未找到 Google Chrome for Testing 可执行文件")
         }
         return BrowserRuntime(name: "Chrome for Testing \(version.version)", version: version.version,
                               architecture: platform, executablePath: executable.path, source: .managed,
