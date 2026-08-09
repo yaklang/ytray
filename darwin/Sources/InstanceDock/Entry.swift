@@ -144,6 +144,12 @@ enum InstanceDockMain {
             var samples: [BrowserInstance] = []
             if CommandLine.arguments.contains("--running") {
                 for index in 1...2 {
+                    let thumbnail = renderSampleThumbnail(
+                        in: scratch,
+                        name: "running-\(index)",
+                        title: index == 1 ? "Instance Dock 使用说明" : "本地调试控制台",
+                        accent: index == 1 ? .systemOrange : .systemBlue
+                    )
                     samples.append(BrowserInstance(
                         name: "运行任务 \(index)",
                         runtimeID: runtime.id,
@@ -156,6 +162,8 @@ enum InstanceDockMain {
                         debugPort: 9221 + index,
                         profilePath: scratch.appendingPathComponent("Profiles/running-\(index)").path,
                         startURL: "chrome://newtab",
+                        thumbnailPath: thumbnail?.path,
+                        thumbnailUpdatedAt: Date(),
                         lastPageTitle: index == 1 ? "Instance Dock 使用说明" : "本地调试控制台",
                         dockBadge: DockBadgeLabel.defaultLabel(for: index)
                     ))
@@ -163,6 +171,13 @@ enum InstanceDockMain {
             }
             if CommandLine.arguments.contains("--history") {
                 for index in 1...3 {
+                    let title = ["登录页调试", "项目文档", "代理设置"][index - 1]
+                    let thumbnail = renderSampleThumbnail(
+                        in: scratch,
+                        name: "history-\(index)",
+                        title: title,
+                        accent: [.systemGreen, .systemPurple, .systemTeal][index - 1]
+                    )
                     samples.append(BrowserInstance(
                         name: "历史任务 \(index)",
                         runtimeID: runtime.id,
@@ -176,7 +191,9 @@ enum InstanceDockMain {
                         profilePath: scratch.appendingPathComponent("Profiles/history-\(index)").path,
                         startURL: "chrome://newtab",
                         status: .stopped,
-                        lastPageTitle: ["登录页调试", "项目文档", "代理设置"][index - 1],
+                        thumbnailPath: thumbnail?.path,
+                        thumbnailUpdatedAt: Date(),
+                        lastPageTitle: title,
                         dockBadge: DockBadgeLabel.defaultLabel(for: index)
                     ))
                 }
@@ -253,6 +270,52 @@ enum InstanceDockMain {
         withExtendedLifetime(window) {}
     }
 
+    private static func renderSampleThumbnail(
+        in directory: URL,
+        name: String,
+        title: String,
+        accent: NSColor
+    ) -> URL? {
+        let size = NSSize(width: 640, height: 360)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor(calibratedWhite: 0.10, alpha: 1).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        NSColor(calibratedWhite: 0.17, alpha: 1).setFill()
+        NSRect(x: 0, y: 312, width: 640, height: 48).fill()
+        accent.setFill()
+        NSBezierPath(roundedRect: NSRect(x: 28, y: 54, width: 584, height: 218), xRadius: 18, yRadius: 18).fill()
+        NSColor.white.withAlphaComponent(0.92).setFill()
+        NSBezierPath(roundedRect: NSRect(x: 52, y: 82, width: 536, height: 160), xRadius: 12, yRadius: 12).fill()
+        NSString(string: title).draw(
+            at: NSPoint(x: 52, y: 322),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 17, weight: .semibold),
+                .foregroundColor: NSColor.white,
+            ]
+        )
+        NSString(string: "页面内容自动缩略图").draw(
+            at: NSPoint(x: 178, y: 148),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 22, weight: .bold),
+                .foregroundColor: NSColor.darkGray,
+            ]
+        )
+        image.unlockFocus()
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let data = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.72]) else {
+            return nil
+        }
+        let output = directory.appendingPathComponent("\(name).jpg")
+        do {
+            try data.write(to: output, options: .atomic)
+            return output
+        } catch {
+            return nil
+        }
+    }
+
     @MainActor
     private static func smokeBrowser(application: NSApplication, executablePath: String) {
         let scratch = FileManager.default.temporaryDirectory
@@ -300,10 +363,20 @@ enum InstanceDockMain {
                     )
                     let attributes = try? FileManager.default.attributesOfItem(atPath: image.path)
                     let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
-                    guard title == "Instance Dock Smoke", size > 0 else {
+                    let thumbnail = try await ScreenshotService.captureThumbnail(
+                        debugPort: launched.instance.debugPort,
+                        instanceID: launched.instance.id,
+                        outputURL: InstanceThumbnailStorage.thumbnailURL(
+                            for: launched.instance.id,
+                            applicationDirectory: scratch
+                        )
+                    )
+                    let thumbnailAttributes = try? FileManager.default.attributesOfItem(atPath: thumbnail.path)
+                    let thumbnailSize = (thumbnailAttributes?[.size] as? NSNumber)?.intValue ?? 0
+                    guard title == "Instance Dock Smoke", size > 0, thumbnailSize > 0 else {
                         throw InstanceDockError.launchFailed("浏览器调试或截图验证未通过")
                     }
-                    print("browser smoke passed: pid=\(launched.instance.processID) port=\(launched.instance.debugPort) badge=A bundle=\(runningApp.bundleIdentifier ?? "missing") name=\(runningApp.localizedName ?? "missing") title=\(title ?? "missing") screenshot=\(size) bytes")
+                    print("browser smoke passed: pid=\(launched.instance.processID) port=\(launched.instance.debugPort) badge=A bundle=\(runningApp.bundleIdentifier ?? "missing") name=\(runningApp.localizedName ?? "missing") title=\(title ?? "missing") screenshot=\(size) bytes thumbnail=\(thumbnailSize) bytes")
                 } catch {
                     fputs("browser smoke failed: \(error.localizedDescription)\n", stderr)
                     let log = scratch.appendingPathComponent("Logs/\(launched.instance.id.uuidString).log")
@@ -363,6 +436,20 @@ enum InstanceDockMain {
                 return
             }
 
+            var capturedThumbnail: String?
+            for _ in 0..<80 {
+                capturedThumbnail = store.runningInstances.first(where: { $0.id == original.id })?.thumbnailPath
+                if let capturedThumbnail,
+                   FileManager.default.fileExists(atPath: capturedThumbnail) { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            guard let capturedThumbnail,
+                  FileManager.default.fileExists(atPath: capturedThumbnail) else {
+                fputs("launch state smoke failed: automatic thumbnail was not captured\n", stderr)
+                await cleanupLaunchStateSmoke(store: store, scratch: scratch, application: application)
+                return
+            }
+
             let originalIdentity = (original.id, original.name, original.profilePath, original.dockBadge)
             store.stop(original)
             var history: BrowserInstance?
@@ -373,6 +460,12 @@ enum InstanceDockMain {
             }
             guard let history else {
                 fputs("launch state smoke failed: stopped instance did not enter history\n", stderr)
+                await cleanupLaunchStateSmoke(store: store, scratch: scratch, application: application)
+                return
+            }
+            guard history.thumbnailPath == capturedThumbnail,
+                  FileManager.default.fileExists(atPath: capturedThumbnail) else {
+                fputs("launch state smoke failed: history did not retain its thumbnail\n", stderr)
                 await cleanupLaunchStateSmoke(store: store, scratch: scratch, application: application)
                 return
             }

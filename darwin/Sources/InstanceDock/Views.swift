@@ -16,7 +16,7 @@ enum WidgetMetrics {
     static let width: CGFloat = 390
 
     static func height(runningCount: Int, historyCount: Int) -> CGFloat {
-        227 + runningListHeight(runningCount) + historyListHeight(historyCount)
+        410 + runningListHeight(runningCount) + historyListHeight(historyCount)
     }
 
     static func runningListHeight(_ count: Int) -> CGFloat {
@@ -34,7 +34,6 @@ struct WidgetView: View {
     @ObservedObject var presentation: WidgetPresentationState
     let openManager: (ManagerSection) -> Void
     let closeWidget: () -> Void
-    @State private var showWizard = false
     @State private var newInstanceHovered = false
     @State private var showClearHistoryConfirmation = false
 
@@ -44,6 +43,7 @@ struct WidgetView: View {
             Color(nsColor: .windowBackgroundColor).opacity(0.72)
             VStack(spacing: 9) {
                 header
+                ProxyPresetControl(store: store)
                 groupTitle("运行中", count: store.runningInstances.count)
                 runningSection
 
@@ -52,9 +52,21 @@ struct WidgetView: View {
 
                 HStack(spacing: 6) {
                     Spacer()
-                    Button { launchDefault() } label: {
-                        LaunchActionLabel(title: "启动新实例", systemImage: "plus.circle.fill",
-                                          isLoading: store.isLaunching && store.launchingMode == .quick)
+                    Button { store.launchConfigured(usePresetProxy: false) } label: {
+                        LaunchActionLabel(
+                            title: "无代理启动",
+                            systemImage: "network.slash",
+                            isLoading: store.isLaunching && store.launchingUsesProxy == false
+                        )
+                    }
+                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .disabled(store.isLaunching)
+                    Button { store.launchConfigured(usePresetProxy: true) } label: {
+                        LaunchActionLabel(
+                            title: "使用HTTP代理启动",
+                            systemImage: "network",
+                            isLoading: store.isLaunching && store.launchingUsesProxy == true
+                        )
                     }
                         .buttonStyle(SmallOrangeButtonStyle())
                         .disabled(store.isLaunching)
@@ -81,7 +93,6 @@ struct WidgetView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.14)))
         .frame(width: WidgetMetrics.width, height: preferredHeight)
-        .sheet(isPresented: $showWizard) { CustomLaunchWizard(store: store, isPresented: $showWizard) }
         .alert("Instance Dock", isPresented: errorPresented) {
             Button("知道了") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
@@ -137,29 +148,34 @@ struct WidgetView: View {
     private var newInstanceMenu: some View {
         Menu {
             if let runtime = store.defaultRuntime {
-                Button {
-                    store.launch(runtime: runtime, rememberSelection: true)
-                } label: {
-                    Label("使用默认：\(runtime.displayTitle) \(runtime.versionLabel)", systemImage: "bolt.fill")
+                Section("当前选择") {
+                    Label("\(runtime.displayTitle) \(runtime.versionLabel)", systemImage: "checkmark.circle.fill")
                 }
             }
-            if !store.systemRuntimes.isEmpty {
+            if !store.managedRuntimes.isEmpty {
+                Section("已安装版本") {
+                    ForEach(store.managedRuntimes) { runtime in
+                        Button { store.selectDefaultRuntime(runtime) } label: {
+                            runtimeMenuLabel(runtime)
+                        }
+                    }
+                }
+            }
+            if !store.localBrowserRuntimes.isEmpty {
                 Section("本机浏览器") {
-                    ForEach(store.systemRuntimes) { runtime in
-                        Button {
-                            store.launch(runtime: runtime, rememberSelection: true)
-                        } label: {
-                            Label("\(runtime.displayTitle) \(runtime.versionLabel)", systemImage: runtime.kind.symbol)
+                    ForEach(store.localBrowserRuntimes) { runtime in
+                        Button { store.selectDefaultRuntime(runtime) } label: {
+                            runtimeMenuLabel(runtime)
                         }
                     }
                 }
             }
             Divider()
-            Button { chooseLocalAndLaunch() } label: {
+            Button { chooseLocalBrowser() } label: {
                 Label("选择其他本地浏览器…", systemImage: "folder")
             }
-            Button { showWizard = true } label: {
-                Label("自定义本次参数…", systemImage: "slider.horizontal.3")
+            Button { openManager(.settings) } label: {
+                Label("更多启动设置…", systemImage: "slider.horizontal.3")
             }
             Button { openManager(.runtimes) } label: {
                 Label("安装新版本…", systemImage: "arrow.down.circle")
@@ -170,8 +186,8 @@ struct WidgetView: View {
                     ProgressView().controlSize(.small).scaleEffect(0.72)
                     Text("正在启动")
                 } else {
-                    Image(systemName: "plus")
-                    Text("新建实例")
+                    Image(systemName: "slider.horizontal.3")
+                    Text("快速配置")
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                 }
             }
@@ -195,9 +211,7 @@ struct WidgetView: View {
         if store.runningInstances.isEmpty {
             CompactEmptyState(
                 runtime: store.defaultRuntime,
-                isLaunching: store.isLaunching,
-                launch: { launchDefault() },
-                chooseBrowser: { chooseLocalAndLaunch() }
+                chooseBrowser: { chooseLocalBrowser() }
             )
         } else {
             ScrollView(.vertical) {
@@ -276,15 +290,16 @@ struct WidgetView: View {
         .frame(height: 21)
     }
 
-    private func launchDefault() {
-        if let runtime = store.defaultRuntime {
-            store.launch(runtime: runtime, rememberSelection: true)
-        } else {
-            chooseLocalAndLaunch()
-        }
+    private func runtimeMenuLabel(_ runtime: BrowserRuntime) -> some View {
+        Label(
+            "\(runtime.displayTitle) \(runtime.versionLabel)",
+            systemImage: store.settings.defaultRuntimeID == runtime.id
+                ? "checkmark.circle.fill"
+                : runtime.kind.symbol
+        )
     }
 
-    private func chooseLocalAndLaunch() {
+    private func chooseLocalBrowser() {
         let panel = NSOpenPanel()
         panel.title = "选择 Chrome、Chromium 或 Edge"
         panel.message = "可选择浏览器 .app，或 Contents/MacOS 中的可执行文件"
@@ -293,7 +308,180 @@ struct WidgetView: View {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url,
               let runtime = store.addLocalRuntime(selectedURL: url) else { return }
-        store.launch(runtime: runtime, rememberSelection: true)
+        store.selectDefaultRuntime(runtime)
+    }
+}
+
+struct ProxyPresetControl: View {
+    @ObservedObject var store: InstanceStore
+
+    var body: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 6) {
+                Text("预设代理")
+                    .font(.system(size: 12, weight: .bold))
+                Text("用于高频本地网络调试")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Menu {
+                    if store.settings.recentProxyPresets.isEmpty {
+                        Text("暂无历史")
+                    } else {
+                        ForEach(store.settings.recentProxyPresets) { preset in
+                            Button { store.selectProxyPreset(preset) } label: {
+                                Text(proxyPresetTitle(preset))
+                            }
+                        }
+                    }
+                } label: {
+                    Label("历史", systemImage: "clock.arrow.circlepath")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .frame(height: 22)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("最近使用的代理")
+            }
+
+            HStack(spacing: 6) {
+                Picker("协议", selection: proxySchemeBinding) {
+                    ForEach(ProxyScheme.allCases) { scheme in
+                        Text(scheme.title).tag(scheme)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .frame(width: 76)
+                TextField("Host，例如 127.0.0.1", text: proxyHostBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                TextField("端口", value: proxyPortBinding, format: .number.grouping(.never))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .frame(width: 66)
+            }
+
+            HStack(spacing: 6) {
+                Text("备注")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 42, alignment: .leading)
+                TextField("可选，例如 Yak MITM", text: proxyRemarkBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                Text("最近 \(store.settings.recentProxyPresets.count)/5")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 46, alignment: .trailing)
+            }
+
+            Divider()
+
+            HStack(spacing: 6) {
+                Label("高级设置", systemImage: "lock.shield")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .frame(width: 78, alignment: .leading)
+                TextField("用户名（可选）", text: proxyUsernameBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                SecureField("密码（仅本次会话）", text: proxyPasswordBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+            }
+
+            HStack(spacing: 7) {
+                proxyCheckStatus
+                Spacer(minLength: 4)
+                Button { store.checkPresetProxy() } label: {
+                    HStack(spacing: 5) {
+                        if store.proxyCheckPhase == .checking {
+                            ProgressView().controlSize(.small).scaleEffect(0.72)
+                        } else {
+                            Image(systemName: "wave.3.right")
+                        }
+                        Text(store.proxyCheckPhase == .checking ? "检测中" : "检测")
+                    }
+                }
+                .buttonStyle(SmallSecondaryButtonStyle())
+                .disabled(store.proxyCheckPhase == .checking)
+                Button { _ = store.rememberPresetProxy() } label: {
+                    Label("保存", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(SmallOrangeButtonStyle())
+            }
+        }
+        .padding(10)
+        .frame(height: 174)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Brand.orange.opacity(0.35)))
+    }
+
+    @ViewBuilder private var proxyCheckStatus: some View {
+        switch store.proxyCheckPhase {
+        case .idle:
+            Text("密码不会写入代理历史")
+                .foregroundStyle(.tertiary)
+        case .checking:
+            Text(store.proxyCheckMessage).foregroundStyle(.secondary)
+        case .success:
+            Label(store.proxyCheckMessage, systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failure:
+            Label(store.proxyCheckMessage, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+        }
+    }
+
+    private var proxySchemeBinding: Binding<ProxyScheme> {
+        Binding(
+            get: { store.settings.presetProxyScheme },
+            set: { store.updatePresetProxyScheme($0) }
+        )
+    }
+
+    private var proxyHostBinding: Binding<String> {
+        Binding(
+            get: { store.settings.presetProxyHost },
+            set: { store.updatePresetProxyHost($0) }
+        )
+    }
+
+    private var proxyPortBinding: Binding<Int> {
+        Binding(
+            get: { store.settings.presetProxyPort },
+            set: { store.updatePresetProxyPort($0) }
+        )
+    }
+
+    private var proxyUsernameBinding: Binding<String> {
+        Binding(
+            get: { store.settings.presetProxyUsername },
+            set: { store.updatePresetProxyUsername($0) }
+        )
+    }
+
+    private var proxyPasswordBinding: Binding<String> {
+        Binding(
+            get: { store.settings.presetProxyPassword },
+            set: { store.updatePresetProxyPassword($0) }
+        )
+    }
+
+    private var proxyRemarkBinding: Binding<String> {
+        Binding(
+            get: { store.settings.presetProxyRemark },
+            set: { store.updatePresetProxyRemark($0) }
+        )
+    }
+
+    private func proxyPresetTitle(_ preset: ProxyPreset) -> String {
+        let identity = preset.username.isEmpty ? "" : " · \(preset.username)"
+        return preset.remark.isEmpty
+            ? "\(preset.server)\(identity)"
+            : "\(preset.remark) · \(preset.server)\(identity)"
     }
 }
 
@@ -303,10 +491,7 @@ struct RunningInstanceRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            BrowserGlyph(kind: kind, size: 30)
-                .overlay(alignment: .bottomTrailing) {
-                    if let badge = instance.dockBadge { DockBadgeMark(label: badge, size: 15) }
-                }
+            InstanceThumbnail(instance: instance, kind: kind, width: 76, height: 48)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(instance.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
@@ -340,8 +525,6 @@ struct RunningInstanceRow: View {
 
 struct CompactEmptyState: View {
     let runtime: BrowserRuntime?
-    let isLaunching: Bool
-    let launch: () -> Void
     let chooseBrowser: () -> Void
 
     var body: some View {
@@ -350,23 +533,18 @@ struct CompactEmptyState: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("暂无运行中实例").font(.system(size: 13, weight: .semibold))
                 if let runtime {
-                    Text("可用 \(runtime.displayTitle) \(runtime.versionLabel) · \(runtime.source.title)")
+                    Text("下一次使用 \(runtime.displayTitle) \(runtime.versionLabel) · \(runtime.source.title)")
                         .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                 } else {
-                    Text("选择本机浏览器即可直接启动，无需安装")
+                    Text("请先选择下一次启动使用的浏览器")
                         .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 4)
-            Button(action: runtime == nil ? chooseBrowser : launch) {
-                LaunchActionLabel(
-                    title: runtime == nil ? "选择浏览器" : "本机启动",
-                    systemImage: runtime == nil ? "folder" : "play.fill",
-                    isLoading: isLaunching
-                )
+            Button(action: chooseBrowser) {
+                Label(runtime == nil ? "选择浏览器" : "更换", systemImage: "folder")
             }
                 .buttonStyle(SmallOrangeButtonStyle())
-                .disabled(isLaunching)
         }
         .padding(.horizontal, 10)
         .frame(height: 62)
@@ -384,10 +562,7 @@ struct HistoryInstanceRow: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            BrowserGlyph(kind: kind, size: 26)
-                .overlay(alignment: .bottomTrailing) {
-                    if let badge = instance.dockBadge { DockBadgeMark(label: badge, size: 14) }
-                }
+            InstanceThumbnail(instance: instance, kind: kind, width: 58, height: 36)
             VStack(alignment: .leading, spacing: 1) {
                 Text(instance.lastPageTitle ?? "未记录页面标题")
                     .font(.system(size: 12, weight: .semibold)).lineLimit(1)
@@ -433,6 +608,226 @@ struct HistoryInstanceRow: View {
     private var runtime: BrowserRuntime? { store.runtime(for: instance) }
     private var kind: BrowserKind { runtime?.kind ?? instance.runtimeKind ?? .infer(name: instance.runtimeName, path: "") }
     private var version: String { runtime?.versionLabel ?? instance.runtimeVersion ?? "版本未知" }
+}
+
+struct InstanceThumbnail: View {
+    let instance: BrowserInstance
+    let kind: BrowserKind
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        ZStack {
+            if let image = thumbnailImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: width, height: height)
+                    .clipped()
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.26)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+            } else {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Brand.orange.opacity(0.10))
+                VStack(spacing: 2) {
+                    Image(systemName: "camera.viewfinder")
+                        .font(.system(size: min(width, height) * 0.34, weight: .medium))
+                    Text(instance.status == .running ? "读取中" : "无预览")
+                        .font(.system(size: 8.5, weight: .medium))
+                }
+                .foregroundStyle(Brand.orange.opacity(0.88))
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.12)))
+        .overlay(alignment: .bottomLeading) {
+            BrowserGlyph(kind: kind, size: min(18, height * 0.42))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(0.8), lineWidth: 1))
+                .padding(3)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let badge = instance.dockBadge {
+                DockBadgeMark(label: badge, size: min(15, height * 0.38)).padding(3)
+            }
+        }
+        .overlay {
+            if let path = previewPath {
+                ThumbnailHoverAnchor(
+                    imagePath: path,
+                    title: instance.lastPageTitle ?? instance.name
+                )
+            }
+        }
+        .help(previewPath == nil ? "页面缩略图将在浏览器就绪后自动生成" : "悬停查看页面预览")
+        .accessibilityLabel("\(instance.name) 页面缩略图")
+    }
+
+    private var previewPath: String? {
+        let path = instance.thumbnailPath ?? instance.lastScreenshotPath
+        guard let path, FileManager.default.fileExists(atPath: path) else { return nil }
+        return path
+    }
+
+    private var thumbnailImage: NSImage? {
+        guard let path = previewPath else { return nil }
+        return NSImage(contentsOfFile: path)
+    }
+}
+
+private struct ThumbnailHoverAnchor: NSViewRepresentable {
+    let imagePath: String
+    let title: String
+
+    func makeNSView(context: Context) -> ThumbnailHoverTrackingView {
+        let view = ThumbnailHoverTrackingView()
+        view.imagePath = imagePath
+        view.previewTitle = title
+        return view
+    }
+
+    func updateNSView(_ nsView: ThumbnailHoverTrackingView, context: Context) {
+        nsView.imagePath = imagePath
+        nsView.previewTitle = title
+    }
+}
+
+private final class ThumbnailHoverTrackingView: NSView {
+    var imagePath = ""
+    var previewTitle = ""
+    private var tracking: NSTrackingArea?
+    private var pendingPreview: DispatchWorkItem?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let next = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(next)
+        tracking = next
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        pendingPreview?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.window != nil else { return }
+            ThumbnailPreviewPresenter.shared.show(
+                imagePath: self.imagePath,
+                title: self.previewTitle,
+                relativeTo: self
+            )
+        }
+        pendingPreview = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        pendingPreview?.cancel()
+        pendingPreview = nil
+        ThumbnailPreviewPresenter.shared.hide()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            pendingPreview?.cancel()
+            ThumbnailPreviewPresenter.shared.hide()
+        }
+    }
+}
+
+@MainActor
+private final class ThumbnailPreviewPresenter {
+    static let shared = ThumbnailPreviewPresenter()
+    private let previewSize = NSSize(width: 320, height: 220)
+    private var panel: NSPanel?
+    private var imageView: NSImageView?
+    private var titleField: NSTextField?
+
+    func show(imagePath: String, title: String, relativeTo anchorView: NSView) {
+        guard let image = NSImage(contentsOfFile: imagePath),
+              let anchorWindow = anchorView.window else { return }
+        let panel = previewPanel()
+        imageView?.image = image
+        titleField?.stringValue = title.isEmpty ? "浏览器页面预览" : title
+
+        let anchorInWindow = anchorView.convert(anchorView.bounds, to: nil)
+        let anchor = anchorWindow.convertToScreen(anchorInWindow)
+        let screen = anchorWindow.screen ?? NSScreen.main ?? NSScreen.screens.first
+        guard let visible = screen?.visibleFrame else { return }
+        var x = anchor.minX - previewSize.width - 10
+        if x < visible.minX + 8 { x = anchor.maxX + 10 }
+        x = min(max(x, visible.minX + 8), visible.maxX - previewSize.width - 8)
+        let y = min(
+            max(anchor.midY - previewSize.height / 2, visible.minY + 8),
+            visible.maxY - previewSize.height - 8
+        )
+        if panel.parent !== anchorWindow {
+            panel.parent?.removeChildWindow(panel)
+            anchorWindow.addChildWindow(panel, ordered: .above)
+        }
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        panel.orderFrontRegardless()
+    }
+
+    func hide() {
+        panel?.orderOut(nil)
+        if let panel, let parent = panel.parent {
+            parent.removeChildWindow(panel)
+        }
+    }
+
+    private func previewPanel() -> NSPanel {
+        if let panel { return panel }
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: previewSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.isFloatingPanel = true
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary]
+
+        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: previewSize))
+        effect.material = .popover
+        effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 11
+        effect.layer?.masksToBounds = true
+
+        let imageView = NSImageView(frame: NSRect(x: 8, y: 31, width: 304, height: 181))
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.wantsLayer = true
+        imageView.layer?.backgroundColor = NSColor.black.cgColor
+        imageView.layer?.cornerRadius = 7
+        imageView.layer?.masksToBounds = true
+        effect.addSubview(imageView)
+
+        let titleField = NSTextField(labelWithString: "")
+        titleField.frame = NSRect(x: 10, y: 8, width: 300, height: 16)
+        titleField.font = .systemFont(ofSize: 11, weight: .medium)
+        titleField.textColor = .secondaryLabelColor
+        titleField.lineBreakMode = .byTruncatingTail
+        effect.addSubview(titleField)
+
+        panel.contentView = effect
+        self.panel = panel
+        self.imageView = imageView
+        self.titleField = titleField
+        return panel
+    }
 }
 
 struct BrowserGlyph: View {

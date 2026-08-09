@@ -16,15 +16,22 @@ final class InstanceStore: NSObject, ObservableObject {
     @Published private(set) var launchPhase: BrowserLaunchPhase = .idle
     @Published private(set) var launchMessage = ""
     @Published private(set) var launchingMode: LaunchMode?
+    @Published private(set) var launchingUsesProxy: Bool?
     @Published private(set) var restoringInstanceID: UUID?
+    @Published private(set) var proxyCheckPhase: ProxyCheckPhase = .idle
+    @Published private(set) var proxyCheckMessage = ""
 
     let applicationDirectory: URL
     private let stateURL: URL
     private var processes: [UUID: Process] = [:]
     private var timer: Timer?
     private var titleRefreshInFlight = false
+    private var thumbnailCapturesInFlight: Set<UUID> = []
+    private var lastThumbnailAttempt: [UUID: Date] = [:]
     private var launchToken: UUID?
     private var launchingInstanceID: UUID?
+
+    private static let thumbnailRefreshInterval: TimeInterval = 12
 
     var isLaunching: Bool {
         launchPhase == .preparing || launchPhase == .waiting
@@ -51,6 +58,12 @@ final class InstanceStore: NSObject, ObservableObject {
     var historyInstances: [BrowserInstance] { instances.filter { $0.status != .running } }
     var systemRuntimes: [BrowserRuntime] {
         runtimes.filter(\.isSystemEnvironment).sorted { $0.displayTitle < $1.displayTitle }
+    }
+    var managedRuntimes: [BrowserRuntime] {
+        runtimes.filter { $0.source == .managed }.sorted { $0.createdAt > $1.createdAt }
+    }
+    var localBrowserRuntimes: [BrowserRuntime] {
+        runtimes.filter { $0.source != .managed }.sorted { $0.displayTitle < $1.displayTitle }
     }
     var defaultRuntime: BrowserRuntime? {
         runtimes.first(where: { $0.id == settings.defaultRuntimeID }) ?? systemRuntimes.first ?? runtimes.first
@@ -124,11 +137,13 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     func launch(mode: LaunchMode, customSettings: LaunchSettings? = nil,
-                customPluginIDs: [UUID]? = nil, restoring history: BrowserInstance? = nil) {
+                customPluginIDs: [UUID]? = nil, restoring history: BrowserInstance? = nil,
+                launchUsesProxy: Bool? = nil) {
         guard !isLaunching else { return }
         let token = UUID()
         launchToken = token
         launchingMode = mode
+        launchingUsesProxy = launchUsesProxy
         restoringInstanceID = history?.id
         launchMessage = "正在准备浏览器…"
         launchPhase = .preparing
@@ -198,18 +213,171 @@ final class InstanceStore: NSObject, ObservableObject {
         launch(mode: mode, customSettings: configuration)
     }
 
+    func selectDefaultRuntime(_ runtime: BrowserRuntime) {
+        guard runtimes.contains(where: { $0.id == runtime.id }) else { return }
+        settings.defaultRuntimeID = runtime.id
+        save()
+    }
+
+    func updatePresetProxyServer(_ value: String) {
+        settings.presetProxyServer = value
+        if let endpoint = try? HTTPProxyAddress.split(value) {
+            settings.presetProxyScheme = endpoint.scheme
+            settings.presetProxyHost = endpoint.host
+            settings.presetProxyPort = endpoint.port
+        }
+        resetProxyCheck()
+        save()
+    }
+
+    func updatePresetProxyScheme(_ value: ProxyScheme) {
+        settings.presetProxyScheme = value
+        syncPresetProxyServer()
+    }
+
+    func updatePresetProxyHost(_ value: String) {
+        settings.presetProxyHost = value
+        syncPresetProxyServer()
+    }
+
+    func updatePresetProxyPort(_ value: Int) {
+        settings.presetProxyPort = value
+        syncPresetProxyServer()
+    }
+
+    func updatePresetProxyUsername(_ value: String) {
+        settings.presetProxyUsername = value
+        resetProxyCheck()
+        save()
+    }
+
+    func updatePresetProxyPassword(_ value: String) {
+        settings.presetProxyPassword = value
+        resetProxyCheck()
+    }
+
+    func updatePresetProxyRemark(_ value: String) {
+        settings.presetProxyRemark = value
+        save()
+    }
+
+    func selectProxyPreset(_ preset: ProxyPreset) {
+        guard let endpoint = try? HTTPProxyAddress.split(preset.server) else { return }
+        settings.presetProxyServer = endpoint.server
+        settings.presetProxyScheme = endpoint.scheme
+        settings.presetProxyHost = endpoint.host
+        settings.presetProxyPort = endpoint.port
+        settings.presetProxyUsername = preset.username
+        settings.presetProxyPassword = ""
+        settings.presetProxyRemark = preset.remark
+        resetProxyCheck()
+        save()
+    }
+
+    @discardableResult
+    func rememberPresetProxy() -> String? {
+        do {
+            let normalized = try HTTPProxyAddress.build(
+                scheme: settings.presetProxyScheme,
+                host: settings.presetProxyHost,
+                port: settings.presetProxyPort
+            )
+            let remark = settings.presetProxyRemark.trimmingCharacters(in: .whitespacesAndNewlines)
+            let username = settings.presetProxyUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+            settings.presetProxyServer = normalized
+            settings.presetProxyHost = try HTTPProxyAddress.split(normalized).host
+            settings.presetProxyUsername = username
+            settings.presetProxyRemark = remark
+            settings.recentProxyPresets.removeAll {
+                $0.server.caseInsensitiveCompare(normalized) == .orderedSame
+                    && $0.username == username
+            }
+            settings.recentProxyPresets.insert(
+                ProxyPreset(server: normalized, remark: remark, username: username),
+                at: 0
+            )
+            settings.recentProxyPresets = Array(settings.recentProxyPresets.prefix(5))
+            save()
+            return normalized
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    func checkPresetProxy() {
+        guard proxyCheckPhase != .checking else { return }
+        let endpoint: ProxyEndpoint
+        do {
+            let server = try HTTPProxyAddress.build(
+                scheme: settings.presetProxyScheme,
+                host: settings.presetProxyHost,
+                port: settings.presetProxyPort
+            )
+            endpoint = try HTTPProxyAddress.split(server)
+        } catch {
+            proxyCheckPhase = .failure
+            proxyCheckMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return
+        }
+        proxyCheckPhase = .checking
+        proxyCheckMessage = "正在连接并验证代理…"
+        let username = settings.presetProxyUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = settings.presetProxyPassword
+        Task { [weak self] in
+            let result = await ProxyConnectivityChecker.check(
+                endpoint: endpoint,
+                username: username,
+                password: password
+            )
+            guard let self else { return }
+            self.proxyCheckPhase = result.isSuccess ? .success : .failure
+            self.proxyCheckMessage = result.message
+        }
+    }
+
+    func launchConfigured(usePresetProxy: Bool) {
+        guard let configuration = quickLaunchConfiguration(usePresetProxy: usePresetProxy) else { return }
+        launch(
+            mode: .quick,
+            customSettings: configuration,
+            launchUsesProxy: usePresetProxy
+        )
+    }
+
+    func quickLaunchConfiguration(usePresetProxy: Bool) -> LaunchSettings? {
+        var configuration = settings
+        if usePresetProxy {
+            guard let proxy = rememberPresetProxy() else { return nil }
+            configuration.proxyServer = proxy
+            configuration.proxyUsername = settings.presetProxyUsername
+            configuration.proxyPassword = settings.presetProxyPassword
+        } else {
+            configuration.proxyServer = ""
+            configuration.proxyUsername = ""
+            configuration.proxyPassword = ""
+        }
+        return configuration
+    }
+
     func restoreHistory(_ instance: BrowserInstance) {
         guard instance.status != .running else { return }
         var configuration = instance.settingsSnapshot ?? settings
         configuration.defaultRuntimeID = instance.runtimeID
         configuration.homeURL = instance.startURL
         configuration.dockBadge = instance.dockBadge ?? ""
+        if !configuration.proxyServer.isEmpty,
+           configuration.proxyUsername == settings.presetProxyUsername,
+           configuration.proxyPassword.isEmpty {
+            configuration.proxyPassword = settings.presetProxyPassword
+        }
         let restoredPluginIDs = instance.pluginIDs ?? configuration.defaultPluginIDs
         launch(
             mode: instance.mode,
             customSettings: configuration,
             customPluginIDs: restoredPluginIDs,
-            restoring: instance
+            restoring: instance,
+            launchUsesProxy: !configuration.proxyServer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         )
     }
 
@@ -225,6 +393,7 @@ final class InstanceStore: NSObject, ObservableObject {
         guard instance.status != .running else { return }
         instances.removeAll { $0.id == instance.id }
         BrowserProcessIcon.remove(instanceID: instance.id, applicationDirectory: applicationDirectory)
+        InstanceThumbnailStorage.removeThumbnail(for: instance, applicationDirectory: applicationDirectory)
         save()
     }
 
@@ -232,6 +401,7 @@ final class InstanceStore: NSObject, ObservableObject {
         let history = instances.filter { $0.status != .running }
         for instance in history {
             BrowserProcessIcon.remove(instanceID: instance.id, applicationDirectory: applicationDirectory)
+            InstanceThumbnailStorage.removeThumbnail(for: instance, applicationDirectory: applicationDirectory)
         }
         instances.removeAll { $0.status != .running }
         save()
@@ -271,6 +441,23 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     func saveSettings() { save() }
+
+    private func syncPresetProxyServer() {
+        if let server = try? HTTPProxyAddress.build(
+            scheme: settings.presetProxyScheme,
+            host: settings.presetProxyHost,
+            port: settings.presetProxyPort
+        ) {
+            settings.presetProxyServer = server
+        }
+        resetProxyCheck()
+        save()
+    }
+
+    private func resetProxyCheck() {
+        proxyCheckPhase = .idle
+        proxyCheckMessage = ""
+    }
 
     @discardableResult
     private func upsert(_ runtime: BrowserRuntime, persist: Bool = true) -> BrowserRuntime {
@@ -319,6 +506,10 @@ final class InstanceStore: NSObject, ObservableObject {
                     instanceID: instances[index].id,
                     applicationDirectory: applicationDirectory
                 )
+                ProxyAuthenticationExtension.remove(
+                    instanceID: instances[index].id,
+                    applicationDirectory: applicationDirectory
+                )
                 changed = true
             }
         }
@@ -331,6 +522,7 @@ final class InstanceStore: NSObject, ObservableObject {
     @objc private func refreshTimerFired() {
         refreshProcessStates()
         Task { await refreshRunningPageTitles() }
+        scheduleAutomaticThumbnailRefresh()
     }
 
     @objc private func processDidTerminate(_ notification: Notification) {
@@ -341,6 +533,7 @@ final class InstanceStore: NSObject, ObservableObject {
     private func markStopped(_ id: UUID) {
         processes[id] = nil
         BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
+        ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
         if launchingInstanceID == id, let token = launchToken, isLaunching {
             finishLaunchFailure(
                 InstanceDockError.launchFailed("浏览器进程在完成启动前退出"),
@@ -373,10 +566,12 @@ final class InstanceStore: NSObject, ObservableObject {
         instances.removeAll { removedIDs.contains($0.id) }
         for instance in removed {
             BrowserProcessIcon.remove(instanceID: instance.id, applicationDirectory: applicationDirectory)
+            InstanceThumbnailStorage.removeThumbnail(for: instance, applicationDirectory: applicationDirectory)
         }
     }
 
     private func archiveAndStop(_ instance: BrowserInstance) async {
+        await captureAndStoreThumbnail(instance)
         await refreshPageTitle(for: instance)
         if let process = processes[instance.id], process.isRunning { process.terminate() }
         else if let application = NSRunningApplication(processIdentifier: instance.processID) {
@@ -433,6 +628,46 @@ final class InstanceStore: NSObject, ObservableObject {
         if changed { save() }
     }
 
+    private func scheduleAutomaticThumbnailRefresh(force instanceID: UUID? = nil) {
+        let now = Date()
+        for instance in runningInstances {
+            let isForced = instance.id == instanceID
+            let lastAttempt = lastThumbnailAttempt[instance.id]
+                ?? instance.thumbnailUpdatedAt
+                ?? .distantPast
+            guard isForced || now.timeIntervalSince(lastAttempt) >= Self.thumbnailRefreshInterval else {
+                continue
+            }
+            guard !thumbnailCapturesInFlight.contains(instance.id) else { continue }
+            thumbnailCapturesInFlight.insert(instance.id)
+            lastThumbnailAttempt[instance.id] = now
+            Task { [weak self] in
+                guard let self else { return }
+                if instance.thumbnailPath == nil {
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                }
+                await self.captureAndStoreThumbnail(instance)
+                self.thumbnailCapturesInFlight.remove(instance.id)
+            }
+        }
+    }
+
+    private func captureAndStoreThumbnail(_ instance: BrowserInstance) async {
+        guard instances.contains(where: { $0.id == instance.id && $0.status == .running }) else { return }
+        let output = InstanceThumbnailStorage.thumbnailURL(
+            for: instance.id,
+            applicationDirectory: applicationDirectory
+        )
+        guard let captured = try? await ScreenshotService.captureThumbnail(
+            debugPort: instance.debugPort,
+            instanceID: instance.id,
+            outputURL: output
+        ), let index = instances.firstIndex(where: { $0.id == instance.id }) else { return }
+        instances[index].thumbnailPath = captured.path
+        instances[index].thumbnailUpdatedAt = Date()
+        save()
+    }
+
     private func report(_ error: Error) {
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
@@ -448,12 +683,18 @@ final class InstanceStore: NSObject, ObservableObject {
             finishLaunchFailure(InstanceDockError.launchFailed(detail), token: token)
             return
         }
-        if restoringInstanceID == instance.id,
-           let restoreURL = instance.lastPageURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !restoreURL.isEmpty,
-           !restoreURL.hasPrefix("chrome://") {
+        let usesProxyAuthentication = !(instance.settingsSnapshot?.proxyUsername ?? "").isEmpty
+            || !(instance.settingsSnapshot?.proxyPassword ?? "").isEmpty
+        let restoreURL = instance.lastPageURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let navigationTarget: String? = restoringInstanceID == instance.id
+            ? ((restoreURL?.isEmpty == false) ? restoreURL : instance.startURL)
+            : (usesProxyAuthentication ? instance.startURL : nil)
+        if let navigationTarget, !navigationTarget.isEmpty {
             do {
-                try await ScreenshotService.navigate(debugPort: instance.debugPort, to: restoreURL)
+                if usesProxyAuthentication {
+                    try? await Task.sleep(nanoseconds: 900_000_000)
+                }
+                try await ScreenshotService.navigate(debugPort: instance.debugPort, to: navigationTarget)
             } catch {
                 finishLaunchFailure(error, token: token)
                 return
@@ -462,8 +703,10 @@ final class InstanceStore: NSObject, ObservableObject {
         launchMessage = "\(instance.runtimeName) 已启动"
         launchPhase = .succeeded
         launchingMode = nil
+        launchingUsesProxy = nil
         launchingInstanceID = nil
         restoringInstanceID = nil
+        scheduleAutomaticThumbnailRefresh(force: instance.id)
         try? await Task.sleep(nanoseconds: 1_200_000_000)
         guard launchToken == token, launchPhase == .succeeded else { return }
         launchMessage = ""
@@ -476,6 +719,7 @@ final class InstanceStore: NSObject, ObservableObject {
         launchPhase = .idle
         launchMessage = ""
         launchingMode = nil
+        launchingUsesProxy = nil
         launchingInstanceID = nil
         restoringInstanceID = nil
         launchToken = nil
@@ -489,6 +733,19 @@ final class InstanceStore: NSObject, ObservableObject {
             if !used.contains(candidate) { return candidate }
         }
         return "ZZ"
+    }
+}
+
+enum InstanceThumbnailStorage {
+    static func thumbnailURL(for instanceID: UUID, applicationDirectory: URL) -> URL {
+        applicationDirectory
+            .appendingPathComponent("Thumbnails", isDirectory: true)
+            .appendingPathComponent("\(instanceID.uuidString).jpg")
+    }
+
+    static func removeThumbnail(for instance: BrowserInstance, applicationDirectory: URL) {
+        let managedURL = thumbnailURL(for: instance.id, applicationDirectory: applicationDirectory)
+        try? FileManager.default.removeItem(at: managedURL)
     }
 }
 

@@ -11,7 +11,9 @@ struct CustomLaunchWizard: View {
     init(store: InstanceStore, isPresented: Binding<Bool>) {
         self.store = store
         self._isPresented = isPresented
-        self._draft = State(initialValue: store.settings)
+        var settings = store.settings
+        settings.proxyServer = ""
+        self._draft = State(initialValue: settings)
         self._pluginIDs = State(initialValue: Set(store.settings.defaultPluginIDs))
     }
 
@@ -51,7 +53,12 @@ struct CustomLaunchWizard: View {
                             store.settings.defaultRuntimeID = settings.defaultRuntimeID
                             store.saveSettings()
                         }
-                        store.launch(mode: .custom, customSettings: settings, customPluginIDs: Array(pluginIDs))
+                        store.launch(
+                            mode: .custom,
+                            customSettings: settings,
+                            customPluginIDs: Array(pluginIDs),
+                            launchUsesProxy: false
+                        )
                     } label: {
                         LaunchActionLabel(title: "启动实例", systemImage: "play.fill",
                                           isLoading: store.isLaunching && store.launchingMode == .custom)
@@ -72,7 +79,7 @@ struct CustomLaunchWizard: View {
         HStack(spacing: 0) {
             stepItem(0, "运行时", "选择浏览器")
             connector(after: 0)
-            stepItem(1, "启动参数", "代理与调试")
+            stepItem(1, "启动参数", "调试与参数")
             connector(after: 1)
             stepItem(2, "插件", "本地扩展")
             connector(after: 2)
@@ -138,7 +145,6 @@ struct CustomLaunchWizard: View {
     private var networkStep: some View {
         Form {
             TextField("启动地址", text: $draft.homeURL)
-            TextField("代理服务器（留空为直连）", text: $draft.proxyServer)
             TextField("调试端口", value: $draft.debugPort, format: .number)
             TextField("Dock 角标（留空自动分配 A/B/C…，可填 1–2 个字母）", text: $draft.dockBadge)
             Toggle("限制 WebRTC 非代理 UDP 与本地 IP 暴露", isOn: $draft.restrictWebRTC)
@@ -149,6 +155,9 @@ struct CustomLaunchWizard: View {
                 TextEditor(text: $draft.additionalFlags).font(.system(.body, design: .monospaced)).frame(height: 90)
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
             }
+            Label("自定义启动使用直连；HTTP 代理请在托盘的“预设代理”中选择。", systemImage: "network")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }.formStyle(.grouped)
     }
 
@@ -182,7 +191,7 @@ struct CustomLaunchWizard: View {
             Grid(alignment: .leading, horizontalSpacing: 30, verticalSpacing: 13) {
                 reviewRow("浏览器", selectedRuntimeDescription)
                 reviewRow("启动地址", draft.homeURL)
-                reviewRow("代理", draft.proxyServer.isEmpty ? "直连" : draft.proxyServer)
+                reviewRow("网络", "直连（无代理）")
                 reviewRow("调试", "127.0.0.1:\(draft.debugPort) 起自动避让")
                 reviewRow("Dock 角标", draft.dockBadge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                           ? "自动分配" : draft.dockBadge.uppercased())
@@ -190,7 +199,7 @@ struct CustomLaunchWizard: View {
                 reviewRow("插件", "\(pluginIDs.count) 个")
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(Brand.orange.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13))
-            Toggle("记住此浏览器，作为下次新建实例的默认选择", isOn: $rememberBrowser)
+            Toggle("记住此浏览器，作为下次快速启动的默认选择", isOn: $rememberBrowser)
                 .toggleStyle(.checkbox)
             Label("无论使用哪种模式，Instance Dock 都会创建独立用户目录，并把调试服务限制在本机回环地址。",
                   systemImage: "lock.shield").font(.caption).foregroundStyle(.secondary)

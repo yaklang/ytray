@@ -2,6 +2,8 @@ import Foundation
 import Darwin
 
 enum BrowserLauncher {
+    static let proxyAuthenticationBootstrapURL = "data:text/html,<title>Instance Dock</title>"
+
     struct LaunchResult {
         let process: Process
         let instance: BrowserInstance
@@ -14,6 +16,8 @@ enum BrowserLauncher {
 
     static func buildArguments(mode: LaunchMode, settings: LaunchSettings, profilePath: String,
                                debugPort: Int, plugins: [BrowserPlugin],
+                               runtimeKind: BrowserKind? = nil,
+                               internalExtensionPaths: [String] = [],
                                restoreLastSession: Bool = false) throws -> [String] {
         var arguments = [
             "--user-data-dir=\(profilePath)",
@@ -22,6 +26,12 @@ enum BrowserLauncher {
             "--remote-allow-origins=http://127.0.0.1:\(debugPort)",
             "--no-first-run", "--no-default-browser-check",
         ]
+        if runtimeKind == .chromeForTesting {
+            arguments.append("--disable-infobars")
+        }
+        if settings.ignoreCertificateErrors {
+            arguments.append("--ignore-certificate-errors")
+        }
         if mode != .isolated {
             arguments += ["--disable-background-networking", "--disable-component-update",
                           "--disable-default-apps", "--disable-sync", "--disable-translate"]
@@ -32,9 +42,14 @@ enum BrowserLauncher {
                               "--webrtc-ip-handling-policy=disable_non_proxied_udp"]
             }
             let proxy = settings.proxyServer.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !proxy.isEmpty { arguments.append("--proxy-server=\(proxy)") }
-            if settings.ignoreCertificateErrors { arguments.append("--ignore-certificate-errors") }
-            let paths = plugins.filter(\.enabled).map(\.path)
+            if proxy.isEmpty {
+                // "无代理启动" must also bypass the macOS system proxy. Merely
+                // omitting --proxy-server would allow Chrome to inherit it.
+                arguments.append("--no-proxy-server")
+            } else {
+                arguments.append("--proxy-server=\(proxy)")
+            }
+            let paths = internalExtensionPaths + plugins.filter(\.enabled).map(\.path)
             if !paths.isEmpty {
                 let joined = paths.joined(separator: ",")
                 arguments += ["--disable-extensions-except=\(joined)", "--load-extension=\(joined)"]
@@ -74,14 +89,46 @@ enum BrowserLauncher {
             ?? applicationDirectory.appendingPathComponent("Profiles/\(id.uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
         let port = nextAvailablePort(startingAt: max(1024, settings.debugPort))
-        let arguments = try buildArguments(mode: mode, settings: settings, profilePath: profile.path,
-                                           debugPort: port, plugins: plugins,
-                                           restoreLastSession: history != nil)
+        let proxyAuthExtension = try ProxyAuthenticationExtension.write(
+            instanceID: id,
+            username: settings.proxyUsername,
+            password: settings.proxyPassword,
+            applicationDirectory: applicationDirectory
+        )
+        let usesProxyAuthentication = !settings.proxyUsername.isEmpty || !settings.proxyPassword.isEmpty
+        var launchSettings = settings
+        if usesProxyAuthentication {
+            // Give the unpacked MV3 service worker time to register onAuthRequired
+            // before the first network request reaches an authenticated proxy.
+            launchSettings.homeURL = proxyAuthenticationBootstrapURL
+        }
+        let arguments: [String]
+        do {
+            arguments = try buildArguments(
+                mode: mode,
+                settings: launchSettings,
+                profilePath: profile.path,
+                debugPort: port,
+                plugins: plugins,
+                runtimeKind: runtime.kind,
+                internalExtensionPaths: proxyAuthExtension.map { [$0.path] } ?? [],
+                restoreLastSession: history != nil && !usesProxyAuthentication
+            )
+        } catch {
+            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
+            throw error
+        }
         let logs = applicationDirectory.appendingPathComponent("Logs", isDirectory: true)
-        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
         let logURL = logs.appendingPathComponent("\(id.uuidString).log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        let log = try FileHandle(forWritingTo: logURL)
+        let log: FileHandle
+        do {
+            try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+            log = try FileHandle(forWritingTo: logURL)
+        } catch {
+            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
+            throw error
+        }
         let iconURL: URL
         do {
             iconURL = try BrowserProcessIcon.write(
@@ -92,12 +139,14 @@ enum BrowserLauncher {
             )
         } catch {
             try? log.close()
+            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
             throw error
         }
         let process = Process()
         guard let launcher = Bundle.main.executableURL else {
             try? log.close()
             BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
+            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
             throw InstanceDockError.launchFailed("找不到 Instance Dock 启动器")
         }
         process.executableURL = launcher
@@ -114,6 +163,7 @@ enum BrowserLauncher {
         } catch {
             try? log.close()
             BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
+            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
             throw InstanceDockError.launchFailed(error.localizedDescription)
         }
         let instance = BrowserInstance(
@@ -125,6 +175,8 @@ enum BrowserLauncher {
             startURL: history?.startURL ?? settings.homeURL,
             startedAt: Date(), status: .running,
             lastScreenshotPath: history?.lastScreenshotPath,
+            thumbnailPath: history?.thumbnailPath,
+            thumbnailUpdatedAt: history?.thumbnailUpdatedAt,
             lastPageTitle: history?.lastPageTitle,
             lastPageURL: history?.lastPageURL,
             dockBadge: normalizedBadge,

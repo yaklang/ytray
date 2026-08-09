@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum ManagerSection: String, CaseIterable, Identifiable {
-    case quick = "启动新实例"
+    case quick = "快速配置"
     case runtimes = "浏览器运行时"
     case settings = "启动设置"
     case instances = "运行与历史"
@@ -88,11 +88,14 @@ struct QuickLaunchPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                PageHeader(title: "启动新实例", subtitle: "每次启动都创建独立用户目录，实例之间不会共用 Cookie、缓存或登录态。")
+                PageHeader(title: "快速配置", subtitle: "选择直连或预设 HTTP 代理启动；每个实例仍使用独立用户目录。")
                 HStack(spacing: 16) {
-                    LaunchModeCard(icon: "plus.circle.fill", title: "启动新实例", detail: "使用当前默认参数、代理和插件配置创建独立实例",
-                                   button: "启动新实例", isLoading: store.isLaunching && store.launchingMode == .quick,
-                                   disabled: store.isLaunching) { store.launch(mode: .quick) }
+                    LaunchModeCard(icon: "network.slash", title: "无代理启动", detail: "忽略预设代理，以直连方式创建新的独立实例",
+                                   button: "无代理启动", isLoading: store.isLaunching && store.launchingUsesProxy == false,
+                                   disabled: store.isLaunching) { store.launchConfigured(usePresetProxy: false) }
+                    LaunchModeCard(icon: "network", title: "使用 HTTP 代理", detail: "使用托盘中保存的预设代理创建新的独立实例",
+                                   button: "使用代理启动", isLoading: store.isLaunching && store.launchingUsesProxy == true,
+                                   disabled: store.isLaunching) { store.launchConfigured(usePresetProxy: true) }
                     LaunchModeCard(icon: "wand.and.stars", title: "自定义启动", detail: "通过步骤向导配置本次运行，不覆盖默认设置",
                                    button: "开始配置", isLoading: false,
                                    disabled: store.isLaunching) { showWizard = true }
@@ -101,7 +104,6 @@ struct QuickLaunchPage: View {
                     Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 12) {
                         GridRow { Text("运行时").foregroundStyle(.secondary); Text(defaultRuntimeName) }
                         GridRow { Text("启动地址").foregroundStyle(.secondary); Text(store.settings.homeURL) }
-                        GridRow { Text("代理").foregroundStyle(.secondary); Text(store.settings.proxyServer.isEmpty ? "直连" : store.settings.proxyServer) }
                         GridRow { Text("调试端口").foregroundStyle(.secondary); Text("127.0.0.1:\(store.settings.debugPort) 起自动避让") }
                         GridRow { Text("插件").foregroundStyle(.secondary); Text("\(store.settings.defaultPluginIDs.count) 个") }
                     }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -188,7 +190,7 @@ struct RuntimePage: View {
                         }
                         Spacer()
                         if store.settings.defaultRuntimeID == runtime.id { StatusBadge(text: "默认", color: .green) }
-                        Button("设为默认") { store.settings.defaultRuntimeID = runtime.id; store.saveSettings() }
+                        Button("设为默认") { store.selectDefaultRuntime(runtime) }
                             .buttonStyle(SmallSecondaryButtonStyle())
                         if runtime.source != .system {
                             Button(role: .destructive) { store.removeRuntime(runtime) } label: { Image(systemName: "trash") }
@@ -222,13 +224,12 @@ struct SettingsPage: View {
                     }
                 }
                 TextField("启动地址", text: $store.settings.homeURL)
-                TextField("代理服务器，例如 http://127.0.0.1:8080", text: $store.settings.proxyServer)
                 TextField("调试端口", value: $store.settings.debugPort, format: .number)
             } header: { Text("启动") }
             Section {
                 Toggle("限制 WebRTC 非代理 UDP 与本地 IP 暴露", isOn: $store.settings.restrictWebRTC)
                 Toggle("关闭浏览器通知", isOn: $store.settings.disableNotifications)
-                Toggle("忽略证书错误（默认关闭）", isOn: $store.settings.ignoreCertificateErrors)
+                Toggle("忽略证书错误（默认开启，适合本地网络调试）", isOn: $store.settings.ignoreCertificateErrors)
             } header: { Text("浏览器精简与网络") }
             Section {
                 TextEditor(text: $store.settings.additionalFlags).font(.system(.body, design: .monospaced)).frame(minHeight: 130)
@@ -309,10 +310,12 @@ struct InstancesPage: View {
 
     private func runningRow(_ instance: BrowserInstance) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "play.circle.fill").foregroundStyle(Brand.orange).font(.title2)
-                .overlay(alignment: .bottomTrailing) {
-                    if let badge = instance.dockBadge { DockBadgeMark(label: badge, size: 15) }
-                }
+            InstanceThumbnail(
+                instance: instance,
+                kind: runtimeKind(instance),
+                width: 92,
+                height: 58
+            )
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(instance.name).font(.headline)
@@ -333,10 +336,12 @@ struct InstancesPage: View {
 
     private func historyRow(_ instance: BrowserInstance) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary).font(.title2)
-                .overlay(alignment: .bottomTrailing) {
-                    if let badge = instance.dockBadge { DockBadgeMark(label: badge, size: 15) }
-                }
+            InstanceThumbnail(
+                instance: instance,
+                kind: runtimeKind(instance),
+                width: 78,
+                height: 48
+            )
             VStack(alignment: .leading, spacing: 3) {
                 Text(instance.lastPageTitle ?? "未记录页面标题").font(.headline).lineLimit(1)
                 Text("\(instance.name) · \(runtimeDescription(instance))")
@@ -382,6 +387,12 @@ struct InstancesPage: View {
         }
         let kind = instance.runtimeKind ?? BrowserKind.infer(name: instance.runtimeName, path: "")
         return "\(kind.title) \(instance.runtimeVersion ?? "版本未知") · \((instance.runtimeSource ?? .local).title)"
+    }
+
+    private func runtimeKind(_ instance: BrowserInstance) -> BrowserKind {
+        store.runtime(for: instance)?.kind
+            ?? instance.runtimeKind
+            ?? .infer(name: instance.runtimeName, path: "")
     }
 }
 

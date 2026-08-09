@@ -114,15 +114,56 @@ enum ScreenshotService {
     }
 
     static func capture(debugPort: Int, instanceID: UUID, outputDirectory: URL) async throws -> URL {
+        try await capture(
+            debugPort: debugPort,
+            attempts: 20,
+            outputURL: nil,
+            outputDirectory: outputDirectory,
+            instanceID: instanceID,
+            format: "png",
+            quality: nil
+        )
+    }
+
+    static func captureThumbnail(debugPort: Int, instanceID: UUID, outputURL: URL) async throws -> URL {
+        try await capture(
+            debugPort: debugPort,
+            attempts: 12,
+            outputURL: outputURL,
+            outputDirectory: outputURL.deletingLastPathComponent(),
+            instanceID: instanceID,
+            format: "jpeg",
+            quality: 68
+        )
+    }
+
+    private static func capture(
+        debugPort: Int,
+        attempts: Int,
+        outputURL: URL?,
+        outputDirectory: URL,
+        instanceID: UUID,
+        format: String,
+        quality: Int?
+    ) async throws -> URL {
         var lastError = "调试端口尚未就绪"
-        for _ in 0..<20 {
+        for _ in 0..<attempts {
             do {
                 let targets = try await pageTargets(debugPort: debugPort)
-                guard let value = targets.first(where: { $0.type == "page" })?.webSocketDebuggerUrl,
+                let target = await visiblePage(in: targets)?.target
+                    ?? targets.first(where: { $0.type == "page" && $0.webSocketDebuggerUrl != nil })
+                guard let value = target?.webSocketDebuggerUrl,
                       let socketURL = URL(string: value) else {
                     throw InstanceDockError.screenshotFailed("没有可截图的页面")
                 }
-                return try await capture(socketURL: socketURL, instanceID: instanceID, outputDirectory: outputDirectory)
+                return try await capture(
+                    socketURL: socketURL,
+                    instanceID: instanceID,
+                    outputURL: outputURL,
+                    outputDirectory: outputDirectory,
+                    format: format,
+                    quality: quality
+                )
             } catch {
                 lastError = error.localizedDescription
                 try await Task.sleep(nanoseconds: 250_000_000)
@@ -145,10 +186,23 @@ enum ScreenshotService {
         return try JSONDecoder().decode([Target].self, from: data)
     }
 
-    private static func capture(socketURL: URL, instanceID: UUID, outputDirectory: URL) async throws -> URL {
+    private static func capture(
+        socketURL: URL,
+        instanceID: UUID,
+        outputURL: URL?,
+        outputDirectory: URL,
+        format: String,
+        quality: Int?
+    ) async throws -> URL {
+        var parameters: [String: Any] = [
+            "format": format,
+            "captureBeyondViewport": false,
+            "fromSurface": true,
+        ]
+        if let quality { parameters["quality"] = quality }
         let command: [String: Any] = [
             "id": 1, "method": "Page.captureScreenshot",
-            "params": ["format": "png", "captureBeyondViewport": false],
+            "params": parameters,
         ]
         let requestData = try JSONSerialization.data(withJSONObject: command)
         let messages = try await RawWebSocket.exchange(url: socketURL, message: requestData)
@@ -163,11 +217,26 @@ enum ScreenshotService {
                   let image = Data(base64Encoded: encoded) else {
                 throw InstanceDockError.screenshotFailed("CDP 没有返回图片")
             }
-            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyyMMdd-HHmmss"
-            let url = outputDirectory.appendingPathComponent("\(formatter.string(from: Date()))-\(instanceID.uuidString.prefix(8)).png")
+            let privateArtifact = outputURL != nil
+            try FileManager.default.createDirectory(
+                at: outputDirectory,
+                withIntermediateDirectories: true,
+                attributes: privateArtifact ? [.posixPermissions: 0o700] : nil
+            )
+            let url: URL
+            if let outputURL {
+                url = outputURL
+            } else {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyyMMdd-HHmmss"
+                url = outputDirectory.appendingPathComponent(
+                    "\(formatter.string(from: Date()))-\(instanceID.uuidString.prefix(8)).\(format == "jpeg" ? "jpg" : format)"
+                )
+            }
             try image.write(to: url, options: .atomic)
+            if privateArtifact {
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            }
             return url
         }
         throw InstanceDockError.screenshotFailed("等待 CDP 截图响应超时")

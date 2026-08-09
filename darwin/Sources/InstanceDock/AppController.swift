@@ -72,10 +72,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func showContextMenu() {
         let menu = NSMenu()
-        let quickItem = menu.addItem(withTitle: store.isLaunching ? "正在启动浏览器…" : "启动新实例",
-                                     action: #selector(quickLaunch), keyEquivalent: "n")
-        quickItem.target = self
-        quickItem.isEnabled = !store.isLaunching
+        let directItem = menu.addItem(withTitle: store.isLaunching ? "正在启动浏览器…" : "无代理启动",
+                                      action: #selector(directLaunch), keyEquivalent: "n")
+        directItem.target = self
+        directItem.isEnabled = !store.isLaunching
+        let proxyItem = menu.addItem(withTitle: "使用 HTTP 代理启动",
+                                     action: #selector(proxyLaunch), keyEquivalent: "")
+        proxyItem.target = self
+        proxyItem.isEnabled = !store.isLaunching
         menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "") .target = self
         menu.addItem(withTitle: "全部管理", action: #selector(showManagerAction), keyEquivalent: ",").target = self
         menu.addItem(.separator())
@@ -85,7 +89,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.menu = nil
     }
 
-    @objc private func quickLaunch() { store.launch(mode: .quick) }
+    @objc private func directLaunch() { store.launchConfigured(usePresetProxy: false) }
+    @objc private func proxyLaunch() { store.launchConfigured(usePresetProxy: true) }
     @objc private func showWidgetAction() { showWidget() }
     @objc private func showManagerAction() { showManager(section: .quick) }
     @objc private func quit() { NSApp.terminate(nil) }

@@ -81,38 +81,153 @@ struct BrowserPlugin: Identifiable, Codable, Equatable, Hashable {
     var createdAt = Date()
 }
 
+struct ProxyPreset: Identifiable, Codable, Equatable, Hashable {
+    var id = UUID()
+    var server: String
+    var remark: String
+    var username: String = ""
+    var lastUsedAt = Date()
+}
+
+enum ProxyScheme: String, Codable, CaseIterable, Identifiable {
+    case http
+    case https
+
+    var id: String { rawValue }
+    var title: String { rawValue.uppercased() }
+    var defaultPort: Int { self == .https ? 443 : 80 }
+}
+
+struct ProxyEndpoint: Equatable {
+    var scheme: ProxyScheme
+    var host: String
+    var port: Int
+    var server: String
+}
+
+enum HTTPProxyAddress {
+    static func build(scheme: ProxyScheme, host: String, port: Int) throws -> String {
+        var normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedHost.hasPrefix("[") && normalizedHost.hasSuffix("]") {
+            normalizedHost.removeFirst()
+            normalizedHost.removeLast()
+        }
+        guard !normalizedHost.isEmpty,
+              !normalizedHost.contains("://"),
+              !normalizedHost.contains("/"),
+              !normalizedHost.contains("@"),
+              (1...65_535).contains(port) else {
+            throw InstanceDockError.invalidProxy("\(scheme.rawValue)://\(host):\(port)")
+        }
+        var components = URLComponents()
+        components.scheme = scheme.rawValue
+        components.host = normalizedHost
+        components.port = port
+        guard let value = components.string else {
+            throw InstanceDockError.invalidProxy("\(scheme.rawValue)://\(host):\(port)")
+        }
+        return value
+    }
+
+    static func split(_ value: String) throws -> ProxyEndpoint {
+        let normalized = try normalize(value)
+        guard let components = URLComponents(string: normalized),
+              let rawScheme = components.scheme,
+              let scheme = ProxyScheme(rawValue: rawScheme),
+              var host = components.host else {
+            throw InstanceDockError.invalidProxy(value)
+        }
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            host.removeFirst()
+            host.removeLast()
+        }
+        return ProxyEndpoint(
+            scheme: scheme,
+            host: host,
+            port: components.port ?? scheme.defaultPort,
+            server: normalized
+        )
+    }
+
+    static func normalize(_ value: String) throws -> String {
+        var candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else { throw InstanceDockError.invalidProxy(value) }
+        if !candidate.contains("://") { candidate = "http://\(candidate)" }
+        guard var components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = components.host,
+              !host.isEmpty,
+              components.user == nil,
+              components.password == nil,
+              components.port.map({ (1...65_535).contains($0) }) ?? true,
+              !candidate.hasSuffix(":"),
+              (components.path.isEmpty || components.path == "/"),
+              components.query == nil,
+              components.fragment == nil else {
+            throw InstanceDockError.invalidProxy(value)
+        }
+        components.scheme = scheme
+        components.path = ""
+        guard let normalized = components.string, URL(string: normalized) != nil else {
+            throw InstanceDockError.invalidProxy(value)
+        }
+        return normalized
+    }
+}
+
 enum LaunchMode: String, Codable, CaseIterable {
     case quick
     case isolated
     case custom
     var title: String {
         switch self {
-        case .quick: return "启动新实例"
-        case .isolated: return "启动新实例"
+        case .quick: return "快速启动"
+        case .isolated: return "快速启动"
         case .custom: return "自定义启动"
         }
     }
 }
 
 struct LaunchSettings: Codable, Equatable {
+    static let currentConfigurationVersion = 3
+    static let certificateDefaultMigrationVersion = 2
+    static let defaultPresetProxyServer = "http://127.0.0.1:8083"
+
+    var configurationVersion = Self.currentConfigurationVersion
     var defaultRuntimeID: UUID?
     var homeURL = "chrome://newtab"
     var proxyServer = ""
+    var proxyUsername = ""
+    var proxyPassword = ""
+    var presetProxyServer = Self.defaultPresetProxyServer
+    var presetProxyScheme = ProxyScheme.http
+    var presetProxyHost = "127.0.0.1"
+    var presetProxyPort = 8083
+    var presetProxyUsername = ""
+    var presetProxyPassword = ""
+    var presetProxyRemark = ""
+    var recentProxyPresets: [ProxyPreset] = []
     var debugPort = 9222
     var restrictWebRTC = true
     var disableNotifications = true
-    var ignoreCertificateErrors = false
+    var ignoreCertificateErrors = true
     var additionalFlags = ""
     var defaultPluginIDs: [UUID] = []
     var dockBadge = ""
 
     static let blockedCustomPrefixes = [
         "--user-data-dir", "--remote-debugging-address", "--remote-debugging-port",
-        "--load-extension", "--disable-extensions-except"
+        "--load-extension", "--disable-extensions-except",
+        "--proxy-server", "--no-proxy-server", "--proxy-pac-url",
+        "--proxy-auto-detect", "--proxy-bypass-list"
     ]
 
     private enum CodingKeys: String, CodingKey {
-        case defaultRuntimeID, homeURL, proxyServer, debugPort, restrictWebRTC
+        case configurationVersion, defaultRuntimeID, homeURL, proxyServer, proxyUsername
+        case presetProxyServer, presetProxyScheme, presetProxyHost, presetProxyPort
+        case presetProxyUsername, presetProxyRemark, recentProxyPresets
+        case debugPort, restrictWebRTC
         case disableNotifications, ignoreCertificateErrors, additionalFlags
         case defaultPluginIDs, dockBadge
     }
@@ -121,13 +236,40 @@ struct LaunchSettings: Codable, Equatable {
 extension LaunchSettings {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let savedVersion = try container.decodeIfPresent(Int.self, forKey: .configurationVersion) ?? 0
+        configurationVersion = Self.currentConfigurationVersion
         defaultRuntimeID = try container.decodeIfPresent(UUID.self, forKey: .defaultRuntimeID)
         homeURL = try container.decodeIfPresent(String.self, forKey: .homeURL) ?? "chrome://newtab"
         proxyServer = try container.decodeIfPresent(String.self, forKey: .proxyServer) ?? ""
+        proxyUsername = try container.decodeIfPresent(String.self, forKey: .proxyUsername) ?? ""
+        proxyPassword = ""
+        let legacyServer = try container.decodeIfPresent(String.self, forKey: .presetProxyServer)
+            ?? Self.defaultPresetProxyServer
+        let legacyEndpoint = try? HTTPProxyAddress.split(legacyServer)
+        presetProxyScheme = try container.decodeIfPresent(ProxyScheme.self, forKey: .presetProxyScheme)
+            ?? legacyEndpoint?.scheme
+            ?? .http
+        presetProxyHost = try container.decodeIfPresent(String.self, forKey: .presetProxyHost)
+            ?? legacyEndpoint?.host
+            ?? "127.0.0.1"
+        presetProxyPort = try container.decodeIfPresent(Int.self, forKey: .presetProxyPort)
+            ?? legacyEndpoint?.port
+            ?? 8083
+        presetProxyServer = (try? HTTPProxyAddress.build(
+            scheme: presetProxyScheme,
+            host: presetProxyHost,
+            port: presetProxyPort
+        )) ?? Self.defaultPresetProxyServer
+        presetProxyUsername = try container.decodeIfPresent(String.self, forKey: .presetProxyUsername) ?? ""
+        presetProxyPassword = ""
+        presetProxyRemark = try container.decodeIfPresent(String.self, forKey: .presetProxyRemark) ?? ""
+        recentProxyPresets = try container.decodeIfPresent([ProxyPreset].self, forKey: .recentProxyPresets) ?? []
         debugPort = try container.decodeIfPresent(Int.self, forKey: .debugPort) ?? 9222
         restrictWebRTC = try container.decodeIfPresent(Bool.self, forKey: .restrictWebRTC) ?? true
         disableNotifications = try container.decodeIfPresent(Bool.self, forKey: .disableNotifications) ?? true
-        ignoreCertificateErrors = try container.decodeIfPresent(Bool.self, forKey: .ignoreCertificateErrors) ?? false
+        ignoreCertificateErrors = savedVersion < Self.certificateDefaultMigrationVersion
+            ? true
+            : try container.decodeIfPresent(Bool.self, forKey: .ignoreCertificateErrors) ?? true
         additionalFlags = try container.decodeIfPresent(String.self, forKey: .additionalFlags) ?? ""
         defaultPluginIDs = try container.decodeIfPresent([UUID].self, forKey: .defaultPluginIDs) ?? []
         dockBadge = try container.decodeIfPresent(String.self, forKey: .dockBadge) ?? ""
@@ -154,6 +296,13 @@ enum BrowserLaunchPhase: Equatable {
     case succeeded
 }
 
+enum ProxyCheckPhase: Equatable {
+    case idle
+    case checking
+    case success
+    case failure
+}
+
 struct BrowserInstance: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
@@ -170,6 +319,8 @@ struct BrowserInstance: Identifiable, Codable, Equatable {
     var startedAt = Date()
     var status: InstanceStatus = .running
     var lastScreenshotPath: String?
+    var thumbnailPath: String? = nil
+    var thumbnailUpdatedAt: Date? = nil
     var lastPageTitle: String? = nil
     var lastPageURL: String? = nil
     var dockBadge: String? = nil
@@ -219,6 +370,7 @@ enum InstanceDockError: LocalizedError {
     case invalidExecutable(String)
     case invalidPlugin(String)
     case invalidURL(String)
+    case invalidProxy(String)
     case invalidFlag(String)
     case launchFailed(String)
     case downloadFailed(String)
@@ -230,6 +382,7 @@ enum InstanceDockError: LocalizedError {
         case .invalidExecutable(let value): return "找不到可执行的 Chrome：\(value)"
         case .invalidPlugin(let value): return "插件目录无效：\(value)（目录根部必须包含 manifest.json）"
         case .invalidURL(let value): return "启动地址无效：\(value)"
+        case .invalidProxy(let value): return "HTTP 代理地址无效：\(value)（例如 http://127.0.0.1:8083）"
         case .invalidFlag(let value): return "不允许覆盖实例隔离或调试参数：\(value)"
         case .launchFailed(let value): return "浏览器启动失败：\(value)"
         case .downloadFailed(let value): return "运行时安装失败：\(value)"
