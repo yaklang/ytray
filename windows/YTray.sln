@@ -1,0 +1,27 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YTray", "src\YTray.csproj", "{D1B6C3A0-2F4E-4D6A-9B1C-7E5F8A0D1C3B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YTray.Tests", "tests\YTray.Tests.csproj", "{A2C7D4E1-5B6F-4C8A-9D0E-1F2A3B4C5D6E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D1B6C3A0-2F4E-4D6A-9B1C-7E5F8A0D1C3B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D1B6C3A0-2F4E-4D6A-9B1C-7E5F8A0D1C3B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D1B6C3A0-2F4E-4D6A-9B1C-7E5F8A0D1C3B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D1B6C3A0-2F4E-4D6A-9B1C-7E5F8A0D1C3B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A2C7D4E1-5B6F-4C8A-9D0E-1F2A3B4C5D6E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2C7D4E1-5B6F-4C8A-9D0E-1F2A3B4C5D6E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2C7D4E1-5B6F-4C8A-9D0E-1F2A3B4C5D6E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2C7D4E1-5B6F-4C8A-9D0E-1F2A3B4C5D6E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

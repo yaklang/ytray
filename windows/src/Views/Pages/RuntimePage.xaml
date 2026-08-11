@@ -1,0 +1,65 @@
+<Page x:Class="YTray.Views.Pages.RuntimePage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:hc="https://handyorg.github.io/handycontrol"
+      Background="{DynamicResource RegionBrush}">
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="28,28,28,16">
+            <TextBlock Text="浏览器来源" FontSize="25" FontWeight="Bold"/>
+            <TextBlock Text="系统浏览器会自动识别并可直接使用；安装 Chrome for Testing 只是可选项。" Foreground="#888" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <Border DockPanel.Dock="Top" Margin="28,0,28,12" Background="White" CornerRadius="10" Padding="14">
+            <StackPanel>
+                <TextBlock Text="安装 Chrome for Testing" FontWeight="Bold" Margin="0,0,0,10"/>
+                <DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="刷新可安装版本" Padding="10,6" Margin="0,0,8,0" Click="RefreshManifest_Click"/>
+                        <ComboBox x:Name="VersionCombo" Width="220" Margin="0,0,8,0" hc:InfoElement.Placeholder="选择版本"/>
+                        <Button x:Name="InstallBtn" Content="安装" Padding="14,6" Click="Install_Click"
+                                Style="{StaticResource ButtonPrimary}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                        <Button Content="重新扫描本机" Padding="10,6" Margin="0,0,8,0" Click="Rescan_Click"/>
+                        <Button Content="选择其他本地浏览器…" Padding="10,6" Click="Choose_Click" Style="{StaticResource ButtonDefault}"/>
+                    </StackPanel>
+                </DockPanel>
+                <DockPanel Margin="0,8,0,0">
+                    <hc:LoadingCircle x:Name="InstallSpinner" Visibility="Collapsed" Width="20" Height="20" DockPanel.Dock="Left" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="InstallStatus" Text="" FontSize="11" Foreground="#888" VerticalAlignment="Center"/>
+                </DockPanel>
+            </StackPanel>
+        </Border>
+
+        <ListBox x:Name="RuntimeList" Background="White" BorderBrush="#E8E8E8" BorderThickness="1" Margin="28,0,28,28" HorizontalContentAlignment="Stretch">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                    <Setter Property="Padding" Value="14,10"/>
+                    <Setter Property="Margin" Value="0,0,0,4"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <DockPanel>
+                        <Border Width="40" Height="40" CornerRadius="8" Background="{StaticResource BrandPaleBrush}" Margin="0,0,12,0">
+                            <TextBlock Text="🌐" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding DisplayTitle}" FontWeight="Bold" FontSize="14"/>
+                                <hc:Tag Content="{Binding Source}" Margin="8,0,0,0" Padding="6,2" FontSize="10"/>
+                            </StackPanel>
+                            <TextBlock Foreground="#888" FontSize="11" Margin="0,2,0,0">
+                                <Run Text="版本 "/><Run Text="{Binding VersionLabel}"/><Run Text=" · "/><Run Text="{Binding Architecture}"/>
+                            </TextBlock>
+                            <TextBlock Text="{Binding ExecutablePath}" Foreground="#BBB" FontSize="9" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button Content="设为默认" Padding="8,4" Click="SetDefault_Click" Tag="{Binding}"/>
+                        </StackPanel>
+                    </DockPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</Page>

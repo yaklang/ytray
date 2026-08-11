@@ -1,0 +1,78 @@
+<Window x:Class="YTray.Views.ManagerView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:hc="https://handyorg.github.io/handycontrol"
+        Title="YTray" Width="1080" Height="720" MinWidth="880" MinHeight="600"
+        Background="{DynamicResource RegionBrush}"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="NavListBoxItem" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="BorderThickness" Value="3,0,0,0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource BrandOrangeBrush}"/>
+                    <Setter Property="Background" Value="{StaticResource BrandPaleBrush}"/>
+                    <Setter Property="Foreground" Value="{StaticResource BrandOrangeBrush}"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#F5F5F5"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="White" BorderBrush="#E8E8E8" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="16,20,16,16">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="28" Height="28" Fill="{StaticResource BrandOrangeBrush}"/>
+                        <TextBlock Text="YTray" FontSize="22" FontWeight="Bold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="多身份浏览器实例工作台" FontSize="10" Foreground="#999" Margin="38,4,0,0"/>
+                </StackPanel>
+                <ListBox x:Name="NavList" BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource NavListBoxItem}">
+                    <ListBoxItem x:Name="NavQuick" Tag="quick" IsSelected="True" Selected="Nav_Selected">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚡" FontSize="16"/>
+                            <TextBlock Text="快速配置" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem x:Name="NavRuntimes" Tag="runtimes" Selected="Nav_Selected">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📦" FontSize="16"/>
+                            <TextBlock Text="浏览器来源" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem x:Name="NavSettings" Tag="settings" Selected="Nav_Selected">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚙" FontSize="16"/>
+                            <TextBlock Text="启动设置" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem x:Name="NavInstances" Tag="instances" Selected="Nav_Selected">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📋" FontSize="16"/>
+                            <TextBlock Text="运行与历史" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem x:Name="NavPlugins" Tag="plugins" Selected="Nav_Selected">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🧩" FontSize="16"/>
+                            <TextBlock Text="插件管理" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <Frame x:Name="ContentFrame" Grid.Column="1" NavigationUIVisibility="Hidden"/>
+    </Grid>
+</Window>

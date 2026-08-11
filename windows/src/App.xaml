@@ -1,0 +1,23 @@
+<Application x:Class="YTray.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:hc="https://handyorg.github.io/handycontrol">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/SkinDefault.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/Theme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <!-- Brand colors, mirrored from macOS Brand constants -->
+            <Color x:Key="BrandOrangeColor">#F28B44</Color>
+            <SolidColorBrush x:Key="BrandOrangeBrush" Color="#F28B44" />
+            <SolidColorBrush x:Key="BrandPaleBrush" Color="#FFF6EE" />
+            <!-- Override HandyControl primary brush with YTray orange -->
+            <SolidColorBrush x:Key="PrimaryBrush" Color="#F28B44"/>
+            <SolidColorBrush x:Key="PrimaryBrushDark" Color="#D9772E"/>
+            <SolidColorBrush x:Key="PrimaryBrushLight" Color="#F8B488"/>
+            <SolidColorBrush x:Key="SuccessBrush" Color="#27AE60"/>
+            <SolidColorBrush x:Key="DangerBrush" Color="#E74C3C"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

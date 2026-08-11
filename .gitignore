@@ -2,3 +2,41 @@
 .swiftpm/
 darwin/.build/
 *.xcuserstate
+
+# C# / .NET build artifacts
+**/bin/
+**/obj/
+packages/
+*.user
+*.suo
+*.vspscc
+*.vssscc
+*.cache
+*.tlog
+*.log
+*.pdb
+*.ilk
+*.meta
+*.tmp_proj
+*.bak
+*.pidb
+*.svclog
+
+# Visual Studio / VS BuildTools
+.vs/
+*.aps
+*.ncb
+*.opensdf
+*.sdf
+*.cachefile
+
+# NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+
+# Temporary probe files
+.tmp_probe/
+
+# ZCode CLI workspace
+.zcode/
