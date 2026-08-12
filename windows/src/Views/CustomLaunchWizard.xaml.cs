@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -225,7 +226,8 @@ namespace YTray.Views
             AddReviewRow(grid, 1, "启动地址", _draft.HomeURL);
             AddReviewRow(grid, 2, "网络", "直连（无代理）");
             AddReviewRow(grid, 3, "调试", $"127.0.0.1:{_draft.DebugPort} 起自动避让");
-            AddReviewRow(grid, 4, "Dock 角标", string.IsNullOrEmpty(_draft.DockBadge?.Trim()) ? "自动分配" : _draft.DockBadge.ToUpper());
+            var dockBadge = _draft.DockBadge?.Trim();
+            AddReviewRow(grid, 4, "Dock 角标", string.IsNullOrEmpty(dockBadge) ? "自动分配" : dockBadge!.ToUpperInvariant());
             AddReviewRow(grid, 5, "WebRTC", _draft.RestrictWebRTC ? "限制" : "不限制");
             AddReviewRow(grid, 6, "插件", $"{_pluginIDs.Count} 个");
             sp.Children.Add(grid);

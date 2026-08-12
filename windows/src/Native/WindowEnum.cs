@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -59,7 +60,7 @@ namespace YTray.Native
         }
 
         /// <summary>Poll until a Chrome window appears for the PID, then return its AUMID. Null on timeout.</summary>
-        public static string PollForWindowAumid(int processId, TimeSpan timeout)
+        public static string? PollForWindowAumid(int processId, TimeSpan timeout)
         {
             var deadline = DateTime.UtcNow + timeout;
             while (DateTime.UtcNow < deadline)

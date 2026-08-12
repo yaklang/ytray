@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -21,7 +22,7 @@ namespace YTray.Core
         public sealed class InstallProgress
         {
             public int Percent { get; set; }
-            public string Message { get; set; }
+            public string Message { get; set; } = "";
             public long BytesReceived { get; set; }
             public long? TotalBytes { get; set; }
         }
@@ -35,10 +36,12 @@ namespace YTray.Core
 
         public static async Task<List<MirrorVersion>> FetchVersionsAsync()
         {
-            var resp = await Http.GetAsync(ManifestURL);
-            if (!resp.IsSuccessStatusCode) throw new YTrayException(YTrayError.DownloadFailed, "镜像清单返回异常");
-            var json = await resp.Content.ReadAsStringAsync();
-            return JsonConvert.DeserializeObject<MirrorManifest>(json)?.Versions ?? new List<MirrorVersion>();
+            using (var resp = await Http.GetAsync(ManifestURL))
+            {
+                if (!resp.IsSuccessStatusCode) throw new YTrayException(YTrayError.DownloadFailed, "镜像清单返回异常");
+                var json = await resp.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<MirrorManifest>(json)?.Versions ?? new List<MirrorVersion>();
+            }
         }
 
         public static bool IsCompatible(MirrorVersion version) =>
@@ -48,8 +51,11 @@ namespace YTray.Core
                 && string.Equals(a.Format, "zip", StringComparison.OrdinalIgnoreCase)) == true;
 
         public static async Task<BrowserRuntime> InstallAsync(MirrorVersion version, string applicationDirectory,
-            IProgress<InstallProgress> progress = null, CancellationToken cancellationToken = default)
+            IProgress<InstallProgress>? progress = null, CancellationToken cancellationToken = default)
         {
+            if (version == null) throw new ArgumentNullException(nameof(version));
+            if (string.IsNullOrWhiteSpace(applicationDirectory))
+                throw new ArgumentException("Application directory is required.", nameof(applicationDirectory));
             var artifact = version.Artifacts.FirstOrDefault(a =>
                 string.Equals(a.OS, "windows", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(a.Arch, Architecture, StringComparison.OrdinalIgnoreCase)
@@ -69,6 +75,8 @@ namespace YTray.Core
                         var buffer = new byte[81920];
                         long received = 0;
                         int read;
+                        var lastReportedPercent = -1;
+                        var lastReportAt = DateTime.UtcNow;
                         while ((read = await input.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
                         {
                             await output.WriteAsync(buffer, 0, read, cancellationToken);
@@ -76,6 +84,13 @@ namespace YTray.Core
                             var downloadPercent = total.HasValue && total.Value > 0
                                 ? Math.Min(78, 5 + (int)(received * 73L / total.Value))
                                 : 5;
+                            var now = DateTime.UtcNow;
+                            var shouldReport = downloadPercent != lastReportedPercent
+                                && (now - lastReportAt >= TimeSpan.FromMilliseconds(90)
+                                    || total.HasValue && received >= total.Value);
+                            if (!shouldReport) continue;
+                            lastReportedPercent = downloadPercent;
+                            lastReportAt = now;
                             progress?.Report(new InstallProgress
                             {
                                 Percent = downloadPercent,
@@ -118,13 +133,13 @@ namespace YTray.Core
             }
         }
 
-        public static string NormalizeExecutable(string selected)
+        public static string? NormalizeExecutable(string selected)
         {
             if (!File.Exists(selected)) return null;
             return selected;
         }
 
-        public static string LocateChrome(string root)
+        public static string? LocateChrome(string root)
         {
             try
             {
@@ -143,7 +158,7 @@ namespace YTray.Core
             }
         }
 
-        private static Task ExtractAsync(string zipPath, string destination, IProgress<InstallProgress> progress,
+        private static Task ExtractAsync(string zipPath, string destination, IProgress<InstallProgress>? progress,
             CancellationToken cancellationToken)
         {
             return Task.Run(() =>
@@ -153,6 +168,7 @@ namespace YTray.Core
                 using (var archive = ZipFile.OpenRead(zipPath))
                 {
                     var total = Math.Max(archive.Entries.Count, 1);
+                    var lastReportedPercent = -1;
                     for (var index = 0; index < archive.Entries.Count; index++)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -166,12 +182,18 @@ namespace YTray.Core
                         }
                         else
                         {
-                            Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+                            var outputDirectory = Path.GetDirectoryName(outputPath);
+                            if (string.IsNullOrWhiteSpace(outputDirectory))
+                                throw new YTrayException(YTrayError.DownloadFailed, "ZIP 项目没有有效的目标目录");
+                            Directory.CreateDirectory(outputDirectory);
                             entry.ExtractToFile(outputPath, true);
                         }
+                        var percent = Math.Min(99, 84 + (index + 1) * 15 / total);
+                        if (percent == lastReportedPercent && index + 1 < archive.Entries.Count) continue;
+                        lastReportedPercent = percent;
                         progress?.Report(new InstallProgress
                         {
-                            Percent = Math.Min(99, 84 + (index + 1) * 15 / total),
+                            Percent = percent,
                             Message = $"正在解压 · {index + 1} / {total}",
                         });
                     }

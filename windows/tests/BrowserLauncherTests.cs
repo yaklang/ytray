@@ -276,6 +276,54 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void StatePersistenceNormalizesNullCollectionsFromLegacyOrDamagedJson()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayNullStateTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                File.WriteAllText(StatePersistence.StatePath(directory),
+                    "{\"Runtimes\":null,\"Plugins\":null,\"Instances\":null,\"Settings\":null}");
+                var loaded = StatePersistence.Load(directory);
+                Assert.IsNotNull(loaded);
+                Assert.IsNotNull(loaded.Runtimes);
+                Assert.IsNotNull(loaded.Plugins);
+                Assert.IsNotNull(loaded.Instances);
+                Assert.IsNotNull(loaded.Settings);
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void LaunchSettingsCloneDoesNotAliasMutableCollectionsOrSecrets()
+        {
+            var pluginId = Guid.NewGuid();
+            var presetId = Guid.NewGuid();
+            var original = new LaunchSettings
+            {
+                ProxyPassword = "secret",
+                DefaultPluginIDs = new List<Guid> { pluginId },
+                RecentProxyPresets = new List<ProxyPreset>
+                {
+                    new ProxyPreset("http://127.0.0.1:8080", "local", "user", "pass") { Id = presetId },
+                },
+            };
+
+            var clone = original.Clone();
+            clone.DefaultPluginIDs.Clear();
+            clone.RecentProxyPresets[0].Remark = "changed";
+            clone.ProxyPassword = "changed";
+
+            Assert.AreEqual(1, original.DefaultPluginIDs.Count);
+            Assert.AreEqual("local", original.RecentProxyPresets[0].Remark);
+            Assert.AreEqual(presetId, clone.RecentProxyPresets[0].Id);
+            Assert.AreEqual("secret", original.ProxyPassword);
+        }
+
+        [TestMethod]
         public void MirrorVersionDisplaysItsVersionAndFiltersForCurrentWindowsArchitecture()
         {
             var compatible = new MirrorVersion
@@ -366,7 +414,38 @@ namespace YTray.Tests
             {
                 Assert.AreEqual(64, icon.Width);
                 Assert.AreEqual(64, icon.Height);
-                Assert.IsTrue(icon.GetPixel(52, 52).A > 0, "A badge should occupy the bottom-right icon area");
+                Assert.IsTrue(icon.GetPixel(12, 12).A > 0, "A badge should occupy the top-left icon area");
+                var center = icon.GetPixel(18, 18);
+                Assert.IsTrue(center.R < 90 && center.G < 90 && center.B < 90,
+                    "The instance letter should use a dark high-contrast foreground on orange");
+                Assert.AreEqual(0, icon.GetPixel(58, 58).A,
+                    "The bottom-right corner must remain available for Chrome for Testing's T badge");
+            }
+        }
+
+        [TestMethod]
+        public void CdpThumbnailLoadsFromStreamWithoutUriCacheFailure()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayThumbnailTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "preview.jpg");
+            try
+            {
+                using (var bitmap = new System.Drawing.Bitmap(124, 76))
+                using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+                {
+                    graphics.Clear(System.Drawing.Color.CornflowerBlue);
+                    bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Jpeg);
+                }
+
+                var source = InstanceThumbnailImageSource.LoadNowForTests(path) as System.Windows.Media.Imaging.BitmapSource;
+                Assert.IsNotNull(source, "A valid CDP JPEG must not fall back to the loading placeholder");
+                Assert.IsTrue(source.PixelWidth > 0 && source.PixelHeight > 0);
+                Assert.IsTrue(source.IsFrozen, "The decoded preview must be safe to reuse across WPF refreshes");
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
         }
 

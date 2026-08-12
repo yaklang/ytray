@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -15,15 +16,16 @@ namespace YTray.Native
         /// <summary>
         /// Read System.AppUserModel.ID from a .lnk file.
         /// </summary>
-        public static string ReadAumidFromLnk(string lnkPath)
+        public static string? ReadAumidFromLnk(string lnkPath)
         {
             if (!File.Exists(lnkPath)) return null;
+            ShellLinkClass? shellLink = null;
             try
             {
-                var sl = new ShellLinkClass();
-                var pf = (IPersistFile)sl;
+                shellLink = new ShellLinkClass();
+                var pf = (IPersistFile)shellLink;
                 if (pf.Load(lnkPath, 0) != 0) return null; // STGM_READ
-                var ps = sl as IPropertyStore;
+                var ps = shellLink as IPropertyStore;
                 if (ps == null) return null;
                 var pv = new PROPVARIANT();
                 var key = Win32.PKEY_AppUserModel_ID;
@@ -41,17 +43,19 @@ namespace YTray.Native
             {
                 return null;
             }
+            finally { ReleaseShellLink(shellLink); }
         }
 
         /// <summary>Read target path + arguments from a .lnk file.</summary>
-        public static (string target, string arguments) ReadTargetAndArgs(string lnkPath)
+        public static (string? target, string? arguments) ReadTargetAndArgs(string lnkPath)
         {
+            ShellLinkClass? shellLink = null;
             try
             {
-                var sl = new ShellLinkClass();
-                var pf = (IPersistFile)sl;
+                shellLink = new ShellLinkClass();
+                var pf = (IPersistFile)shellLink;
                 if (pf.Load(lnkPath, 0) != 0) return (null, null);
-                var islw = (IShellLinkW)sl;
+                var islw = (IShellLinkW)shellLink;
                 var target = new System.Text.StringBuilder(260);
                 var args = new System.Text.StringBuilder(1024);
                 islw.GetPath(target, target.Capacity, IntPtr.Zero, 0);
@@ -62,6 +66,7 @@ namespace YTray.Native
             {
                 return (null, null);
             }
+            finally { ReleaseShellLink(shellLink); }
         }
 
         /// <summary>
@@ -71,34 +76,46 @@ namespace YTray.Native
         public static void WriteLnk(string lnkPath, string target, string arguments,
             string workingDir, string iconPath, int iconIndex, string aumid, string displayName)
         {
-            var sl = new ShellLinkClass();
-            var islw = (IShellLinkW)sl;
-            islw.SetPath(target);
-            if (!string.IsNullOrEmpty(arguments)) islw.SetArguments(arguments);
-            if (!string.IsNullOrEmpty(workingDir)) islw.SetWorkingDirectory(workingDir);
-            if (!string.IsNullOrEmpty(iconPath)) islw.SetIconLocation(iconPath, iconIndex);
-            if (!string.IsNullOrEmpty(displayName)) islw.SetDescription(displayName);
-
-            // Set AUMID via the shortcut's property store (must precede/ accompany the ID).
-            var ps = sl as IPropertyStore;
-            if (ps != null && !string.IsNullOrEmpty(aumid))
+            if (string.IsNullOrWhiteSpace(lnkPath)) throw new ArgumentException("Shortcut path is required.", nameof(lnkPath));
+            if (string.IsNullOrWhiteSpace(target)) throw new ArgumentException("Shortcut target is required.", nameof(target));
+            ShellLinkClass? shellLink = null;
+            try
             {
-                var pv = PROPVARIANT.FromString(aumid);
-                var key = Win32.PKEY_AppUserModel_ID;
-                try
-                {
-                    ps.SetValue(ref key, pv);
-                    ps.Commit();
-                }
-                finally
-                {
-                    pv.Dispose();
-                }
-            }
+                shellLink = new ShellLinkClass();
+                var islw = (IShellLinkW)shellLink;
+                islw.SetPath(target);
+                if (!string.IsNullOrEmpty(arguments)) islw.SetArguments(arguments);
+                if (!string.IsNullOrEmpty(workingDir)) islw.SetWorkingDirectory(workingDir);
+                if (!string.IsNullOrEmpty(iconPath)) islw.SetIconLocation(iconPath, iconIndex);
+                if (!string.IsNullOrEmpty(displayName)) islw.SetDescription(displayName);
 
-            var pf = (IPersistFile)sl;
-            Directory.CreateDirectory(Path.GetDirectoryName(lnkPath));
-            pf.Save(lnkPath, true);
+                // Set AUMID via the shortcut's property store (must precede/accompany the ID).
+                var ps = shellLink as IPropertyStore;
+                if (ps != null && !string.IsNullOrEmpty(aumid))
+                {
+                    var pv = PROPVARIANT.FromString(aumid);
+                    var key = Win32.PKEY_AppUserModel_ID;
+                    try
+                    {
+                        ps.SetValue(ref key, pv);
+                        ps.Commit();
+                    }
+                    finally { pv.Dispose(); }
+                }
+
+                var directory = Path.GetDirectoryName(lnkPath);
+                if (string.IsNullOrWhiteSpace(directory))
+                    throw new ArgumentException("Shortcut path must include a directory.", nameof(lnkPath));
+                Directory.CreateDirectory(directory);
+                ((IPersistFile)shellLink).Save(lnkPath, true);
+            }
+            finally { ReleaseShellLink(shellLink); }
+        }
+
+        private static void ReleaseShellLink(ShellLinkClass? shellLink)
+        {
+            if (shellLink == null || !Marshal.IsComObject(shellLink)) return;
+            try { Marshal.FinalReleaseComObject(shellLink); } catch { }
         }
 
         /// <summary>
@@ -111,7 +128,7 @@ namespace YTray.Native
             foreach (var path in candidates)
             {
                 var aumid = ReadAumidFromLnk(path);
-                if (!string.IsNullOrEmpty(aumid)) return aumid;
+                if (!string.IsNullOrEmpty(aumid)) return aumid!;
             }
             // Fallback: the canonical base AUMID per browser kind.
             return kind switch
@@ -164,7 +181,7 @@ namespace YTray.Native
                 // recursive shallow search (Start Menu subfolders)
                 if (Directory.Exists(root))
                 {
-                    List<string> found = null;
+                    List<string>? found = null;
                     try
                     {
                         found = new List<string>(Directory.EnumerateFiles(root, name, SearchOption.AllDirectories));

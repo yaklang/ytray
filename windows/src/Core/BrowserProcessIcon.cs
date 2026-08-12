@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -5,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using YTray.Models;
+using YTray.Native;
 
 namespace YTray.Core
 {
@@ -17,7 +19,8 @@ namespace YTray.Core
     {
         public static readonly Color BrandOrange = Color.FromArgb(0xF2, 0x8B, 0x44);
         private static readonly object IconHandleLock = new object();
-        private static readonly Dictionary<Guid, List<IntPtr>> LiveIconHandles = new Dictionary<Guid, List<IntPtr>>();
+        private static readonly Dictionary<Guid, List<SafeIconHandle>> LiveIconHandles =
+            new Dictionary<Guid, List<SafeIconHandle>>();
 
         public static string IconPath(Guid instanceId, string applicationDirectory) =>
             Path.Combine(applicationDirectory, "ProcessIcons", instanceId + ".ico");
@@ -72,36 +75,60 @@ namespace YTray.Core
             var icoPath = IconPath(instanceId, applicationDirectory);
             if (!File.Exists(icoPath)) return false;
 
-            var big = Native.Win32.LoadImage(IntPtr.Zero, icoPath, Native.Win32.IMAGE_ICON, 32, 32,
-                Native.Win32.LR_LOADFROMFILE);
-            var small = Native.Win32.LoadImage(IntPtr.Zero, icoPath, Native.Win32.IMAGE_ICON, 16, 16,
-                Native.Win32.LR_LOADFROMFILE);
-            if (big == IntPtr.Zero && small == IntPtr.Zero) return false;
-
-            ReleaseWindowIcons(instanceId);
-            var handles = new List<IntPtr>();
-            if (big != IntPtr.Zero)
+            SafeIconHandle? bigOwner = null;
+            SafeIconHandle? smallOwner = null;
+            try
             {
-                Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON, (IntPtr)Native.Win32.ICON_BIG, big);
-                handles.Add(big);
-            }
-            if (small != IntPtr.Zero)
-            {
-                Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON, (IntPtr)Native.Win32.ICON_SMALL, small);
-                Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON, (IntPtr)Native.Win32.ICON_SMALL2, small);
-                handles.Add(small);
-            }
-            lock (IconHandleLock) LiveIconHandles[instanceId] = handles;
+                bigOwner = SafeIconHandle.Own(Native.Win32.LoadImage(IntPtr.Zero, icoPath,
+                    Native.Win32.IMAGE_ICON, 32, 32, Native.Win32.LR_LOADFROMFILE));
+                smallOwner = SafeIconHandle.Own(Native.Win32.LoadImage(IntPtr.Zero, icoPath,
+                    Native.Win32.IMAGE_ICON, 16, 16, Native.Win32.LR_LOADFROMFILE));
+                if (bigOwner.IsInvalid && smallOwner.IsInvalid) return false;
 
-            bool changed;
-            var metadataApplied = Native.Win32.EnsureWindowAppProperties(
-                hwnd, aumid, icoPath + ",0", false, out changed);
-            return metadataApplied;
+                var handles = new List<SafeIconHandle>();
+                List<SafeIconHandle>? previousHandles;
+                lock (IconHandleLock)
+                {
+                    // Install the replacement before releasing the previous HICONs. Destroying the
+                    // old owners first leaves a short dangling native pointer in the HWND and can
+                    // race an Explorer repaint.
+                    if (!bigOwner.IsInvalid)
+                    {
+                        Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON,
+                            (IntPtr)Native.Win32.ICON_BIG, bigOwner.DangerousGetHandle());
+                        handles.Add(bigOwner);
+                        bigOwner = null;
+                    }
+                    if (!smallOwner.IsInvalid)
+                    {
+                        Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON,
+                            (IntPtr)Native.Win32.ICON_SMALL, smallOwner.DangerousGetHandle());
+                        Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON,
+                            (IntPtr)Native.Win32.ICON_SMALL2, smallOwner.DangerousGetHandle());
+                        handles.Add(smallOwner);
+                        smallOwner = null;
+                    }
+                    LiveIconHandles.TryGetValue(instanceId, out previousHandles);
+                    LiveIconHandles[instanceId] = handles;
+                }
+                if (previousHandles != null)
+                    foreach (var previousHandle in previousHandles)
+                        previousHandle.Dispose();
+
+                bool changed;
+                return Native.Win32.EnsureWindowAppProperties(
+                    hwnd, aumid, icoPath + ",0", false, out changed);
+            }
+            finally
+            {
+                bigOwner?.Dispose();
+                smallOwner?.Dispose();
+            }
         }
 
         private static void ReleaseWindowIcons(Guid instanceId)
         {
-            List<IntPtr> handles = null;
+            List<SafeIconHandle>? handles = null;
             lock (IconHandleLock)
             {
                 if (LiveIconHandles.TryGetValue(instanceId, out handles))
@@ -109,7 +136,7 @@ namespace YTray.Core
             }
             if (handles == null) return;
             foreach (var handle in handles)
-                if (handle != IntPtr.Zero) Native.Win32.DestroyIcon(handle);
+                handle.Dispose();
         }
 
         private static void TryDelete(string path)
@@ -117,8 +144,8 @@ namespace YTray.Core
             try { if (File.Exists(path)) File.Delete(path); } catch { }
         }
 
-        /// <summary>Composite the base icon with an orange circular badge + white letter.</summary>
-        public static Bitmap RenderIcon(Icon baseIcon, string badge, int size = 256)
+        /// <summary>Composite the base icon with a high-contrast orange instance marker.</summary>
+        public static Bitmap RenderIcon(Icon? baseIcon, string badge, int size = 256)
         {
             var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(bmp))
@@ -138,41 +165,61 @@ namespace YTray.Core
                     }
                 }
 
-                // Taskbar icons are commonly rendered at 24–32px. Give the identity badge nearly
-                // half the icon and render every ICO frame independently so A/B remains legible.
-                float badgeHeight = Math.Max(8, size * 0.46f);
-                float badgeWidth = badge.Length == 1 ? badgeHeight : Math.Min(size * 0.62f, badgeHeight * 1.38f);
-                float inset = Math.Max(1, size * 0.018f);
-                float badgeRectX = size - badgeWidth - inset;
-                float badgeRectY = size - badgeHeight - inset;
+                // Chrome for Testing already owns the bottom-right corner on Windows. Put YTray's
+                // instance identity in the opposite (top-left) corner and make it deliberately
+                // larger than the previous badge so A/B survives 16–32px taskbar rendering.
+                float badgeHeight = Math.Max(9, size * 0.54f);
+                float badgeWidth = badge.Length == 1 ? badgeHeight : Math.Min(size * 0.70f, badgeHeight * 1.38f);
+                float inset = Math.Max(0.7f, size * 0.012f);
+                float badgeRectX = inset;
+                float badgeRectY = inset;
                 var badgeRect = new RectangleF(badgeRectX, badgeRectY, badgeWidth, badgeHeight);
 
-                // Dark keyline + white separator keep the orange badge readable on every browser.
+                // Use a compact rounded square rather than another circular browser mark. Swift
+                // uses orange + white, but white on orange loses contrast at Windows' 16–32px
+                // taskbar sizes; the dark letter keeps the instance identity unmistakable.
                 using (var shadowBrush = new SolidBrush(Color.FromArgb(105, 0, 0, 0)))
-                    g.FillEllipse(shadowBrush, new RectangleF(badgeRect.X,
-                        badgeRect.Y + Math.Max(1, size * 0.018f), badgeRect.Width, badgeRect.Height));
+                using (var shadowPath = RoundedRectangle(new RectangleF(
+                        badgeRect.X + Math.Max(0.6f, size * 0.012f),
+                        badgeRect.Y + Math.Max(0.8f, size * 0.018f),
+                        badgeRect.Width, badgeRect.Height), badgeHeight * 0.30f))
+                    g.FillPath(shadowBrush, shadowPath);
                 using (var borderBrush = new SolidBrush(Color.White))
-                    g.FillEllipse(borderBrush, badgeRect);
+                using (var borderPath = RoundedRectangle(badgeRect, badgeHeight * 0.30f))
+                    g.FillPath(borderBrush, borderPath);
                 var ring = Math.Max(1.2f, size * 0.035f);
                 var fillRect = RectangleF.Inflate(badgeRect, -ring, -ring);
                 using (var fillBrush = new SolidBrush(BrandOrange))
-                    g.FillEllipse(fillBrush, fillRect);
+                using (var fillPath = RoundedRectangle(fillRect, fillRect.Height * 0.25f))
+                    g.FillPath(fillBrush, fillPath);
 
-                // White bold letter, biased slightly upward to account for Segoe's baseline.
-                float fontSize = badge.Length == 1 ? badgeHeight * 0.62f : badgeHeight * 0.46f;
-                using (var font = new Font(SystemFonts.DefaultFont.FontFamily, fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
-                using (var brush = new SolidBrush(Color.White))
+                // Near-black on orange has more than twice the contrast of white on orange.
+                float fontSize = badge.Length == 1 ? badgeHeight * 0.68f : badgeHeight * 0.50f;
+                using (var font = new Font("Arial", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
+                using (var brush = new SolidBrush(Color.FromArgb(0x20, 0x21, 0x24)))
                 {
                     var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                    var textRect = new RectangleF(badgeRectX, badgeRectY - size * 0.008f, badgeWidth, badgeHeight);
+                    var textRect = new RectangleF(badgeRectX, badgeRectY - size * 0.018f, badgeWidth, badgeHeight);
                     g.DrawString(badge, font, brush, textRect, sf);
                 }
             }
             return bmp;
         }
 
+        private static GraphicsPath RoundedRectangle(RectangleF rectangle, float radius)
+        {
+            var path = new GraphicsPath();
+            var diameter = Math.Max(1, Math.Min(Math.Min(rectangle.Width, rectangle.Height), radius * 2));
+            path.AddArc(rectangle.Left, rectangle.Top, diameter, diameter, 180, 90);
+            path.AddArc(rectangle.Right - diameter, rectangle.Top, diameter, diameter, 270, 90);
+            path.AddArc(rectangle.Right - diameter, rectangle.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(rectangle.Left, rectangle.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
         /// <summary>Extract the largest available icon from an executable.</summary>
-        public static Icon ExtractLargeIcon(string path)
+        public static Icon? ExtractLargeIcon(string path)
         {
             try
             {
@@ -188,12 +235,12 @@ namespace YTray.Core
         private sealed class IconFrame : IDisposable
         {
             public int Size { get; set; }
-            public byte[] Bytes { get; set; }
-            public void Dispose() { Bytes = null; }
+            public byte[] Bytes { get; set; } = Array.Empty<byte>();
+            public void Dispose() { Bytes = Array.Empty<byte>(); }
         }
 
         /// <summary>Save native 16–256px PNG-compressed frames in one ICO.</summary>
-        private static void SaveAsIcon(Icon baseIcon, string badge, string path)
+        private static void SaveAsIcon(Icon? baseIcon, string badge, string path)
         {
             var frames = new List<IconFrame>();
             foreach (var size in new[] { 16, 20, 24, 32, 40, 48, 64, 256 })

@@ -1,6 +1,8 @@
+#nullable enable
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using YTray.Core;
 using YTray.Models;
 
@@ -38,9 +40,9 @@ namespace YTray.Views.Pages
 
         private void SyncThemeSelection()
         {
-            if (ThemeCombo == null) return;
+            if (SystemThemeChoice == null) return;
             _loadingControls = true;
-            ThemeCombo.SelectedIndex = (int)_store.Settings.ThemePreference;
+            UpdateThemeChoiceVisuals();
             _loadingControls = false;
             RefreshThemeDescription();
         }
@@ -54,18 +56,38 @@ namespace YTray.Views.Pages
             CertCheck.IsChecked = _store.Settings.IgnoreCertificateErrors;
             FlagsBox.Text = _store.Settings.AdditionalFlags;
             _loadingControls = true;
-            ThemeCombo.SelectedIndex = (int)_store.Settings.ThemePreference;
+            UpdateThemeChoiceVisuals();
             _loadingControls = false;
             RefreshThemeDescription();
         }
 
-        private void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void ThemeChoice_Click(object sender, RoutedEventArgs e)
         {
-            if (_store == null || _loadingControls || ThemeCombo.SelectedIndex < 0) return;
-            var preference = (AppThemePreference)ThemeCombo.SelectedIndex;
+            if (_store == null || _loadingControls || !(sender is Button button)
+                || !Enum.TryParse(button.Tag?.ToString(), out AppThemePreference preference)) return;
             _store.SetThemePreference(preference);
             SaveStatus.Text = "✓ 主题已应用";
+            UpdateThemeChoiceVisuals();
             RefreshThemeDescription();
+        }
+
+        private void UpdateThemeChoiceVisuals()
+        {
+            if (SystemThemeChoice == null) return;
+            SetThemeChoiceState(SystemThemeChoice, SystemThemeCheck,
+                _store.Settings.ThemePreference == AppThemePreference.System);
+            SetThemeChoiceState(LightThemeChoice, LightThemeCheck,
+                _store.Settings.ThemePreference == AppThemePreference.Light);
+            SetThemeChoiceState(DarkThemeChoice, DarkThemeCheck,
+                _store.Settings.ThemePreference == AppThemePreference.Dark);
+        }
+
+        private void SetThemeChoiceState(Button button, FrameworkElement check, bool selected)
+        {
+            button.Background = (Brush)FindResource(selected ? "BrandPaleBrush" : "InputBrush");
+            button.BorderBrush = (Brush)FindResource(selected ? "BrandOrangeBrush" : "HairlineBrush");
+            button.Foreground = (Brush)FindResource(selected ? "BrandOrangeBrush" : "TextSecondaryBrush");
+            check.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void RefreshThemeDescription()

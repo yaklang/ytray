@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Runtime.InteropServices;
 
@@ -39,7 +40,7 @@ namespace YTray.Native
             return pv;
         }
 
-        public string AsString()
+        public string? AsString()
         {
             if (vt == VT_LPWSTR && pwszVal != IntPtr.Zero)
                 return Marshal.PtrToStringUni(pwszVal);
@@ -207,7 +208,7 @@ namespace YTray.Native
         }
 
         /// <summary>Read the AUMID set on a live top-level window (Chrome_WidgetWin_1).</summary>
-        public static string GetWindowAumid(IntPtr hwnd)
+        public static string? GetWindowAumid(IntPtr hwnd)
         {
             try
             {
@@ -236,10 +237,10 @@ namespace YTray.Native
 
         /// <summary>Assign taskbar grouping/relaunch metadata directly to a live browser window.</summary>
         public static bool SetWindowAppProperties(IntPtr hwnd, string aumid, string displayName,
-            string iconResource, string relaunchCommand = null)
+            string iconResource, string? relaunchCommand = null)
         {
             if (hwnd == IntPtr.Zero) return false;
-            IPropertyStore store = null;
+            IPropertyStore? store = null;
             try
             {
                 var iid = IID_IPropertyStore;
@@ -249,7 +250,7 @@ namespace YTray.Native
                 SetString(store, PKEY_AppUserModel_ID, aumid);
                 SetString(store, PKEY_AppUserModel_RelaunchDisplayNameResource, displayName);
                 if (!string.IsNullOrWhiteSpace(relaunchCommand))
-                    SetString(store, PKEY_AppUserModel_RelaunchCommand, relaunchCommand);
+                    SetString(store, PKEY_AppUserModel_RelaunchCommand, relaunchCommand!);
                 // Window property stores apply SetValue immediately. Commit is required for .lnk
                 // property stores but is not consistently implemented for HWND property stores.
                 store.Commit();
@@ -274,7 +275,7 @@ namespace YTray.Native
             if (hwnd == IntPtr.Zero || string.IsNullOrWhiteSpace(aumid)
                 || string.IsNullOrWhiteSpace(iconResource)) return false;
 
-            IPropertyStore store = null;
+            IPropertyStore? store = null;
             try
             {
                 var iid = IID_IPropertyStore;
@@ -306,7 +307,7 @@ namespace YTray.Native
             }
         }
 
-        private static string GetString(IPropertyStore store, PROPERTYKEY propertyKey)
+        private static string? GetString(IPropertyStore store, PROPERTYKEY propertyKey)
         {
             var variant = new PROPVARIANT();
             var key = propertyKey;

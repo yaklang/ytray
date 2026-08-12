@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.IO;
 using System.Threading;
@@ -10,8 +11,8 @@ namespace YTray
 {
     public partial class App : Application
     {
-        private InstanceStore _store;
-        private TrayApp _tray;
+        private InstanceStore? _store;
+        private TrayApp? _tray;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -19,7 +20,7 @@ namespace YTray
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
             var args = Environment.GetCommandLineArgs();
-            string designCaptureDirectory = null;
+            string? designCaptureDirectory = null;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--capture-design-review" && i + 1 < args.Length)
@@ -43,10 +44,11 @@ namespace YTray
             }
 
             _store = new InstanceStore();
+            CrashGuard.Install(this, _store.ApplicationDirectory);
             if (!string.IsNullOrWhiteSpace(designCaptureDirectory))
             {
                 ThemeManager.Initialize(AppThemePreference.Light);
-                _ = RunDesignCaptureAsync(designCaptureDirectory);
+                CrashGuard.Observe(RunDesignCaptureAsync(designCaptureDirectory!), "design-capture");
                 return;
             }
             var initialTheme = _store.Settings.ThemePreference;
@@ -73,7 +75,8 @@ namespace YTray
         {
             try
             {
-                await DesignCaptureService.CaptureAsync(_store, outputDirectory);
+                var store = _store ?? throw new InvalidOperationException("Instance store is not initialized.");
+                await DesignCaptureService.CaptureAsync(store, outputDirectory);
             }
             catch (Exception ex)
             {

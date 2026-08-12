@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,10 +17,10 @@ namespace YTray.Core
     {
         private class Candidate
         {
-            public string DisplayName;
-            public string ExeName;
+            public string DisplayName = "";
+            public string ExeName = "";
             public BrowserKind Kind;
-            public string[] RegistryAppPathKeys;
+            public string[] RegistryAppPathKeys = Array.Empty<string>();
         }
 
         private static readonly Candidate[] _candidates =
@@ -54,7 +55,7 @@ namespace YTray.Core
             return found.Values.ToList();
         }
 
-        public static BrowserRuntime Inspect(string selectedPath)
+        public static BrowserRuntime? Inspect(string selectedPath)
         {
             if (string.IsNullOrEmpty(selectedPath) || !File.Exists(selectedPath)) return null;
             var name = Path.GetFileNameWithoutExtension(selectedPath);
@@ -84,7 +85,7 @@ namespace YTray.Core
             foreach (var keyName in c.RegistryAppPathKeys)
             {
                 var path = ReadAppPath(keyName);
-                if (!string.IsNullOrEmpty(path)) yield return path;
+                if (!string.IsNullOrEmpty(path)) yield return path!;
             }
 
             // LocalAppData for per-user installs
@@ -92,7 +93,7 @@ namespace YTray.Core
             yield return Path.Combine(lad, c.RegistryAppPathKeys[0]);
         }
 
-        private static string ReadAppPath(string relativeKey)
+        private static string? ReadAppPath(string relativeKey)
         {
             // App Paths live under HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\<exe>
             var name = Path.GetFileName(relativeKey);
@@ -119,7 +120,7 @@ namespace YTray.Core
             return null;
         }
 
-        private static string ReadVersion(string executable)
+        private static string? ReadVersion(string executable)
         {
             // On Windows, launching chrome.exe --version pops up a browser window and
             // doesn't write to stdout (unlike macOS). Read the version from the file's

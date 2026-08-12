@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.IO;
 using System.Security.AccessControl;
@@ -23,7 +24,7 @@ namespace YTray.Core
         public static string StatePath(string applicationDirectory) =>
             Path.Combine(applicationDirectory, "state.json");
 
-        public static PersistedState Load(string applicationDirectory)
+        public static PersistedState? Load(string applicationDirectory)
         {
             var path = StatePath(applicationDirectory);
             if (!File.Exists(path)) return null;
@@ -31,6 +32,9 @@ namespace YTray.Core
             {
                 var json = File.ReadAllText(path);
                 var state = JsonConvert.DeserializeObject<PersistedState>(json, JsonSettings) ?? new PersistedState();
+                state.Runtimes = state.Runtimes ?? new System.Collections.Generic.List<BrowserRuntime>();
+                state.Plugins = state.Plugins ?? new System.Collections.Generic.List<BrowserPlugin>();
+                state.Instances = state.Instances ?? new System.Collections.Generic.List<BrowserInstance>();
                 if (state.Settings == null) state.Settings = new LaunchSettings();
                 return state;
             }
@@ -42,16 +46,26 @@ namespace YTray.Core
 
         public static void Save(string applicationDirectory, PersistedState state)
         {
+            if (string.IsNullOrWhiteSpace(applicationDirectory))
+                throw new ArgumentException("Application directory is required.", nameof(applicationDirectory));
+            if (state == null) throw new ArgumentNullException(nameof(state));
             Directory.CreateDirectory(applicationDirectory);
             var path = StatePath(applicationDirectory);
             var json = JsonConvert.SerializeObject(state, JsonSettings);
             var tmp = path + ".tmp";
-            File.WriteAllText(tmp, json);
-            // File.Replace requires an existing destination. The previous implementation
-            // silently failed on first launch, so state.json was never created.
-            if (File.Exists(path)) File.Replace(tmp, path, null);
-            else File.Move(tmp, path);
-            RestrictToCurrentUser(path);
+            try
+            {
+                File.WriteAllText(tmp, json);
+                // File.Replace requires an existing destination. The previous implementation
+                // silently failed on first launch, so state.json was never created.
+                if (File.Exists(path)) File.Replace(tmp, path, null);
+                else File.Move(tmp, path);
+                RestrictToCurrentUser(path);
+            }
+            finally
+            {
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            }
         }
 
         /// <summary>Set the file ACL so only the current user account has read/write access.</summary>
@@ -63,6 +77,7 @@ namespace YTray.Core
                 var security = new FileSecurity();
                 security.SetAccessRuleProtection(true, false); // disable inheritance
                 var sid = WindowsIdentity.GetCurrent().User;
+                if (sid == null) return;
                 var rule = new FileSystemAccessRule(sid,
                     FileSystemRights.FullControl,
                     AccessControlType.Allow);

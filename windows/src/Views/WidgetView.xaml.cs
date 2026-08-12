@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.ComponentModel;
 using System.Linq;
@@ -16,8 +17,12 @@ namespace YTray.Views
         private readonly InstanceStore _store;
         private bool _refreshScheduled;
         private int _dismissGeneration;
+        private int _actionFeedbackGeneration;
+        private readonly ThumbnailPreviewWindow _thumbnailPreview = new ThumbnailPreviewWindow();
+        private string? _runningSignature;
+        private string? _historySignature;
 
-        public event EventHandler OpenManagerRequested;
+        public event EventHandler? OpenManagerRequested;
 
         public WidgetView(InstanceStore store)
         {
@@ -25,10 +30,28 @@ namespace YTray.Views
             _store = store;
             Loaded += (s, e) => Refresh();
             Deactivated += OnDeactivated;
+            Closed += (s, e) =>
+            {
+                _store.PropertyChanged -= OnStorePropertyChanged;
+                InstanceThumbnailImageSource.ImageLoaded -= OnThumbnailImageLoaded;
+                _thumbnailPreview.Close();
+            };
             _store.PropertyChanged += OnStorePropertyChanged;
+            InstanceThumbnailImageSource.ImageLoaded += OnThumbnailImageLoaded;
+        }
+
+        private void OnThumbnailImageLoaded(object sender, EventArgs e)
+        {
+            _runningSignature = null;
+            ScheduleRefresh();
         }
 
         private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            ScheduleRefresh();
+        }
+
+        private void ScheduleRefresh()
         {
             if (_refreshScheduled || !IsLoaded) return;
             _refreshScheduled = true;
@@ -44,7 +67,7 @@ namespace YTray.Views
             var generation = ++_dismissGeneration;
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (generation == _dismissGeneration && !IsActive && IsVisible) Hide();
+                if (generation == _dismissGeneration && !IsActive && IsVisible) HideWidget();
             }), DispatcherPriority.Background);
         }
 
@@ -74,6 +97,7 @@ namespace YTray.Views
         public void HideWidget()
         {
             _dismissGeneration++;
+            _thumbnailPreview.Dismiss();
             Hide();
         }
 
@@ -131,8 +155,20 @@ namespace YTray.Views
 
             var running = _store.RunningInstances;
             var history = _store.HistoryInstances;
-            RunningList.ItemsSource = running.Take(4).ToList();
-            HistoryList.ItemsSource = history.Take(4).ToList();
+            var visibleRunning = running.Take(4).ToList();
+            var visibleHistory = history.Take(4).ToList();
+            var runningSignature = InstanceSignature(visibleRunning);
+            var historySignature = InstanceSignature(visibleHistory);
+            if (_runningSignature != runningSignature)
+            {
+                _runningSignature = runningSignature;
+                RunningList.ItemsSource = visibleRunning.Select(i => new BrowserInstancePresentation(i)).ToList();
+            }
+            if (_historySignature != historySignature)
+            {
+                _historySignature = historySignature;
+                HistoryList.ItemsSource = visibleHistory;
+            }
             RunningCountLabel.Text = running.Count.ToString();
             HistoryCountLabel.Text = history.Count.ToString();
             RunningEmpty.Visibility = running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -151,6 +187,12 @@ namespace YTray.Views
             CheckBtn.IsEnabled = _store.ProxyCheckPhase != ProxyCheckPhase.Checking;
             DirectBtn.IsEnabled = ProxyBtn.IsEnabled = !_store.IsLaunching;
         }
+
+        private static string InstanceSignature(System.Collections.Generic.IEnumerable<BrowserInstance> instances) =>
+            string.Join("|", instances.Select(i => string.Join("~",
+                i.Id, i.Status, i.Name, i.LastPageTitle, i.LastPageURL, i.DockBadge,
+                i.ProcessID, i.DebugPort, i.ThumbnailPath, i.ThumbnailUpdatedAt?.Ticks ?? 0,
+                i.IsCapturing, i.IsStopping, i.PreviewError)));
 
         private bool CommitProxyEditor()
         {
@@ -184,19 +226,52 @@ namespace YTray.Views
 
         private void Close_Click(object sender, RoutedEventArgs e) => HideWidget();
 
+        private void Thumbnail_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (sender is FrameworkElement anchor && anchor.Tag is BrowserInstancePresentation row
+                && row.ThumbnailSource is ImageSource thumbnail)
+                _thumbnailPreview.Schedule(anchor, thumbnail, row.LastPageTitle ?? row.Name);
+        }
+
+        private void Thumbnail_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => _thumbnailPreview.Dismiss();
+
         private void Focus_Click(object sender, RoutedEventArgs e)
         {
             if (((FrameworkElement)sender).Tag is BrowserInstance instance) _store.Focus(instance);
         }
 
-        private void Capture_Click(object sender, RoutedEventArgs e)
+        private async void Capture_Click(object sender, RoutedEventArgs e)
         {
-            if (((FrameworkElement)sender).Tag is BrowserInstance instance) _ = _store.CaptureAsync(instance);
+            try
+            {
+                if (!(((FrameworkElement)sender).Tag is BrowserInstance instance)) return;
+                ShowInstanceAction("正在截取当前页面…", false, keepVisible: true);
+                var output = await _store.CaptureAsync(instance);
+                ShowInstanceAction(!string.IsNullOrWhiteSpace(output)
+                    ? $"截图已保存 · {output}"
+                    : (_store.ErrorMessage ?? "截图失败"), string.IsNullOrWhiteSpace(output));
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("widget-capture-click", ex);
+                ShowInstanceAction("截图失败 · " + ex.Message, true);
+            }
         }
 
-        private void Stop_Click(object sender, RoutedEventArgs e)
+        private async void Stop_Click(object sender, RoutedEventArgs e)
         {
-            if (((FrameworkElement)sender).Tag is BrowserInstance instance) _store.Stop(instance);
+            try
+            {
+                if (!(((FrameworkElement)sender).Tag is BrowserInstance instance)) return;
+                ShowInstanceAction($"正在停止 {instance.Name}…", false, keepVisible: true);
+                var stopped = await _store.StopAsync(instance);
+                ShowInstanceAction(stopped ? $"{instance.Name} 已停止" : (_store.ErrorMessage ?? "停止失败"), !stopped);
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("widget-stop-click", ex);
+                ShowInstanceAction("停止失败 · " + ex.Message, true);
+            }
         }
 
         private void Restore_Click(object sender, RoutedEventArgs e)
@@ -211,11 +286,19 @@ namespace YTray.Views
 
         private async void Check_Click(object sender, RoutedEventArgs e)
         {
-            if (!CommitProxyEditor()) return;
-            CheckBtn.IsEnabled = false;
-            ProxyStatus.Text = "检测中 · 最多 10 秒";
-            await _store.CheckPresetProxyAsync();
-            Refresh();
+            try
+            {
+                if (!CommitProxyEditor()) return;
+                CheckBtn.IsEnabled = false;
+                ProxyStatus.Text = "检测中 · 最多 10 秒";
+                await _store.CheckPresetProxyAsync();
+                Refresh();
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("widget-proxy-check", ex);
+                ProxyStatus.Text = "检测失败 · " + ex.Message;
+            }
         }
 
         private void Save_Click(object sender, RoutedEventArgs e)
@@ -226,6 +309,18 @@ namespace YTray.Views
             ProxyStatus.Foreground = saved == null
                 ? (Brush)FindResource("DangerBrush")
                 : (Brush)FindResource("SuccessBrush");
+        }
+
+        private async void ShowInstanceAction(string text, bool isError, bool keepVisible = false)
+        {
+            var generation = ++_actionFeedbackGeneration;
+            InstanceActionStatus.Text = text;
+            InstanceActionStatus.ToolTip = text;
+            InstanceActionStatus.Foreground = (Brush)FindResource(isError ? "DangerBrush" : "WidgetTextSecondaryBrush");
+            if (keepVisible) return;
+            await System.Threading.Tasks.Task.Delay(3200);
+            if (generation == _actionFeedbackGeneration && IsLoaded)
+                InstanceActionStatus.Text = "";
         }
     }
 }

@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Windows;
 using System.Windows.Input;
@@ -19,7 +20,7 @@ namespace YTray.Views
     {
         private const int DefaultYPercent = 58;
         private readonly InstanceStore _store;
-        private readonly Action<EdgeDock, bool> _onOpenWidget;
+        private readonly Action<EdgeDock, bool>? _onOpenWidget;
         private bool _dragging;
         private bool _openQueued;
         private double _dragStartScreenY;
@@ -37,7 +38,7 @@ namespace YTray.Views
             set => _store.Settings.EdgeDockYPercent = Math.Max(5, Math.Min(95, value));
         }
 
-        public EdgeDock(InstanceStore store, Action<EdgeDock, bool> onOpenWidget)
+        public EdgeDock(InstanceStore store, Action<EdgeDock, bool>? onOpenWidget)
         {
             InitializeComponent();
             _store = store;

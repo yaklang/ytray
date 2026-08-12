@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -5,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using YTray.Models;
 
@@ -36,16 +38,62 @@ namespace YTray.Core
             }
         }
 
-        public class LaunchResult
+        /// <summary>
+        /// Unique owner of every resource created for one browser launch. Keeping the process,
+        /// redirected log stream and taskbar controller in one disposable object prevents the
+        /// three resources from drifting into different lifetimes.
+        /// </summary>
+        public sealed class LaunchResult : IDisposable
         {
-            public Process Process;
-            public BrowserInstance Instance;
-            public BrowserWindowTaskbarController TaskbarController;
+            private readonly FileStream _logStream;
+            private int _disposed;
+
+            public Process Process { get; }
+            public BrowserInstance Instance { get; }
+            public BrowserWindowTaskbarController? TaskbarController { get; private set; }
+
+            internal LaunchResult(Process process, BrowserInstance instance,
+                BrowserWindowTaskbarController? taskbarController, FileStream logStream)
+            {
+                Process = process ?? throw new ArgumentNullException(nameof(process));
+                Instance = instance ?? throw new ArgumentNullException(nameof(instance));
+                TaskbarController = taskbarController;
+                _logStream = logStream ?? throw new ArgumentNullException(nameof(logStream));
+            }
+
+            internal void ReleaseTaskbarController()
+            {
+                var controller = TaskbarController;
+                TaskbarController = null;
+                try { controller?.Dispose(); }
+                catch (Exception ex) { CrashGuard.Record("taskbar-controller-dispose", ex); }
+            }
+
+            internal BrowserWindowTaskbarController? TakeTaskbarController()
+            {
+                var controller = TaskbarController;
+                TaskbarController = null;
+                return controller;
+            }
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                ReleaseTaskbarController();
+                try { Process.CancelOutputRead(); } catch { }
+                try { Process.CancelErrorRead(); } catch { }
+                try { Process.EnableRaisingEvents = false; } catch { }
+                try { Process.Dispose(); } catch { }
+                lock (_logStream)
+                {
+                    try { _logStream.Dispose(); } catch { }
+                }
+            }
         }
 
         public static List<string> BuildArguments(LaunchMode mode, LaunchSettings settings,
             string profilePath, int debugPort, List<BrowserPlugin> plugins,
-            BrowserKind? runtimeKind = null, List<string> internalExtensionPaths = null,
+            BrowserKind? runtimeKind = null, List<string>? internalExtensionPaths = null,
             bool restoreLastSession = false)
         {
             var arguments = new List<string>
@@ -144,8 +192,13 @@ namespace YTray.Core
 
         public static LaunchResult Launch(BrowserRuntime runtime, LaunchMode mode, LaunchSettings settings,
             List<BrowserPlugin> plugins, string applicationDirectory, int ordinal, string dockBadge,
-            BrowserInstance restoring = null, Func<int, Task> onWindowReady = null)
+            BrowserInstance? restoring = null, Func<int, Task>? onWindowReady = null)
         {
+            if (runtime == null) throw new ArgumentNullException(nameof(runtime));
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            plugins = plugins ?? new List<BrowserPlugin>();
+            if (string.IsNullOrWhiteSpace(applicationDirectory))
+                throw new ArgumentException("Application directory is required.", nameof(applicationDirectory));
             if (!File.Exists(runtime.ExecutablePath))
                 throw new YTrayException(YTrayError.InvalidExecutable, runtime.ExecutablePath);
 
@@ -167,7 +220,7 @@ namespace YTray.Core
             var port = NextAvailablePort(Math.Max(1024, settings.DebugPort));
 
             var usesProxyAuth = !string.IsNullOrEmpty(settings.ProxyUsername) || !string.IsNullOrEmpty(settings.ProxyPassword);
-            var launchSettings = settings;
+            var launchSettings = settings.Clone();
             if (usesProxyAuth)
                 launchSettings.HomeURL = ProxyAuthenticationBootstrapURL;
 
@@ -188,7 +241,7 @@ namespace YTray.Core
             }
 
             // Write the badged icon for the instance.
-            string icoPath = null;
+            string? icoPath = null;
             try
             {
                 icoPath = BrowserProcessIcon.Write(runtime.ExecutablePath, normalizedBadge, id, applicationDirectory);
@@ -218,7 +271,8 @@ namespace YTray.Core
                 try
                 {
                     BrowserProcessIcon.WriteInstanceShortcut(runtime.ExecutablePath, psi.Arguments,
-                        Path.GetDirectoryName(runtime.ExecutablePath), id, expectedAumid, displayName, applicationDirectory);
+                        Path.GetDirectoryName(runtime.ExecutablePath) ?? applicationDirectory,
+                        id, expectedAumid, displayName, applicationDirectory);
                 }
                 catch { /* shortcut creation remains best-effort */ }
             }
@@ -231,13 +285,14 @@ namespace YTray.Core
 
             // The hook must already be installed and pumping messages before Process.Start. This
             // ordering is what prevents Explorer from drawing Chrome's stock icon for one frame.
-            BrowserWindowTaskbarController taskbarController = null;
+            BrowserWindowTaskbarController? taskbarController = null;
             if (!string.IsNullOrEmpty(icoPath))
             {
+                var taskbarIconPath = icoPath!;
                 try
                 {
                     taskbarController = new BrowserWindowTaskbarController(
-                        runtime.ExecutablePath, expectedAumid, icoPath);
+                        runtime.ExecutablePath, expectedAumid, taskbarIconPath);
                 }
                 catch
                 {
@@ -246,7 +301,7 @@ namespace YTray.Core
                 }
             }
 
-            Process process;
+            Process? process = null;
             try
             {
                 process = new Process { StartInfo = psi };
@@ -265,11 +320,22 @@ namespace YTray.Core
             catch (Exception ex)
             {
                 taskbarController?.Dispose();
+                if (process != null)
+                {
+                    try { if (!process.HasExited) process.Kill(); } catch { }
+                    try { process.Dispose(); } catch { }
+                }
                 try { logStream.Dispose(); } catch { }
                 BrowserProcessIcon.Remove(id, applicationDirectory);
                 ProxyAuthenticationExtension.Remove(id, applicationDirectory);
                 throw new YTrayException(YTrayError.LaunchFailed, ex.Message);
             }
+
+            // Process.Start either completed above or control escaped through the catch. Keep the
+            // invariant explicit so a future edit cannot accidentally construct a running model
+            // around a missing native process.
+            var runningProcess = process
+                ?? throw new InvalidOperationException("Browser process was not created.");
 
             var instance = new BrowserInstance
             {
@@ -281,7 +347,7 @@ namespace YTray.Core
                 RuntimeKind = runtime.Kind,
                 RuntimeSource = runtime.Source,
                 Mode = mode,
-                ProcessID = process.Id,
+                ProcessID = runningProcess.Id,
                 DebugPort = port,
                 ProfilePath = profile,
                 StartURL = restoring?.StartURL ?? settings.HomeURL,
@@ -293,26 +359,26 @@ namespace YTray.Core
                 LastPageTitle = restoring?.LastPageTitle,
                 LastPageURL = restoring?.LastPageURL,
                 DockBadge = normalizedBadge,
-                SettingsSnapshot = settings,
+                SettingsSnapshot = settings.Clone(),
                 PluginIDs = plugins.Select(p => p.Id).ToList(),
                 AppUserModelId = expectedAumid,
             };
 
-            return new LaunchResult
-            {
-                Process = process,
-                Instance = instance,
-                TaskbarController = taskbarController,
-            };
+            return new LaunchResult(runningProcess, instance, taskbarController, logStream);
         }
 
         private static void LogLine(FileStream stream, string line)
         {
             try
             {
-                var bytes = System.Text.Encoding.UTF8.GetBytes(line + "\n");
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush();
+                // stdout and stderr callbacks may run concurrently. FileStream is not safe for
+                // overlapping writes, so the stream itself is also the ownership lock.
+                lock (stream)
+                {
+                    if (!stream.CanWrite) return;
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(line + "\n");
+                    stream.Write(bytes, 0, bytes.Length);
+                }
             }
             catch { }
         }

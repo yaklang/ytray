@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -15,7 +16,7 @@ namespace YTray.Core
         private static readonly Dictionary<string, ImageSource> Cache =
             new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
 
-        public static ImageSource FromExecutable(string executablePath)
+        public static ImageSource? FromExecutable(string executablePath)
         {
             if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath)) return null;
             lock (CacheLock)
@@ -23,7 +24,7 @@ namespace YTray.Core
                 if (Cache.TryGetValue(executablePath, out var cached)) return cached;
             }
 
-            ImageSource source = null;
+            ImageSource? source = null;
             try
             {
                 using (var icon = BrowserProcessIcon.ExtractLargeIcon(executablePath))
@@ -41,7 +42,14 @@ namespace YTray.Core
             }
             catch { }
 
-            lock (CacheLock) Cache[executablePath] = source;
+            if (source != null)
+            {
+                lock (CacheLock)
+                {
+                    if (Cache.Count >= 64) Cache.Clear();
+                    Cache[executablePath] = source;
+                }
+            }
             return source;
         }
     }

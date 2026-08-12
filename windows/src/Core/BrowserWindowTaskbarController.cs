@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -38,7 +39,10 @@ namespace YTray.Core
         private const uint SwpNoactivate = 0x0010;
         private const uint SwpFramechanged = 0x0020;
         private const uint DwmwaCloak = 13;
-        private const int PollIntervalMilliseconds = 5;
+        // The old 1ms message pump + 5ms desktop enumeration kept two hot threads alive for every
+        // browser instance. The WinEvent hook performs the time-critical cloaking; 20ms polling is
+        // still below one common display frame while cutting idle wake-ups by an order of magnitude.
+        private const int PollIntervalMilliseconds = 20;
         private const int RevealDelayMilliseconds = 250;
 
         private readonly object _sync = new object();
@@ -51,20 +55,22 @@ namespace YTray.Core
         private readonly HashSet<IntPtr> _completedHandles = new HashSet<IntPtr>();
         private readonly ManualResetEvent _eventReady = new ManualResetEvent(false);
         private readonly ManualResetEvent _processAttached = new ManualResetEvent(false);
+        private readonly AutoResetEvent _windowChanged = new AutoResetEvent(false);
         private readonly TaskCompletionSource<bool> _initialWindowReady =
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        private WinEventDelegate _winEventDelegate;
-        private Thread _eventThread;
-        private Thread _monitorThread;
+        private WinEventDelegate? _winEventDelegate;
+        private Thread? _eventThread;
+        private Thread? _monitorThread;
         private IntPtr _eventHook;
         private int _targetProcessId;
         private int _stopRequested;
         private bool _disposed;
+        private volatile bool _stagingActive;
 
         public string AppUserModelId { get; }
         public string IconPath { get; }
-        public bool StagingActive { get; private set; }
+        public bool StagingActive => _stagingActive;
 
         public BrowserWindowTaskbarController(string executablePath, string appUserModelId, string iconPath)
         {
@@ -108,8 +114,8 @@ namespace YTray.Core
                     };
                     _monitorThread.Start();
                 }
+                _processAttached.Set();
             }
-            _processAttached.Set();
         }
 
         public async Task<bool> WaitForInitialWindowAsync(TimeSpan timeout)
@@ -120,14 +126,15 @@ namespace YTray.Core
 
         private void StartWindowEventThread()
         {
-            _winEventDelegate = HandleWindowEvent;
+            var callback = new WinEventDelegate(HandleWindowEvent);
+            _winEventDelegate = callback;
             _eventThread = new Thread(() =>
             {
                 var hook = SetWinEventHook(
                     EventObjectCreate,
                     EventObjectShow,
                     IntPtr.Zero,
-                    _winEventDelegate,
+                    callback,
                     0,
                     0,
                     WineventOutofcontext | WineventSkipownprocess);
@@ -138,7 +145,7 @@ namespace YTray.Core
                     while (Interlocked.CompareExchange(ref _stopRequested, 0, 0) == 0)
                     {
                         PumpWindowMessages();
-                        Thread.Sleep(1);
+                        Thread.Sleep(_initialWindowReady.Task.IsCompleted ? 100 : PollIntervalMilliseconds);
                     }
                 }
                 finally
@@ -155,11 +162,19 @@ namespace YTray.Core
 
             if (!_eventReady.WaitOne(3000))
                 throw new TimeoutException("Timed out starting the Chrome window event hook.");
-            lock (_sync) StagingActive = _eventHook != IntPtr.Zero;
+            lock (_sync) _stagingActive = _eventHook != IntPtr.Zero;
         }
 
         private void HandleWindowEvent(IntPtr hook, uint eventType, IntPtr hwnd, int objectId,
             int childId, uint eventThread, uint eventTime)
+        {
+            // Exceptions must never cross an unmanaged callback boundary; doing so can terminate
+            // the entire process without reaching WPF's dispatcher exception handler.
+            try { HandleWindowEventCore(eventType, hwnd, objectId, childId); }
+            catch (Exception ex) { CrashGuard.Record("window-event-hook", ex); }
+        }
+
+        private void HandleWindowEventCore(uint eventType, IntPtr hwnd, int objectId, int childId)
         {
             if ((eventType != EventObjectCreate && eventType != EventObjectShow)
                 || objectId != ObjidWindow || childId != 0 || hwnd == IntPtr.Zero || !IsWindow(hwnd)) return;
@@ -188,6 +203,7 @@ namespace YTray.Core
                 if (eventType == EventObjectShow)
                     _stagedShowTimes[hwnd] = DateTime.UtcNow;
             }
+            _windowChanged.Set();
         }
 
         private void MonitorWindows()
@@ -225,8 +241,17 @@ namespace YTray.Core
                     }
 
                     if (!IsProcessRunning(processId) && windows.Count == 0) break;
-                    Thread.Sleep(PollIntervalMilliseconds);
+                    // The WinEvent callback wakes this owner immediately for new windows. During
+                    // steady state, a low-frequency validation is enough to defend against Chrome
+                    // rewriting taskbar metadata without continuously enumerating the desktop.
+                    _windowChanged.WaitOne(_initialWindowReady.Task.IsCompleted
+                        ? 500
+                        : PollIntervalMilliseconds);
                 }
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("taskbar-window-monitor", ex);
             }
             finally
             {
@@ -358,15 +383,23 @@ namespace YTray.Core
         {
             try
             {
-                var actualPath = Process.GetProcessById(processId).MainModule.FileName;
-                return string.Equals(_executablePath, Path.GetFullPath(actualPath), StringComparison.OrdinalIgnoreCase);
+                using (var process = Process.GetProcessById(processId))
+                {
+                    var actualPath = process.MainModule?.FileName;
+                    return !string.IsNullOrWhiteSpace(actualPath)
+                        && string.Equals(_executablePath, Path.GetFullPath(actualPath), StringComparison.OrdinalIgnoreCase);
+                }
             }
             catch { return false; }
         }
 
         private static bool IsProcessRunning(int processId)
         {
-            try { return processId > 0 && !Process.GetProcessById(processId).HasExited; }
+            try
+            {
+                if (processId <= 0) return false;
+                using (var process = Process.GetProcessById(processId)) return !process.HasExited;
+            }
             catch { return false; }
         }
 
@@ -388,16 +421,21 @@ namespace YTray.Core
                 _disposed = true;
             }
             Interlocked.Exchange(ref _stopRequested, 1);
-            _processAttached.Set();
-            if (_eventThread != null && _eventThread.IsAlive && Thread.CurrentThread != _eventThread)
-                _eventThread.Join(3000);
+            try { _processAttached.Set(); } catch (ObjectDisposedException) { }
+            try { _windowChanged.Set(); } catch (ObjectDisposedException) { }
+            var eventThreadStopped = _eventThread == null || !_eventThread.IsAlive || Thread.CurrentThread == _eventThread
+                || _eventThread.Join(3000);
             if (_monitorThread != null && _monitorThread.IsAlive && Thread.CurrentThread != _monitorThread)
                 _monitorThread.Join(3000);
             RestoreAllStagedWindows();
             _initialWindowReady.TrySetResult(false);
             _eventReady.Dispose();
             _processAttached.Dispose();
-            _winEventDelegate = null;
+            _windowChanged.Dispose();
+            // The unmanaged hook owns this delegate pointer until the event thread unhooks. If a
+            // pathological driver stalls that thread past Join's timeout, retaining the delegate
+            // is safer than letting native code call a collected function pointer.
+            if (eventThreadStopped) _winEventDelegate = null;
         }
 
         private delegate void WinEventDelegate(IntPtr hook, uint eventType, IntPtr hwnd, int objectId,

@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -27,15 +28,15 @@ namespace YTray.Core
     {
         internal sealed class CaptureItem
         {
-            public string RelativePath { get; set; }
-            public string Caption { get; set; }
+            public string RelativePath { get; set; } = "";
+            public string Caption { get; set; } = "";
         }
 
         private sealed class MainPageCapture
         {
-            public string Slug { get; set; }
-            public string Caption { get; set; }
-            public Func<ManagerView, ListBoxItem> Select { get; set; }
+            public string Slug { get; set; } = "";
+            public string Caption { get; set; } = "";
+            public Func<ManagerView, ListBoxItem> Select { get; set; } = null!;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -51,7 +52,7 @@ namespace YTray.Core
         private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern IntPtr FindWindow(string className, string windowName);
+        private static extern IntPtr FindWindow(string? className, string? windowName);
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);

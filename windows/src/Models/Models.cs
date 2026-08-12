@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -56,9 +57,9 @@ namespace YTray.Models
             _ => "\uE774", // globe
         };
 
-        public static BrowserKind Infer(string name, string path)
+        public static BrowserKind Infer(string? name, string? path)
         {
-            var value = (name + " " + path).ToLowerInvariant();
+            var value = ((name ?? "") + " " + (path ?? "")).ToLowerInvariant();
             if (value.Contains("for testing")) return BrowserKind.ChromeForTesting;
             if (value.Contains("microsoft edge") || value.Contains("\\edge") || value.Contains("/edge")) return BrowserKind.Edge;
             if (value.Contains("canary")) return BrowserKind.ChromeCanary;
@@ -92,8 +93,8 @@ namespace YTray.Models
             || ExecutablePath.StartsWith(@"C:\Program Files\", StringComparison.OrdinalIgnoreCase)
             || ExecutablePath.StartsWith(@"C:\Program Files (x86)\", StringComparison.OrdinalIgnoreCase);
 
-        public bool Equals(BrowserRuntime other) => other != null && Id == other.Id;
-        public override bool Equals(object obj) => obj is BrowserRuntime r && Equals(r);
+        public bool Equals(BrowserRuntime? other) => other != null && Id == other.Id;
+        public override bool Equals(object? obj) => obj is BrowserRuntime r && Equals(r);
         public override int GetHashCode() => Id.GetHashCode();
     }
 
@@ -107,7 +108,8 @@ namespace YTray.Models
         public bool Enabled { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
-        public bool Equals(BrowserPlugin other) => other != null && Id == other.Id;
+        public bool Equals(BrowserPlugin? other) => other != null && Id == other.Id;
+        public override bool Equals(object? obj) => obj is BrowserPlugin plugin && Equals(plugin);
         public override int GetHashCode() => Id.GetHashCode();
     }
 
@@ -122,17 +124,18 @@ namespace YTray.Models
 
         public ProxyPreset() { }
 
-        public ProxyPreset(string server, string remark, string username = "", string password = "", DateTime? lastUsedAt = null)
+        public ProxyPreset(string? server, string? remark, string? username = "", string? password = "", DateTime? lastUsedAt = null)
         {
             Id = Guid.NewGuid();
-            Server = server;
-            Remark = remark;
-            Username = username;
-            Password = password;
+            Server = server ?? "";
+            Remark = remark ?? "";
+            Username = username ?? "";
+            Password = password ?? "";
             LastUsedAt = lastUsedAt ?? DateTime.Now;
         }
 
-        public bool Equals(ProxyPreset other) => other != null && Id == other.Id;
+        public bool Equals(ProxyPreset? other) => other != null && Id == other.Id;
+        public override bool Equals(object? obj) => obj is ProxyPreset preset && Equals(preset);
         public override int GetHashCode() => Id.GetHashCode();
     }
 
@@ -164,9 +167,9 @@ namespace YTray.Models
 
     public static class HTTPProxyAddress
     {
-        public static string Build(ProxyScheme scheme, string host, int port)
+        public static string Build(ProxyScheme scheme, string? host, int port)
         {
-            var normalizedHost = host.Trim();
+            var normalizedHost = (host ?? "").Trim();
             if (normalizedHost.StartsWith("[") && normalizedHost.EndsWith("]"))
             {
                 normalizedHost = normalizedHost.Substring(1, normalizedHost.Length - 2);
@@ -180,7 +183,7 @@ namespace YTray.Models
             return $"{scheme.Raw()}://{normalizedHost}:{port}";
         }
 
-        public static ProxyEndpoint Split(string value)
+        public static ProxyEndpoint Split(string? value)
         {
             var normalized = Normalize(value);
             var uri = new Uri(normalized);
@@ -198,9 +201,9 @@ namespace YTray.Models
             };
         }
 
-        public static string Normalize(string value)
+        public static string Normalize(string? value)
         {
-            var candidate = value.Trim();
+            var candidate = (value ?? "").Trim();
             if (string.IsNullOrEmpty(candidate)) throw new YTrayException(YTrayError.InvalidProxy, value);
             if (!candidate.Contains("://")) candidate = "http://" + candidate;
             var uri = new Uri(candidate);
@@ -296,6 +299,50 @@ namespace YTray.Models
             DefaultRuntimeID = defaultRuntimeID;
         }
 
+        /// <summary>
+        /// Returns an ownership-safe snapshot. Launch workflows may edit this copy without
+        /// mutating the global settings or a historical instance through a shared reference.
+        /// </summary>
+        public LaunchSettings Clone()
+        {
+            return new LaunchSettings
+            {
+                ConfigurationVersion = ConfigurationVersion,
+                DefaultRuntimeID = DefaultRuntimeID,
+                HomeURL = HomeURL ?? "chrome://newtab",
+                ProxyServer = ProxyServer ?? "",
+                ProxyUsername = ProxyUsername ?? "",
+                ProxyPassword = ProxyPassword ?? "",
+                PresetProxyServer = PresetProxyServer ?? DefaultPresetProxyServer,
+                PresetProxyScheme = PresetProxyScheme,
+                PresetProxyHost = PresetProxyHost ?? "127.0.0.1",
+                PresetProxyPort = PresetProxyPort,
+                PresetProxyUsername = PresetProxyUsername ?? "",
+                PresetProxyPassword = PresetProxyPassword ?? "",
+                PresetProxyRemark = PresetProxyRemark ?? "",
+                PresetProxyCheckTarget = PresetProxyCheckTarget ?? "",
+                RecentProxyPresets = (RecentProxyPresets ?? new List<ProxyPreset>())
+                    .Where(preset => preset != null)
+                    .Select(preset => new ProxyPreset(preset.Server ?? "", preset.Remark ?? "",
+                        preset.Username ?? "", preset.Password ?? "", preset.LastUsedAt)
+                    {
+                        Id = preset.Id,
+                    })
+                    .ToList(),
+                DebugPort = DebugPort,
+                RestrictWebRTC = RestrictWebRTC,
+                DisableNotifications = DisableNotifications,
+                IgnoreCertificateErrors = IgnoreCertificateErrors,
+                AdditionalFlags = AdditionalFlags ?? "",
+                DefaultPluginIDs = (DefaultPluginIDs ?? new List<Guid>()).ToList(),
+                DockBadge = DockBadge ?? "",
+                EdgeDockEnabled = EdgeDockEnabled,
+                EdgeDockOnLeft = EdgeDockOnLeft,
+                EdgeDockYPercent = EdgeDockYPercent,
+                ThemePreference = ThemePreference,
+            };
+        }
+
         // Migration hook: if loaded JSON lacks IgnoreCertificateErrors and the saved version
         // is below the certificate migration threshold, default it to true (matches macOS behavior).
         public void ApplyCertificateMigration(int savedVersion, bool? savedIgnore)
@@ -347,7 +394,7 @@ namespace YTray.Models
         public Guid RuntimeID { get; set; }
         public string RuntimeName { get; set; } = "";
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public string RuntimeVersion { get; set; }
+        public string? RuntimeVersion { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public BrowserKind? RuntimeKind { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
@@ -360,26 +407,36 @@ namespace YTray.Models
         public DateTime StartedAt { get; set; } = DateTime.Now;
         public InstanceStatus Status { get; set; } = InstanceStatus.Running;
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public string LastScreenshotPath { get; set; }
+        public string? LastScreenshotPath { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public string ThumbnailPath { get; set; }
+        public string? ThumbnailPath { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public DateTime? ThumbnailUpdatedAt { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public string LastPageTitle { get; set; }
+        public string? LastPageTitle { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public string LastPageURL { get; set; }
+        public string? LastPageURL { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public string DockBadge { get; set; }
+        public string? DockBadge { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public LaunchSettings SettingsSnapshot { get; set; }
+        public LaunchSettings? SettingsSnapshot { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public List<Guid> PluginIDs { get; set; }
+        public List<Guid> PluginIDs { get; set; } = new List<Guid>();
         /// <summary>Windows-specific: resolved AppUserModelID used for taskbar grouping.</summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public string AppUserModelId { get; set; }
+        public string? AppUserModelId { get; set; }
 
-        public bool Equals(BrowserInstance other) => other != null && Id == other.Id;
+        // Transient interaction state. These fields intentionally stay out of state.json; they
+        // let both the manager and the floating panel show immediate, consistent action feedback.
+        [JsonIgnore]
+        public bool IsCapturing { get; set; }
+        [JsonIgnore]
+        public bool IsStopping { get; set; }
+        [JsonIgnore]
+        public string? PreviewError { get; set; }
+
+        public bool Equals(BrowserInstance? other) => other != null && Id == other.Id;
+        public override bool Equals(object? obj) => obj is BrowserInstance instance && Equals(instance);
         public override int GetHashCode() => Id.GetHashCode();
     }
 
@@ -394,13 +451,13 @@ namespace YTray.Models
     public class MirrorManifest
     {
         [JsonProperty("generated_at")]
-        public string GeneratedAt { get; set; }
+        public string GeneratedAt { get; set; } = "";
         public List<MirrorVersion> Versions { get; set; } = new List<MirrorVersion>();
     }
 
     public class MirrorVersion
     {
-        public string Version { get; set; }
+        public string Version { get; set; } = "";
         public List<MirrorArtifact> Artifacts { get; set; } = new List<MirrorArtifact>();
 
         [JsonIgnore]
@@ -422,19 +479,19 @@ namespace YTray.Models
 
     public class MirrorArtifact
     {
-        public string OS { get; set; }
+        public string OS { get; set; } = "";
         [JsonProperty("arch")]
-        public string Arch { get; set; }
-        public string Format { get; set; }
-        public string Url { get; set; }
+        public string Arch { get; set; } = "";
+        public string Format { get; set; } = "";
+        public string Url { get; set; } = "";
         public long? Size { get; set; }
-        public string Sha256 { get; set; }
+        public string Sha256 { get; set; } = "";
     }
 
     public class PluginManifest
     {
-        public string Name { get; set; }
-        public string Version { get; set; }
+        public string Name { get; set; } = "";
+        public string Version { get; set; } = "";
         [JsonProperty("manifest_version")]
         public int ManifestVersion { get; set; }
     }
@@ -455,9 +512,9 @@ namespace YTray.Models
     public class YTrayException : Exception
     {
         public YTrayError Error { get; }
-        public YTrayException(YTrayError error, string message) : base(Message(error, message)) { Error = error; }
+        public YTrayException(YTrayError error, string? message) : base(Message(error, message)) { Error = error; }
 
-        public static new string Message(YTrayError error, string detail) => error switch
+        public static new string Message(YTrayError error, string? detail) => error switch
         {
             YTrayError.NoRuntime => "没有可用浏览器；请选择本机浏览器，或安装一个 Chrome for Testing 版本",
             YTrayError.InvalidExecutable => $"找不到可执行的 Chrome：{detail}",
@@ -468,7 +525,7 @@ namespace YTray.Models
             YTrayError.LaunchFailed => $"浏览器启动失败：{detail}",
             YTrayError.DownloadFailed => $"运行时安装失败：{detail}",
             YTrayError.ScreenshotFailed => $"快速截图失败：{detail}",
-            _ => detail,
+            _ => detail ?? "",
         };
     }
 }

@@ -11,6 +11,11 @@
                            Style="{StaticResource PageSubtitle}" Margin="0,4,0,0"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border x:Name="ActionFeedbackBorder" Visibility="Collapsed" Padding="9,5" CornerRadius="8"
+                        Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}"
+                        BorderThickness="1" Margin="0,0,7,0" MaxWidth="330">
+                    <TextBlock x:Name="ActionFeedbackText" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                </Border>
                 <Border Padding="9,5" CornerRadius="8" Background="{DynamicResource SuccessPaleBrush}" Margin="0,0,7,0">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Margin="0,0,6,0"/>
@@ -50,36 +55,61 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="104"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <Border Width="94" Height="60" CornerRadius="8" Background="{DynamicResource BrandPaleBrush}"
-                                            HorizontalAlignment="Left" ClipToBounds="True">
+                                            HorizontalAlignment="Left" ClipToBounds="True"
+                                            MouseEnter="Thumbnail_MouseEnter" MouseLeave="Thumbnail_MouseLeave"
+                                            Tag="{Binding}">
                                         <Grid>
-                                            <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill"/>
+                                            <Image Source="{Binding ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"/>
+                                            <Border Background="{DynamicResource SurfaceMutedBrush}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasThumbnail, Mode=OneWay}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Viewbox Width="17" Height="14" HorizontalAlignment="Center">
+                                                        <Path Data="M 1.5 2.5 L 14.5 2.5 L 14.5 12.5 L 1.5 12.5 Z M 3.5 10 L 6.2 7.3 L 8.2 9.1 L 10.1 6.9 L 13 10"
+                                                              Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.25"
+                                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                    </Viewbox>
+                                                    <TextBlock Text="{Binding PreviewMessage, Mode=OneWay}" FontSize="7.5" Margin="0,3,0,0"
+                                                               Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                                </StackPanel>
+                                            </Border>
                                             <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,4,4" Height="19" MinWidth="19"
                                                     Padding="4,0" CornerRadius="7" Background="{DynamicResource BrandOrangeBrush}">
-                                                <TextBlock Text="{Binding DockBadge}" Foreground="White" FontSize="9" FontWeight="Bold"
+                                                <TextBlock Text="{Binding DockBadge, Mode=OneWay}" Foreground="White" FontSize="9" FontWeight="Bold"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Border>
                                         </Grid>
                                     </Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5"/>
+                                            <TextBlock Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="12.5"/>
                                             <Border Margin="8,0,0,0" Padding="6,2" CornerRadius="7" Background="{DynamicResource SuccessPaleBrush}">
                                                 <TextBlock Text="运行中" FontSize="9" Foreground="{DynamicResource SuccessBrush}" FontWeight="SemiBold"/>
                                             </Border>
                                         </StackPanel>
-                                        <TextBlock Text="{Binding LastPageTitle, TargetNullValue=正在读取页面标题}" FontSize="10.5"
+                                        <TextBlock Text="{Binding LastPageTitle, Mode=OneWay, TargetNullValue=正在读取页面标题}" FontSize="10.5"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
-                                        <TextBlock Text="{Binding LastPageURL, TargetNullValue=正在连接页面}" FontSize="9.5"
+                                        <TextBlock Text="{Binding LastPageURL, Mode=OneWay, TargetNullValue=正在连接页面}" FontSize="9.5"
                                                    Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
                                         <TextBlock FontSize="9" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis">
-                                            <Run Text="PID "/><Run Text="{Binding ProcessID}"/><Run Text="  ·  Debug 127.0.0.1:"/><Run Text="{Binding DebugPort}"/><Run Text="  ·  AUMID "/><Run Text="{Binding AppUserModelId}"/>
+                                            <Run Text="PID "/><Run Text="{Binding ProcessID, Mode=OneWay}"/><Run Text="  ·  Debug 127.0.0.1:"/><Run Text="{Binding DebugPort, Mode=OneWay}"/><Run Text="  ·  AUMID "/><Run Text="{Binding AppUserModelId, Mode=OneWay}"/>
                                         </TextBlock>
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Button Content="打开" Margin="0,0,5,0" Click="Focus_Click" Tag="{Binding}" Style="{StaticResource YTrayButton}"/>
-                                        <Button Content="截图" Margin="0,0,5,0" Click="Capture_Click" Tag="{Binding}" Style="{StaticResource YTrayButton}"/>
-                                        <Button Content="目录" Margin="0,0,5,0" Click="Reveal_Click" Tag="{Binding}" Style="{StaticResource YTrayButton}"/>
-                                        <Button Content="停止" Click="Stop_Click" Tag="{Binding}" Foreground="{DynamicResource DangerBrush}" Style="{StaticResource YTrayButton}"/>
+                                        <Button Content="打开" Margin="0,0,5,0" Click="Focus_Click" Tag="{Binding Instance}" Style="{StaticResource YTrayButton}"/>
+                                        <Button Content="{Binding CaptureButtonText, Mode=OneWay}" IsEnabled="{Binding CanCapture, Mode=OneWay}" Margin="0,0,5,0"
+                                                Click="Capture_Click" Tag="{Binding Instance}" Style="{StaticResource YTrayButton}"/>
+                                        <Button Content="目录" Margin="0,0,5,0" Click="Reveal_Click" Tag="{Binding Instance}" Style="{StaticResource YTrayButton}"/>
+                                        <Button Content="{Binding StopButtonText, Mode=OneWay}" IsEnabled="{Binding CanStop, Mode=OneWay}" Click="Stop_Click" Tag="{Binding Instance}"
+                                                Foreground="{DynamicResource DangerBrush}" Style="{StaticResource YTrayButton}"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -107,13 +137,13 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <Border Width="35" Height="35" CornerRadius="10" Background="{DynamicResource SurfaceMutedBrush}" HorizontalAlignment="Left">
-                                        <TextBlock Text="{Binding DockBadge}" Foreground="{DynamicResource BrandOrangeBrush}" FontSize="11" FontWeight="Bold"
+                                        <TextBlock Text="{Binding DockBadge, Mode=OneWay}" Foreground="{DynamicResource BrandOrangeBrush}" FontSize="11" FontWeight="Bold"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
-                                        <TextBlock Text="{Binding LastPageTitle, TargetNullValue=未记录页面标题}" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding LastPageURL, TargetNullValue=未记录页面地址}" FontSize="9.5" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding Name}" FontSize="9" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding LastPageTitle, Mode=OneWay, TargetNullValue=未记录页面标题}" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding LastPageURL, Mode=OneWay, TargetNullValue=未记录页面地址}" FontSize="9.5" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Name, Mode=OneWay}" FontSize="9" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button Content="恢复" Margin="0,0,5,0" Click="Restore_Click" Tag="{Binding}" Style="{StaticResource YTrayPrimaryButton}"/>

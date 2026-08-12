@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Windows;
@@ -18,7 +19,7 @@ namespace YTray.Core
 
         public static AppThemePreference Preference => _preference;
         public static bool IsDark { get; private set; }
-        public static event EventHandler ThemeChanged;
+        public static event EventHandler? ThemeChanged;
 
         public static void Initialize(AppThemePreference preference)
         {

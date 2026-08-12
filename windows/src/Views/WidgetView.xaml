@@ -367,6 +367,9 @@
                             <Border DockPanel.Dock="Right" Style="{StaticResource WidgetCountBadge}">
                                 <TextBlock x:Name="RunningCountLabel" Text="0" FontSize="9.5" Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
                             </Border>
+                            <TextBlock x:Name="InstanceActionStatus" DockPanel.Dock="Right" Margin="0,0,8,0" MaxWidth="205"
+                                       FontSize="9" Foreground="{StaticResource WidgetTextSecondaryBrush}"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                             <StackPanel Orientation="Horizontal">
                                 <Ellipse Width="7" Height="7" Fill="{DynamicResource SuccessBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
                                 <TextBlock Text="运行中" Style="{StaticResource WidgetSectionTitle}"/>
@@ -403,9 +406,27 @@
                                             BorderBrush="{StaticResource WidgetHairlineBrush}" BorderThickness="1">
                                         <DockPanel LastChildFill="True">
                                             <Border DockPanel.Dock="Left" Width="66" Height="44" CornerRadius="7" Background="{StaticResource WidgetOrangePaleBrush}" Margin="0,0,9,0"
-                                                    ClipToBounds="True">
+                                                    ClipToBounds="True" MouseEnter="Thumbnail_MouseEnter" MouseLeave="Thumbnail_MouseLeave"
+                                                    Tag="{Binding}">
                                                 <Grid>
-                                                    <Image Source="{Binding ThumbnailPath, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                    <Image Source="{Binding ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                    <Border Background="{StaticResource WidgetDeepBrush}" ToolTip="{Binding PreviewMessage, Mode=OneWay}">
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding HasThumbnail, Mode=OneWay}" Value="True">
+                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                        <Viewbox Width="18" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                            <Path Data="M 1.5 2.5 L 14.5 2.5 L 14.5 12.5 L 1.5 12.5 Z M 3.5 10 L 6.2 7.3 L 8.2 9.1 L 10.1 6.9 L 13 10"
+                                                                  Stroke="{StaticResource WidgetTextTertiaryBrush}" StrokeThickness="1.25"
+                                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                        </Viewbox>
+                                                    </Border>
                                                     <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,3,3"
                                                             MinWidth="17" Height="17" Padding="3,0" CornerRadius="6"
                                                             Background="{DynamicResource BrandOrangeBrush}">
@@ -415,12 +436,31 @@
                                                 </Grid>
                                             </Border>
                                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="5,0,0,0" VerticalAlignment="Center">
-                                                <Button Content="&#xE8A7;" FontFamily="Segoe MDL2 Assets" ToolTip="聚焦窗口"
-                                                        Click="Focus_Click" Tag="{Binding}" Style="{StaticResource WidgetIconButton}"/>
-                                                <Button Content="&#xE722;" FontFamily="Segoe MDL2 Assets" ToolTip="截图"
-                                                        Click="Capture_Click" Tag="{Binding}" Style="{StaticResource WidgetIconButton}"/>
-                                                <Button Content="&#xE71A;" FontFamily="Segoe MDL2 Assets" ToolTip="停止"
-                                                        Click="Stop_Click" Tag="{Binding}" Style="{StaticResource WidgetDangerIconButton}"/>
+                                                <Button ToolTip="聚焦窗口" Click="Focus_Click" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}">
+                                                    <Viewbox Width="16" Height="16">
+                                                        <Path Data="M 1 8 C 4.2 3.7 11.8 3.7 15 8 C 11.8 12.3 4.2 12.3 1 8 Z M 8 5.6 A 2.4 2.4 0 1 0 8 10.4 A 2.4 2.4 0 1 0 8 5.6"
+                                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                              StrokeThickness="1.3" StrokeLineJoin="Round" Fill="Transparent"/>
+                                                    </Viewbox>
+                                                </Button>
+                                                <Button ToolTip="{Binding CaptureToolTip, Mode=OneWay}" IsEnabled="{Binding CanCapture, Mode=OneWay}"
+                                                        Click="Capture_Click" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}">
+                                                    <Viewbox Width="16" Height="16">
+                                                        <Path Data="M 1.5 5 L 4.4 5 L 5.6 3.2 L 10.4 3.2 L 11.6 5 L 14.5 5 L 14.5 13 L 1.5 13 Z M 8 6.4 A 2.2 2.2 0 1 0 8 10.8 A 2.2 2.2 0 1 0 8 6.4"
+                                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                              StrokeThickness="1.25" StrokeLineJoin="Round" Fill="Transparent"/>
+                                                    </Viewbox>
+                                                </Button>
+                                                <Button ToolTip="{Binding StopToolTip, Mode=OneWay}" IsEnabled="{Binding CanStop, Mode=OneWay}"
+                                                        Click="Stop_Click" Tag="{Binding Instance}" Style="{StaticResource WidgetDangerIconButton}">
+                                                    <Viewbox Width="16" Height="16">
+                                                        <Grid Width="16" Height="16">
+                                                            <Ellipse Margin="1.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.25"/>
+                                                            <Rectangle Width="5.2" Height="5.2" RadiusX="0.8" RadiusY="0.8"
+                                                                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                                        </Grid>
+                                                    </Viewbox>
+                                                </Button>
                                             </StackPanel>
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/>

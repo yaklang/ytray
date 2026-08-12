@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,18 +14,22 @@ namespace YTray.Core
     public class ProxyCheckResult : IEquatable<ProxyCheckResult>
     {
         public bool IsSuccess { get; set; }
-        public string Message { get; set; }
-        public bool Equals(ProxyCheckResult other) => other != null && IsSuccess == other.IsSuccess && Message == other.Message;
+        public string Message { get; set; } = "";
+        public bool Equals(ProxyCheckResult? other) => other != null && IsSuccess == other.IsSuccess && Message == other.Message;
+        public override bool Equals(object? obj) => Equals(obj as ProxyCheckResult);
+        public override int GetHashCode() => (IsSuccess, Message).GetHashCode();
     }
 
     public class ProxyCheckDetail : IEquatable<ProxyCheckDetail>
     {
-        public string Target { get; set; }
+        public string Target { get; set; } = "";
         public bool IsSuccess { get; set; }
-        public string Message { get; set; }
+        public string Message { get; set; } = "";
         public int ElapsedMilliseconds { get; set; }
         public string Id => Target;
-        public bool Equals(ProxyCheckDetail other) => other != null && Target == other.Target;
+        public bool Equals(ProxyCheckDetail? other) => other != null && Target == other.Target;
+        public override bool Equals(object? obj) => Equals(obj as ProxyCheckDetail);
+        public override int GetHashCode() => Target.GetHashCode();
     }
 
     public class ProxyCheckReport : IEquatable<ProxyCheckReport>
@@ -33,7 +38,9 @@ namespace YTray.Core
         public int SuccessCount => Details.Count(d => d.IsSuccess);
         public bool IsSuccess => SuccessCount > 0;
         public string Message => $"{(IsSuccess ? "检测成功" : "检测失败")} · {SuccessCount}/{Details.Count} 个目标可访问";
-        public bool Equals(ProxyCheckReport other) => other != null && Details.SequenceEqual(other.Details);
+        public bool Equals(ProxyCheckReport? other) => other != null && Details.SequenceEqual(other.Details);
+        public override bool Equals(object? obj) => Equals(obj as ProxyCheckReport);
+        public override int GetHashCode() => Details.Count;
     }
 
     /// <summary>
@@ -47,7 +54,7 @@ namespace YTray.Core
             "https://example.com/", "https://baidu.com/", "https://google.com/",
         };
 
-        public static Uri NormalizeTarget(string raw)
+        public static Uri NormalizeTarget(string? raw)
         {
             var trimmed = (raw ?? "").Trim();
             if (string.IsNullOrEmpty(trimmed)) throw new YTrayException(YTrayError.InvalidURL, raw);
@@ -61,7 +68,10 @@ namespace YTray.Core
 
         public static async Task<ProxyCheckReport> CheckDefaultTargetsAsync(ProxyEndpoint endpoint, string username, string password, string customTarget, TimeSpan timeout)
         {
-            var targets = DefaultTargetStrings.Select(t => { try { return NormalizeTarget(t); } catch { return null; } }).Where(u => u != null).ToList();
+            var targets = DefaultTargetStrings
+                .Select(t => { try { return NormalizeTarget(t); } catch { return null; } })
+                .OfType<Uri>()
+                .ToList();
             var validationFailures = new List<ProxyCheckDetail>();
             var trimmedCustom = (customTarget ?? "").Trim();
             if (!string.IsNullOrEmpty(trimmedCustom))
@@ -77,14 +87,22 @@ namespace YTray.Core
                     validationFailures.Add(new ProxyCheckDetail { Target = trimmedCustom, IsSuccess = false, Message = ex.Message, ElapsedMilliseconds = 0 });
                 }
             }
-            var details = new List<ProxyCheckDetail>();
-            foreach (var t in targets)
+            // Targets are independent. Sequential 10-second probes made the UI wait up to 30–40
+            // seconds despite advertising a 10-second budget.
+            var checks = targets.Select(async target =>
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                var res = await CheckAsync(endpoint, username, password, t, timeout);
+                var res = await CheckAsync(endpoint, username, password, target, timeout);
                 sw.Stop();
-                details.Add(new ProxyCheckDetail { Target = t.AbsoluteUri, IsSuccess = res.IsSuccess, Message = res.Message, ElapsedMilliseconds = (int)sw.ElapsedMilliseconds });
-            }
+                return new ProxyCheckDetail
+                {
+                    Target = target.AbsoluteUri,
+                    IsSuccess = res.IsSuccess,
+                    Message = res.Message,
+                    ElapsedMilliseconds = (int)sw.ElapsedMilliseconds,
+                };
+            }).ToArray();
+            var details = (await Task.WhenAll(checks)).ToList();
             return new ProxyCheckReport { Details = details.Concat(validationFailures).ToList() };
         }
 
@@ -97,23 +115,32 @@ namespace YTray.Core
                     var connectTask = client.ConnectAsync(endpoint.Host, endpoint.Port);
                     var winner = await Task.WhenAny(connectTask, Task.Delay(timeout));
                     if (winner != connectTask || !client.Connected)
+                    {
+                        client.Close();
+                        // ConnectAsync may complete after the timeout; observe its fault so it
+                        // cannot surface later as an unobserved task exception.
+                        CrashGuard.Observe(connectTask, "proxy-connect-timeout");
                         return new ProxyCheckResult { IsSuccess = false, Message = "检测超时 · 请检查 Host、端口或代理服务" };
+                    }
+                    await connectTask;
 
                     var usedCredentials = !string.IsNullOrEmpty(username) || !string.IsNullOrEmpty(password);
                     var probe = ProbeRequest(target, username, password);
-                    var stream = client.GetStream();
-                    await stream.WriteAsync(probe, 0, probe.Length);
-                    await stream.FlushAsync();
+                    using (var stream = client.GetStream())
+                    using (var cts = new CancellationTokenSource(timeout))
+                    {
+                        await stream.WriteAsync(probe, 0, probe.Length, cts.Token);
+                        await stream.FlushAsync(cts.Token);
 
-                    var cts = new CancellationTokenSource(timeout);
-                    var buffer = new byte[8192];
-                    int read = 0;
-                    try { read = await stream.ReadAsync(buffer, 0, buffer.Length, cts.Token); }
-                    catch { return new ProxyCheckResult { IsSuccess = false, Message = "读取代理响应超时" }; }
-                    if (read == 0) return new ProxyCheckResult { IsSuccess = false, Message = "代理已连接，但没有返回检测响应" };
-                    var data = new byte[read];
-                    Array.Copy(buffer, data, read);
-                    return InterpretResponse(data, usedCredentials);
+                        var buffer = new byte[8192];
+                        int read;
+                        try { read = await stream.ReadAsync(buffer, 0, buffer.Length, cts.Token); }
+                        catch { return new ProxyCheckResult { IsSuccess = false, Message = "读取代理响应超时" }; }
+                        if (read == 0) return new ProxyCheckResult { IsSuccess = false, Message = "代理已连接，但没有返回检测响应" };
+                        var data = new byte[read];
+                        Array.Copy(buffer, data, read);
+                        return InterpretResponse(data, usedCredentials);
+                    }
                 }
             }
             catch (Exception ex)

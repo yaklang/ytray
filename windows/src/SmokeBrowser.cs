@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -32,9 +33,10 @@ namespace YTray
                 DebugPort = 17777,
             };
 
+            BrowserLauncher.LaunchResult? launched = null;
             try
             {
-                var launched = BrowserLauncher.Launch(runtime, LaunchMode.Isolated, settings, new System.Collections.Generic.List<BrowserPlugin>(), scratch, 1, "A");
+                launched = BrowserLauncher.Launch(runtime, LaunchMode.Isolated, settings, new System.Collections.Generic.List<BrowserPlugin>(), scratch, 1, "A");
                 Console.WriteLine($"launched pid={launched.Instance.ProcessID} port={launched.Instance.DebugPort} badge=A");
 
                 var ready = await ScreenshotService.WaitUntilReadyAsync(launched.Instance.DebugPort, 60);
@@ -69,6 +71,7 @@ namespace YTray
             }
             finally
             {
+                launched?.Dispose();
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }
             }
         }
@@ -88,6 +91,7 @@ namespace YTray
                 CreateNoWindow = true,
             };
             var p = System.Diagnostics.Process.Start(psi);
+            if (p == null) throw new InvalidOperationException("Browser process could not be started.");
             try
             {
                 var aumid = WindowEnum.PollForWindowAumid(p.Id, TimeSpan.FromSeconds(15));
@@ -102,6 +106,7 @@ namespace YTray
             finally
             {
                 try { p.Kill(); } catch { }
+                p.Dispose();
                 try { if (Directory.Exists(tmpProfile)) Directory.Delete(tmpProfile, true); } catch { }
             }
         }

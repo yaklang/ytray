@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.ComponentModel;
 using System.Windows;
@@ -13,6 +14,7 @@ namespace YTray.Views.Pages
     {
         private readonly InstanceStore _store;
         private bool _subscribed;
+        private bool _refreshScheduled;
 
         public PluginsPage(InstanceStore store)
         {
@@ -38,9 +40,13 @@ namespace YTray.Views.Pages
 
         private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (!IsLoaded) return;
-            if (Dispatcher.CheckAccess()) Refresh();
-            else Dispatcher.BeginInvoke(new Action(Refresh), DispatcherPriority.Background);
+            if (!IsLoaded || _refreshScheduled) return;
+            _refreshScheduled = true;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _refreshScheduled = false;
+                if (IsLoaded) Refresh();
+            }), DispatcherPriority.Background);
         }
 
         private void Refresh()

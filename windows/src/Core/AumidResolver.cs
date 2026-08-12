@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.IO;
 using System.Text;
@@ -96,7 +97,7 @@ namespace YTray.Core
 
             // Step 2: read the real AUMID from the launched Chrome's first window.
             // Run on a background thread to avoid blocking the UI; EnumWindows is blocking.
-            string windowAumid = null;
+            string? windowAumid = null;
             await Task.Run(() =>
             {
                 windowAumid = WindowEnum.PollForWindowAumid(processId, timeout);
@@ -105,7 +106,7 @@ namespace YTray.Core
             // Prefer the window's real AUMID (Chrome sets it itself). If empty, use the computed value,
             // which aligns with what Chrome would set. Final fallback: base AUMID.
             if (!string.IsNullOrEmpty(windowAumid))
-                return windowAumid;
+                return windowAumid!;
             if (!string.IsNullOrEmpty(expected) && expected != baseAumid)
                 return expected;
             return baseAumid;

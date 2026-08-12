@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.IO;
 using Newtonsoft.Json;
@@ -11,7 +12,7 @@ namespace YTray.Core
     /// </summary>
     public static class ProxyAuthenticationExtension
     {
-        public static string Write(Guid instanceId, string username, string password, string applicationDirectory)
+        public static string? Write(Guid instanceId, string username, string password, string applicationDirectory)
         {
             if (string.IsNullOrEmpty(username) && string.IsNullOrEmpty(password)) return null;
             var dir = ExtensionURL(instanceId, applicationDirectory);
@@ -76,6 +77,7 @@ chrome.webRequest.onErrorOccurred.addListener(clearAttempt, {{ urls: [""<all_url
                     var security = new System.Security.AccessControl.FileSecurity();
                     security.SetAccessRuleProtection(true, false);
                     var sid = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+                    if (sid == null) return;
                     security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(sid,
                         System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
                     new FileInfo(path).SetAccessControl(security);
@@ -85,6 +87,7 @@ chrome.webRequest.onErrorOccurred.addListener(clearAttempt, {{ urls: [""<all_url
                     var security = new System.Security.AccessControl.DirectorySecurity();
                     security.SetAccessRuleProtection(true, false);
                     var sid = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+                    if (sid == null) return;
                     security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(sid,
                         System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
                     new DirectoryInfo(path).SetAccessControl(security);

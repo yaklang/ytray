@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <title>YTray icon asset preview</title>
+  <rect width="1200" height="760" rx="32" fill="#101216"/>
+  <text x="64" y="74" fill="#F6F5F1" font-family="Segoe UI, sans-serif" font-size="30" font-weight="600">YTray icon system</text>
+  <text x="64" y="108" fill="#9298A0" font-family="Segoe UI, sans-serif" font-size="17">Production vector masters and Windows raster exports</text>
+
+  <rect x="64" y="152" width="550" height="544" rx="24" fill="#181B1F" stroke="#30343A" stroke-width="2"/>
+  <text x="96" y="198" fill="#F6F5F1" font-family="Segoe UI, sans-serif" font-size="20" font-weight="600">Application / desktop</text>
+  <image href="png/app/ytray-app-512.png" x="112" y="226" width="384" height="384"/>
+  <g font-family="Segoe UI, sans-serif" text-anchor="middle">
+    <image href="png/app/ytray-app-64.png" x="110" y="618" width="64" height="64"/>
+    <image href="png/app/ytray-app-48.png" x="225" y="626" width="48" height="48"/>
+    <image href="png/app/ytray-app-32.png" x="332" y="634" width="32" height="32"/>
+    <image href="png/app/ytray-app-16.png" x="431" y="642" width="16" height="16"/>
+  </g>
+
+  <rect x="646" y="152" width="490" height="544" rx="24" fill="#181B1F" stroke="#30343A" stroke-width="2"/>
+  <text x="678" y="198" fill="#F6F5F1" font-family="Segoe UI, sans-serif" font-size="20" font-weight="600">System tray</text>
+  <text x="678" y="226" fill="#9298A0" font-family="Segoe UI, sans-serif" font-size="15">Purpose-built monochrome glyphs</text>
+
+  <rect x="686" y="270" width="410" height="142" rx="18" fill="#F4F4F4"/>
+  <image href="png/tray-on-light/ytray-tray-on-light-64.png" x="732" y="309" width="64" height="64"/>
+  <image href="png/tray-on-light/ytray-tray-on-light-32.png" x="850" y="325" width="32" height="32"/>
+  <image href="png/tray-on-light/ytray-tray-on-light-20.png" x="947" y="331" width="20" height="20"/>
+  <image href="png/tray-on-light/ytray-tray-on-light-16.png" x="1027" y="333" width="16" height="16"/>
+
+  <rect x="686" y="448" width="410" height="142" rx="18" fill="#22252A" stroke="#343940" stroke-width="2"/>
+  <image href="png/tray-on-dark/ytray-tray-on-dark-64.png" x="732" y="487" width="64" height="64"/>
+  <image href="png/tray-on-dark/ytray-tray-on-dark-32.png" x="850" y="503" width="32" height="32"/>
+  <image href="png/tray-on-dark/ytray-tray-on-dark-20.png" x="947" y="509" width="20" height="20"/>
+  <image href="png/tray-on-dark/ytray-tray-on-dark-16.png" x="1027" y="511" width="16" height="16"/>
+
+  <text x="686" y="642" fill="#9298A0" font-family="Segoe UI, sans-serif" font-size="15">ICO: application 16–256px · tray 16–64px</text>
+</svg>

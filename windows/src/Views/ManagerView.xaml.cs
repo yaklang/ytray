@@ -1,4 +1,6 @@
+#nullable enable
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,7 +15,10 @@ namespace YTray.Views
     public partial class ManagerView : Window
     {
         private readonly InstanceStore _store;
+        private readonly Dictionary<string, Page> _pageCache = new Dictionary<string, Page>();
         private bool _loaded;
+        private bool _sidebarRefreshScheduled;
+        private string? _currentPageTag;
 
         public ManagerView(InstanceStore store)
         {
@@ -45,6 +50,7 @@ namespace YTray.Views
             _store.PropertyChanged -= OnStorePropertyChanged;
             ThemeManager.ThemeChanged -= OnThemeChanged;
             ContentFrame.Content = null;
+            _pageCache.Clear();
         }
 
         private void OnThemeChanged(object sender, EventArgs e) => RefreshSidebarStatus();
@@ -52,8 +58,13 @@ namespace YTray.Views
         private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
         {
             if (!IsLoaded) return;
-            if (Dispatcher.CheckAccess()) RefreshSidebarStatus();
-            else Dispatcher.BeginInvoke(new Action(RefreshSidebarStatus), DispatcherPriority.Background);
+            if (_sidebarRefreshScheduled) return;
+            _sidebarRefreshScheduled = true;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _sidebarRefreshScheduled = false;
+                if (IsLoaded) RefreshSidebarStatus();
+            }), DispatcherPriority.Background);
         }
 
         private void RefreshSidebarStatus()
@@ -111,15 +122,21 @@ namespace YTray.Views
 
         private void ShowPage(string tag)
         {
-            Page page;
-            switch (tag)
+            tag = string.IsNullOrWhiteSpace(tag) ? "quick" : tag;
+            if (_currentPageTag == tag && ContentFrame.Content != null) return;
+            if (!_pageCache.TryGetValue(tag, out var page))
             {
-                case "runtimes": page = new RuntimePage(_store); break;
-                case "settings": page = new SettingsPage(_store); break;
-                case "instances": page = new InstancesPage(_store); break;
-                case "plugins": page = new PluginsPage(_store); break;
-                default: page = new QuickLaunchPage(_store); break;
+                switch (tag)
+                {
+                    case "runtimes": page = new RuntimePage(_store); break;
+                    case "settings": page = new SettingsPage(_store); break;
+                    case "instances": page = new InstancesPage(_store); break;
+                    case "plugins": page = new PluginsPage(_store); break;
+                    default: page = new QuickLaunchPage(_store); tag = "quick"; break;
+                }
+                _pageCache[tag] = page;
             }
+            _currentPageTag = tag;
             ContentFrame.Content = page;
         }
 

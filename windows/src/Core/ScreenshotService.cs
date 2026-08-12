@@ -1,6 +1,9 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
@@ -20,6 +23,9 @@ namespace YTray.Core
     public static class ScreenshotService
     {
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        private static readonly ConcurrentDictionary<int, string> LastVisibleTargetByPort =
+            new ConcurrentDictionary<int, string>();
+        private static readonly TimeSpan VisibilityProbeTimeout = TimeSpan.FromMilliseconds(850);
 
         public struct PageState
         {
@@ -30,15 +36,16 @@ namespace YTray.Core
         #pragma warning disable 0649
         private class CdpTarget
         {
-            public string type;
-            public string title;
-            public string url;
+            public string? id;
+            public string? type;
+            public string? title;
+            public string? url;
             [JsonProperty("webSocketDebuggerUrl")]
-            public string WebSocketDebuggerUrl;
+            public string? WebSocketDebuggerUrl;
         }
         #pragma warning restore 0649
 
-        public static async Task<string> CurrentPageTitleAsync(int debugPort, int attempts = 1)
+        public static async Task<string?> CurrentPageTitleAsync(int debugPort, int attempts = 1)
         {
             var s = await CurrentPageStateAsync(debugPort, attempts);
             return s?.Title;
@@ -51,7 +58,7 @@ namespace YTray.Core
                 var targets = await PageTargetsAsync(debugPort);
                 if (targets != null)
                 {
-                    var visible = await VisiblePageStateAsync(targets);
+                    var visible = await VisiblePageStateAsync(debugPort, targets);
                     if (visible != null) return visible;
                     var first = targets.Find(t => t.type == "page");
                     if (first != null)
@@ -81,7 +88,7 @@ namespace YTray.Core
         {
             if (!Uri.IsWellFormedUriString(url, UriKind.Absolute)) throw new YTrayException(YTrayError.InvalidURL, url);
             var targets = await PageTargetsAsync(debugPort) ?? throw new YTrayException(YTrayError.LaunchFailed, "找不到可恢复的浏览器标签页");
-            var target = await VisiblePageAsync(targets) ?? targets.Find(t => t.type == "page" && t.WebSocketDebuggerUrl != null);
+            var target = await VisiblePageAsync(debugPort, targets) ?? targets.Find(t => t.type == "page" && t.WebSocketDebuggerUrl != null);
             if (target?.WebSocketDebuggerUrl == null) throw new YTrayException(YTrayError.LaunchFailed, "找不到可恢复的浏览器标签页");
             var uri = new Uri(target.WebSocketDebuggerUrl);
             var cmd = new { id = 1, method = "Page.navigate", @params = new { url } };
@@ -102,14 +109,17 @@ namespace YTray.Core
             Directory.CreateDirectory(outputDirectory);
             var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             var path = Path.Combine(outputDirectory, $"{stamp}-{instanceId.ToString().Substring(0, 8)}.png");
-            await CaptureCoreAsync(debugPort, path, "png", null, 20);
+            await CaptureCoreAsync(debugPort, path, "png", null, 4);
             return path;
         }
 
         public static async Task<string> CaptureThumbnailAsync(int debugPort, Guid instanceId, string outputURL)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(outputURL));
-            await CaptureCoreAsync(debugPort, outputURL, "jpeg", 68, 12);
+            var outputDirectory = Path.GetDirectoryName(outputURL);
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+                throw new ArgumentException("Thumbnail output must include a directory.", nameof(outputURL));
+            Directory.CreateDirectory(outputDirectory);
+            await CaptureCoreAsync(debugPort, outputURL, "jpeg", 68, 3);
             return outputURL;
         }
 
@@ -121,7 +131,7 @@ namespace YTray.Core
                 try
                 {
                     var targets = await PageTargetsAsync(debugPort) ?? throw new YTrayException(YTrayError.ScreenshotFailed, "没有可截图的页面");
-                    var target = await VisiblePageAsync(targets) ?? targets.Find(t => t.type == "page" && t.WebSocketDebuggerUrl != null);
+                    var target = await VisiblePageAsync(debugPort, targets) ?? targets.Find(t => t.type == "page" && t.WebSocketDebuggerUrl != null);
                     if (target?.WebSocketDebuggerUrl == null) throw new YTrayException(YTrayError.ScreenshotFailed, "没有可截图的页面");
                     var uri = new Uri(target.WebSocketDebuggerUrl);
                     var p = new Dictionary<string, object> { ["format"] = format, ["captureBeyondViewport"] = false, ["fromSurface"] = true };
@@ -134,7 +144,7 @@ namespace YTray.Core
                         if (msg["error"] is JObject err) throw new YTrayException(YTrayError.ScreenshotFailed, err["message"]?.ToString() ?? "CDP 返回错误");
                         var encoded = msg["result"]?["data"]?.ToString();
                         if (string.IsNullOrEmpty(encoded)) throw new YTrayException(YTrayError.ScreenshotFailed, "CDP 没有返回图片");
-                        File.WriteAllBytes(outputPath, Convert.FromBase64String(encoded));
+                        WriteAllBytesAtomically(outputPath, Convert.FromBase64String(encoded));
                         return;
                     }
                     throw new YTrayException(YTrayError.ScreenshotFailed, "等待 CDP 截图响应超时");
@@ -148,93 +158,189 @@ namespace YTray.Core
             throw new YTrayException(YTrayError.ScreenshotFailed, lastError);
         }
 
-        private static async Task<List<CdpTarget>> PageTargetsAsync(int debugPort)
+        private static async Task<List<CdpTarget>?> PageTargetsAsync(int debugPort)
         {
             if (debugPort < 1 || debugPort > 65535) return null;
             try
             {
-                var resp = await Http.GetAsync($"http://127.0.0.1:{debugPort}/json/list");
-                if (!resp.IsSuccessStatusCode) return null;
-                var json = await resp.Content.ReadAsStringAsync();
-                return JsonConvert.DeserializeObject<List<CdpTarget>>(json);
+                using (var resp = await Http.GetAsync($"http://127.0.0.1:{debugPort}/json/list"))
+                {
+                    if (!resp.IsSuccessStatusCode) return null;
+                    var json = await resp.Content.ReadAsStringAsync();
+                    return JsonConvert.DeserializeObject<List<CdpTarget>>(json);
+                }
             }
             catch { return null; }
         }
 
-        private static async Task<PageState?> VisiblePageStateAsync(List<CdpTarget> targets)
+        private sealed class VisiblePageResult
         {
-            foreach (var t in targets)
+            public CdpTarget Target { get; }
+            public PageState State { get; }
+
+            public VisiblePageResult(CdpTarget target, PageState state)
             {
-                if (t.type != "page" || t.WebSocketDebuggerUrl == null) continue;
-                try
+                Target = target ?? throw new ArgumentNullException(nameof(target));
+                State = state;
+            }
+        }
+
+        private static async Task<PageState?> VisiblePageStateAsync(int debugPort, List<CdpTarget> targets)
+        {
+            var result = await FindVisiblePageAsync(debugPort, targets);
+            return result?.State;
+        }
+
+        private static async Task<CdpTarget?> VisiblePageAsync(int debugPort, List<CdpTarget> targets)
+        {
+            var result = await FindVisiblePageAsync(debugPort, targets);
+            return result?.Target;
+        }
+
+        private static async Task<VisiblePageResult?> FindVisiblePageAsync(int debugPort, List<CdpTarget> targets)
+        {
+            var pages = targets?
+                .Where(target => target != null && target.type == "page"
+                    && !string.IsNullOrWhiteSpace(target.WebSocketDebuggerUrl))
+                .ToList() ?? new List<CdpTarget>();
+            if (pages.Count == 0) return null;
+
+            if (LastVisibleTargetByPort.TryGetValue(debugPort, out var preferredId))
+            {
+                var preferred = pages.FirstOrDefault(target => target.id == preferredId);
+                if (preferred != null)
                 {
-                    var uri = new Uri(t.WebSocketDebuggerUrl);
-                    var cmd = new
+                    var cached = await ProbeVisibilityAsync(preferred, CancellationToken.None);
+                    if (cached != null) return cached;
+                    pages.Remove(preferred);
+                }
+            }
+
+            using (var cancellation = new CancellationTokenSource())
+            {
+                // Probe concurrently so one hidden or stale tab cannot serialize an 850ms timeout
+                // ahead of the actual foreground page. Once found, cancel all losing probes.
+                var pending = pages.Select(target => ProbeVisibilityAsync(target, cancellation.Token)).ToList();
+                while (pending.Count > 0)
+                {
+                    var completed = await Task.WhenAny(pending);
+                    pending.Remove(completed);
+                    var result = await completed;
+                    if (result == null) continue;
+                    var targetId = result.Target.id;
+                    if (!string.IsNullOrWhiteSpace(targetId))
+                        LastVisibleTargetByPort[debugPort] = targetId!;
+                    cancellation.Cancel();
+                    return result;
+                }
+            }
+            return null;
+        }
+
+        private static async Task<VisiblePageResult?> ProbeVisibilityAsync(CdpTarget target,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (!Uri.TryCreate(target.WebSocketDebuggerUrl, UriKind.Absolute, out var uri))
+                    return null;
+                var cmd = new
+                {
+                    id = 1,
+                    method = "Runtime.evaluate",
+                    @params = new
                     {
-                        id = 1,
-                        method = "Runtime.evaluate",
-                        @params = new
-                        {
-                            expression = "document.visibilityState === 'visible' ? JSON.stringify({title: document.title, url: location.href}) : ''",
-                            returnByValue = true,
-                        },
-                    };
-                    var resp = await WebSocketExchangeAsync(uri, JObject.FromObject(cmd));
-                    foreach (var msg in resp)
-                    {
-                        if (msg["id"]?.Value<int?>() != 1) continue;
-                        var value = msg["result"]?["result"]?["value"]?.ToString();
-                        // A background tab reports an empty value. Keep checking the remaining
-                        // targets instead of abandoning the whole lookup at the first hidden tab.
-                        if (string.IsNullOrEmpty(value)) continue;
-                        var obj = JObject.Parse(value);
-                        return new PageState
+                        expression = "document.visibilityState === 'visible' ? JSON.stringify({title: document.title, url: location.href}) : ''",
+                        returnByValue = true,
+                    },
+                };
+                var resp = await WebSocketExchangeAsync(uri, JObject.FromObject(cmd),
+                    VisibilityProbeTimeout, cancellationToken);
+                foreach (var msg in resp)
+                {
+                    if (msg["id"]?.Value<int?>() != 1) continue;
+                    var value = msg["result"]?["result"]?["value"]?.ToString();
+                    if (value == null || value.Length == 0) continue;
+                    var obj = JObject.Parse(value);
+                    return new VisiblePageResult(
+                        target,
+                        new PageState
                         {
                             Title = (obj["title"]?.ToString() ?? "").Trim(),
                             URL = (obj["url"]?.ToString() ?? "").Trim(),
-                        };
-                    }
+                        });
                 }
-                catch { }
             }
+            catch { }
             return null;
         }
 
-        private static async Task<CdpTarget> VisiblePageAsync(List<CdpTarget> targets)
-        {
-            foreach (var t in targets)
-            {
-                if (t.type != "page" || t.WebSocketDebuggerUrl == null) continue;
-                var state = await VisiblePageStateAsync(new List<CdpTarget> { t });
-                if (state != null) return t;
-            }
-            return null;
-        }
-
-        private static async Task<List<JObject>> WebSocketExchangeAsync(Uri wsUrl, JObject command)
+        private static async Task<List<JObject>> WebSocketExchangeAsync(Uri wsUrl, JObject command,
+            TimeSpan? operationTimeout = null, CancellationToken cancellationToken = default)
         {
             using (var ws = new ClientWebSocket())
+            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                await ws.ConnectAsync(wsUrl, CancellationToken.None);
+                timeout.CancelAfter(operationTimeout ?? TimeSpan.FromSeconds(4));
+                await ws.ConnectAsync(wsUrl, timeout.Token);
                 var cmdBytes = Encoding.UTF8.GetBytes(command.ToString(Formatting.None));
-                await ws.SendAsync(new ArraySegment<byte>(cmdBytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                await ws.SendAsync(new ArraySegment<byte>(cmdBytes), WebSocketMessageType.Text, true, timeout.Token);
 
                 var results = new List<JObject>();
-                var buffer = new byte[64 * 1024];
-                for (int i = 0; i < 20; i++)
+                var buffer = new byte[16 * 1024];
+                for (int messageIndex = 0; messageIndex < 20; messageIndex++)
                 {
-                    var recv = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                    if (recv.MessageType == WebSocketMessageType.Close) break;
-                    var text = Encoding.UTF8.GetString(buffer, 0, recv.Count);
-                    try
+                    // CDP screenshot responses are routinely hundreds of kilobytes and therefore
+                    // arrive as multiple WebSocket fragments. Reassemble the entire message before
+                    // parsing it; parsing every fragment independently silently discarded images.
+                    using (var message = new MemoryStream())
                     {
-                        var msg = JObject.Parse(text);
-                        results.Add(msg);
-                        if (msg["id"]?.Value<int?>() == command["id"]?.Value<int?>()) break;
+                        WebSocketReceiveResult recv;
+                        do
+                        {
+                            recv = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token);
+                            if (recv.MessageType == WebSocketMessageType.Close) break;
+                            message.Write(buffer, 0, recv.Count);
+                            if (message.Length > 64L * 1024 * 1024)
+                                throw new YTrayException(YTrayError.ScreenshotFailed, "CDP 返回的图片数据异常过大");
+                        }
+                        while (!recv.EndOfMessage);
+
+                        if (recv.MessageType == WebSocketMessageType.Close) break;
+                        var text = Encoding.UTF8.GetString(message.GetBuffer(), 0, checked((int)message.Length));
+                        try
+                        {
+                            var msg = JObject.Parse(text);
+                            results.Add(msg);
+                            if (msg["id"]?.Value<int?>() == command["id"]?.Value<int?>()) break;
+                        }
+                        catch (JsonException) { }
                     }
-                    catch { }
                 }
                 return results;
+            }
+        }
+
+        private static void WriteAllBytesAtomically(string outputPath, byte[] bytes)
+        {
+            if (string.IsNullOrWhiteSpace(outputPath))
+                throw new ArgumentException("Screenshot output path is required.", nameof(outputPath));
+            if (bytes == null || bytes.Length == 0)
+                throw new YTrayException(YTrayError.ScreenshotFailed, "CDP 返回了空图片");
+            var directory = Path.GetDirectoryName(outputPath);
+            if (string.IsNullOrWhiteSpace(directory))
+                throw new ArgumentException("Screenshot output must include a directory.", nameof(outputPath));
+            Directory.CreateDirectory(directory);
+            var temporary = outputPath + ".new-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                File.WriteAllBytes(temporary, bytes);
+                if (File.Exists(outputPath)) File.Replace(temporary, outputPath, null);
+                else File.Move(temporary, outputPath);
+            }
+            finally
+            {
+                try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
             }
         }
     }
