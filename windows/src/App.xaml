@@ -8,16 +8,408 @@
                 <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/SkinDefault.xaml"/>
                 <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/Theme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
-            <!-- Brand colors, mirrored from macOS Brand constants -->
-            <Color x:Key="BrandOrangeColor">#F28B44</Color>
-            <SolidColorBrush x:Key="BrandOrangeBrush" Color="#F28B44" />
-            <SolidColorBrush x:Key="BrandPaleBrush" Color="#FFF6EE" />
-            <!-- Override HandyControl primary brush with YTray orange -->
-            <SolidColorBrush x:Key="PrimaryBrush" Color="#F28B44"/>
-            <SolidColorBrush x:Key="PrimaryBrushDark" Color="#D9772E"/>
-            <SolidColorBrush x:Key="PrimaryBrushLight" Color="#F8B488"/>
-            <SolidColorBrush x:Key="SuccessBrush" Color="#27AE60"/>
-            <SolidColorBrush x:Key="DangerBrush" Color="#E74C3C"/>
+
+            <!-- ThemeManager replaces these colours at runtime. Brushes keep a DynamicResource
+                 colour reference so even existing windows update without being recreated. -->
+            <Color x:Key="BrandOrangeColor">#F2823D</Color>
+            <Color x:Key="BrandOrangeHoverColor">#E97431</Color>
+            <Color x:Key="BrandOrangePressedColor">#D96427</Color>
+            <Color x:Key="BrandPaleColor">#FFF0E5</Color>
+            <Color x:Key="AppBackgroundColor">#F5F5F3</Color>
+            <Color x:Key="TitleBarColor">#FAFAF8</Color>
+            <Color x:Key="SidebarColor">#FAFAF8</Color>
+            <Color x:Key="SurfaceColor">#FFFFFFFF</Color>
+            <Color x:Key="SurfaceRaisedColor">#FFFFFFFF</Color>
+            <Color x:Key="SurfaceMutedColor">#F8F8F6</Color>
+            <Color x:Key="InputColor">#FFFFFFFF</Color>
+            <Color x:Key="TextPrimaryColor">#202124</Color>
+            <Color x:Key="TextSecondaryColor">#676B72</Color>
+            <Color x:Key="TextTertiaryColor">#989BA1</Color>
+            <Color x:Key="HairlineColor">#E3E3DF</Color>
+            <Color x:Key="WindowBorderColor">#D8D8D4</Color>
+            <Color x:Key="HoverColor">#EEEDEA</Color>
+            <Color x:Key="PressedColor">#E7E5E1</Color>
+            <Color x:Key="OverlayColor">#99000000</Color>
+            <Color x:Key="SuccessColor">#2D9A60</Color>
+            <Color x:Key="SuccessPaleColor">#E8F6EE</Color>
+            <Color x:Key="DangerColor">#D94A45</Color>
+            <Color x:Key="DangerPaleColor">#FCEBEA</Color>
+            <Color x:Key="FloatingTopColor">#FFFCFCFB</Color>
+            <Color x:Key="FloatingBottomColor">#FFF7F7F5</Color>
+            <Color x:Key="FloatingRaisedColor">#FFFFFFFF</Color>
+            <Color x:Key="FloatingDeepColor">#FFF4F4F1</Color>
+            <Color x:Key="FloatingInputColor">#FFFFFFFF</Color>
+            <Color x:Key="FloatingHoverColor">#FFECEBE8</Color>
+            <Color x:Key="FloatingBorderColor">#FFD5D5D1</Color>
+            <Color x:Key="FloatingHairlineColor">#FFE6E6E2</Color>
+            <Color x:Key="FloatingTextPrimaryColor">#FF202124</Color>
+            <Color x:Key="FloatingTextSecondaryColor">#FF696D74</Color>
+            <Color x:Key="FloatingTextTertiaryColor">#FF979AA0</Color>
+            <Color x:Key="FloatingOrangePaleColor">#FFFFE9D9</Color>
+
+            <SolidColorBrush x:Key="BrandOrangeBrush" Color="{DynamicResource BrandOrangeColor}"/>
+            <SolidColorBrush x:Key="BrandOrangeHoverBrush" Color="{DynamicResource BrandOrangeHoverColor}"/>
+            <SolidColorBrush x:Key="BrandOrangePressedBrush" Color="{DynamicResource BrandOrangePressedColor}"/>
+            <SolidColorBrush x:Key="BrandPaleBrush" Color="{DynamicResource BrandPaleColor}"/>
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="{DynamicResource AppBackgroundColor}"/>
+            <SolidColorBrush x:Key="TitleBarBrush" Color="{DynamicResource TitleBarColor}"/>
+            <SolidColorBrush x:Key="SidebarBrush" Color="{DynamicResource SidebarColor}"/>
+            <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource SurfaceColor}"/>
+            <SolidColorBrush x:Key="SurfaceRaisedBrush" Color="{DynamicResource SurfaceRaisedColor}"/>
+            <SolidColorBrush x:Key="SurfaceMutedBrush" Color="{DynamicResource SurfaceMutedColor}"/>
+            <SolidColorBrush x:Key="InputBrush" Color="{DynamicResource InputColor}"/>
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="{DynamicResource TextPrimaryColor}"/>
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="{DynamicResource TextSecondaryColor}"/>
+            <SolidColorBrush x:Key="TextTertiaryBrush" Color="{DynamicResource TextTertiaryColor}"/>
+            <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource HairlineColor}"/>
+            <SolidColorBrush x:Key="WindowBorderBrush" Color="{DynamicResource WindowBorderColor}"/>
+            <SolidColorBrush x:Key="HoverBrush" Color="{DynamicResource HoverColor}"/>
+            <SolidColorBrush x:Key="PressedBrush" Color="{DynamicResource PressedColor}"/>
+            <SolidColorBrush x:Key="SuccessBrush" Color="{DynamicResource SuccessColor}"/>
+            <SolidColorBrush x:Key="SuccessPaleBrush" Color="{DynamicResource SuccessPaleColor}"/>
+            <SolidColorBrush x:Key="DangerBrush" Color="{DynamicResource DangerColor}"/>
+            <SolidColorBrush x:Key="DangerPaleBrush" Color="{DynamicResource DangerPaleColor}"/>
+
+            <!-- HandyControl compatibility aliases. -->
+            <SolidColorBrush x:Key="PrimaryBrush" Color="{DynamicResource BrandOrangeColor}"/>
+            <SolidColorBrush x:Key="PrimaryBrushDark" Color="{DynamicResource BrandOrangePressedColor}"/>
+            <SolidColorBrush x:Key="PrimaryBrushLight" Color="#F7B184"/>
+
+            <Style TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+            </Style>
+            <Style TargetType="Control">
+                <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            </Style>
+            <Style TargetType="Page">
+                <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}"/>
+            </Style>
+
+            <Style x:Key="YTrayButton" TargetType="Button">
+                <Setter Property="MinHeight" Value="32"/>
+                <Setter Property="Padding" Value="13,0"/>
+                <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="8" SnapsToDevicePixels="True">
+                                <ContentPresenter Margin="{TemplateBinding Padding}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"
+                                                  RecognizesAccessKey="True"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource PressedBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Chrome" Property="Opacity" Value="0.42"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="YTrayPrimaryButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
+                <Setter Property="Background" Value="{DynamicResource BrandOrangeBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource BrandOrangeHoverBrush}"/>
+                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource BrandOrangeHoverBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource BrandOrangePressedBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Chrome" Property="Opacity" Value="0.45"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="YTrayGhostButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+            </Style>
+            <Style x:Key="YTrayIconButton" TargetType="Button" BasedOn="{StaticResource YTrayGhostButton}">
+                <Setter Property="Width" Value="30"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="MinHeight" Value="0"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            </Style>
+            <Style x:Key="YTrayDangerIconButton" TargetType="Button" BasedOn="{StaticResource YTrayIconButton}">
+                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+            </Style>
+            <Style x:Key="WindowControlButton" TargetType="Button" BasedOn="{StaticResource YTrayGhostButton}">
+                <Setter Property="Width" Value="46"/>
+                <Setter Property="Height" Value="42"/>
+                <Setter Property="MinHeight" Value="0"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            </Style>
+            <Style x:Key="WindowCloseButton" TargetType="Button" BasedOn="{StaticResource WindowControlButton}">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Chrome" Background="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="#E81123"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="#C50F1F"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="YTrayTextBox" TargetType="TextBox">
+                <Setter Property="MinHeight" Value="34"/>
+                <Setter Property="Padding" Value="10,6"/>
+                <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="CaretBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                <Setter Property="SelectionBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                <Setter Property="TextAlignment" Value="Left"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TextBox">
+                            <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                                <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Chrome" Property="Opacity" Value="0.5"/>
+                                </Trigger>
+                                <Trigger Property="AcceptsReturn" Value="True">
+                                    <Setter Property="VerticalContentAlignment" Value="Top"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style TargetType="TextBox" BasedOn="{StaticResource YTrayTextBox}"/>
+
+            <Style x:Key="YTrayComboItem" TargetType="ComboBoxItem">
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Padding" Value="10,8"/>
+                <Setter Property="Margin" Value="0,1"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                            <Border x:Name="Chrome" Padding="{TemplateBinding Padding}" CornerRadius="7" Background="Transparent">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
+                                    <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                    <Path x:Name="Check" Grid.Column="1" Visibility="Collapsed" Data="M 1 5 L 4 8 L 10 1"
+                                          Stroke="{DynamicResource BrandOrangeBrush}" StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource BrandPaleBrush}"/>
+                                    <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="YTrayComboBox" TargetType="ComboBox">
+                <Setter Property="Height" Value="36"/>
+                <Setter Property="Padding" Value="11,0,8,0"/>
+                <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="ItemContainerStyle" Value="{StaticResource YTrayComboItem}"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBox">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="34"/>
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                        Grid.ColumnSpan="2"/>
+                                <ToggleButton Grid.ColumnSpan="2" Background="Transparent" BorderThickness="0" Focusable="False"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border Background="Transparent"/>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <ContentPresenter Grid.Column="0" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
+                                                  HorizontalAlignment="Stretch" ClipToBounds="True"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}" IsHitTestVisible="False"/>
+                                <Path x:Name="Arrow" Grid.Column="1" Data="M 1 2 L 5 6 L 9 2"
+                                      Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" IsHitTestVisible="False"
+                                      RenderTransformOrigin="0.5,0.5" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Path.RenderTransform><RotateTransform Angle="0"/></Path.RenderTransform>
+                                </Path>
+                                <Popup x:Name="PART_Popup" Grid.ColumnSpan="2" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                       AllowsTransparency="True" PopupAnimation="Fade" Focusable="False">
+                                    <Border MinWidth="{TemplateBinding ActualWidth}" MaxHeight="248" Margin="0,6,0,0" Padding="5"
+                                            CornerRadius="10" Background="{DynamicResource SurfaceRaisedBrush}"
+                                            BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1">
+                                        <Border.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="5" Opacity="0.18"/></Border.Effect>
+                                        <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto"><ItemsPresenter/></ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/></Trigger>
+                                <Trigger Property="IsDropDownOpen" Value="True">
+                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SurfaceRaisedBrush}"/>
+                                    <Setter TargetName="Arrow" Property="RenderTransform"><Setter.Value><RotateTransform Angle="180"/></Setter.Value></Setter>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.48"/></Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style TargetType="ComboBox" BasedOn="{StaticResource YTrayComboBox}"/>
+
+            <Style x:Key="YTrayCheckBox" TargetType="CheckBox">
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                            <Grid Background="Transparent">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Border x:Name="Box" Width="16" Height="16" CornerRadius="4" Background="{DynamicResource InputBrush}"
+                                        BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1" VerticalAlignment="Center">
+                                    <Path x:Name="Check" Visibility="Collapsed" Data="M 3 8 L 7 12 L 14 4" Stroke="White" StrokeThickness="1.8"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                </Border>
+                                <ContentPresenter Grid.Column="1" Margin="7,0,0,0" VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/></Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Box" Property="Background" Value="{DynamicResource BrandOrangeBrush}"/>
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                                    <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style TargetType="CheckBox" BasedOn="{StaticResource YTrayCheckBox}"/>
+
+            <Style TargetType="ProgressBar">
+                <Setter Property="Height" Value="6"/>
+                <Setter Property="Foreground" Value="{DynamicResource BrandOrangeBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ProgressBar">
+                            <Grid>
+                                <Border Background="{TemplateBinding Background}" CornerRadius="3"/>
+                                <Border x:Name="PART_Track"/>
+                                <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="3"/>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="SurfaceBorder" TargetType="Border">
+                <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="12"/>
+            </Style>
+            <Style x:Key="SectionTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            </Style>
+            <Style x:Key="PageTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="23"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            </Style>
+            <Style x:Key="PageSubtitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

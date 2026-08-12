@@ -1,6 +1,10 @@
 using System;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using YTray.Core;
 using YTray.Models;
@@ -10,22 +14,23 @@ namespace YTray.Views
     public partial class WidgetView : Window
     {
         private readonly InstanceStore _store;
-        public event EventHandler OpenManagerRequested;
         private bool _refreshScheduled;
+        private int _dismissGeneration;
+
+        public event EventHandler OpenManagerRequested;
 
         public WidgetView(InstanceStore store)
         {
             InitializeComponent();
             _store = store;
-            Refresh();
-            // Use BeginInvoke (async) instead of Invoke (sync) to avoid Dispatcher deadlock.
-            // Coalesce multiple notifications into a single refresh to prevent event storms.
+            Loaded += (s, e) => Refresh();
+            Deactivated += OnDeactivated;
             _store.PropertyChanged += OnStorePropertyChanged;
         }
 
-        private void OnStorePropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (_refreshScheduled) return;
+            if (_refreshScheduled || !IsLoaded) return;
             _refreshScheduled = true;
             Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -34,78 +39,193 @@ namespace YTray.Views
             }), DispatcherPriority.Background);
         }
 
-        public void PositionNearCursor()
+        private void OnDeactivated(object sender, EventArgs e)
         {
-            var screen = System.Windows.Forms.Cursor.Position;
-            Left = screen.X - ActualWidth / 2;
-            Top = screen.Y - 40;
-            var wa = System.Windows.Forms.Screen.FromPoint(screen).WorkingArea;
-            if (Left < wa.Left) Left = wa.Left;
-            if (Left + ActualWidth > wa.Right) Left = wa.Right - ActualWidth;
-            if (Top + ActualHeight > wa.Bottom) Top = wa.Bottom - ActualHeight - 20;
+            var generation = ++_dismissGeneration;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (generation == _dismissGeneration && !IsActive && IsVisible) Hide();
+            }), DispatcherPriority.Background);
         }
 
-        public void PositionBeside(double anchorX, double anchorY, bool onLeft)
+        public void PrepareToShow()
         {
-            Left = onLeft ? anchorX + 8 : anchorX - ActualWidth - 8;
-            Top = anchorY - ActualHeight / 2;
-            var wa = SystemParameters.WorkArea;
-            if (Left < wa.Left) Left = wa.Left + 4;
-            if (Left + ActualWidth > wa.Right) Left = wa.Right - ActualWidth - 4;
-            if (Top < wa.Top) Top = wa.Top + 4;
-            if (Top + ActualHeight > wa.Bottom) Top = wa.Bottom - ActualHeight - 4;
+            _dismissGeneration++;
+            Opacity = 0;
+            EntranceTransform.Y = 7;
+        }
+
+        public void PlayEntrance()
+        {
+            _dismissGeneration++;
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(135))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            });
+            EntranceTransform.BeginAnimation(TranslateTransform.YProperty,
+                new DoubleAnimation(7, 0, TimeSpan.FromMilliseconds(155))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                });
+        }
+
+        public void CancelPendingDismiss() => _dismissGeneration++;
+
+        public void HideWidget()
+        {
+            _dismissGeneration++;
+            Hide();
+        }
+
+        public void RefreshAndMeasure()
+        {
+            Refresh();
+            UpdateLayout();
+        }
+
+        public void PositionNearCursor()
+        {
+            var cursor = System.Windows.Forms.Cursor.Position;
+            var screen = System.Windows.Forms.Screen.FromPoint(cursor);
+            var scale = GetDpiScale();
+            var work = screen.WorkingArea;
+            var workLeft = work.Left / scale.DpiScaleX;
+            var workTop = work.Top / scale.DpiScaleY;
+            var workRight = work.Right / scale.DpiScaleX;
+            var workBottom = work.Bottom / scale.DpiScaleY;
+            var cursorX = cursor.X / scale.DpiScaleX;
+            var cursorY = cursor.Y / scale.DpiScaleY;
+
+            Left = cursorX - ActualWidth / 2;
+            Top = cursorY - ActualHeight - 12;
+            Left = Math.Max(workLeft + 8, Math.Min(Left, workRight - ActualWidth - 8));
+            Top = Math.Max(workTop + 8, Math.Min(Top, workBottom - ActualHeight - 8));
+        }
+
+        public void PositionBeside(Window anchor, bool onLeft)
+        {
+            var handle = new WindowInteropHelper(anchor).Handle;
+            var screen = System.Windows.Forms.Screen.FromHandle(handle);
+            var scale = VisualTreeHelper.GetDpi(anchor);
+            var work = screen.WorkingArea;
+            var workLeft = work.Left / scale.DpiScaleX;
+            var workTop = work.Top / scale.DpiScaleY;
+            var workRight = work.Right / scale.DpiScaleX;
+            var workBottom = work.Bottom / scale.DpiScaleY;
+
+            var preferredX = onLeft ? anchor.Left + anchor.ActualWidth + 7 : anchor.Left - ActualWidth - 7;
+            var preferredY = anchor.Top + anchor.ActualHeight / 2 - ActualHeight / 2;
+            Left = Math.Max(workLeft + 8, Math.Min(preferredX, workRight - ActualWidth - 8));
+            Top = Math.Max(workTop + 8, Math.Min(preferredY, workBottom - ActualHeight - 8));
+        }
+
+        private DpiScale GetDpiScale()
+        {
+            try { return VisualTreeHelper.GetDpi(this); }
+            catch { return new DpiScale(1, 1); }
         }
 
         private void Refresh()
         {
             if (!IsLoaded) return;
-            RunningList.ItemsSource = _store.RunningInstances;
-            HistoryList.ItemsSource = _store.HistoryInstances;
-            RunningCountLabel.Text = _store.RunningInstances.Count.ToString();
-            HistoryCountLabel.Text = _store.HistoryInstances.Count.ToString();
-            var rt = _store.DefaultRuntime;
-            DefaultRuntimeLabel.Text = rt != null ? $"默认 · {rt.DisplayTitle} {rt.VersionLabel}" : "未选择默认浏览器";
-            if (SchemeCombo.Items.Count > 0)
-                SchemeCombo.SelectedIndex = (int)_store.Settings.PresetProxyScheme;
+
+            var running = _store.RunningInstances;
+            var history = _store.HistoryInstances;
+            RunningList.ItemsSource = running.Take(4).ToList();
+            HistoryList.ItemsSource = history.Take(4).ToList();
+            RunningCountLabel.Text = running.Count.ToString();
+            HistoryCountLabel.Text = history.Count.ToString();
+            RunningEmpty.Visibility = running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            HistoryEmpty.Visibility = history.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            var runtime = _store.DefaultRuntime;
+            DefaultRuntimeLabel.Text = runtime != null
+                ? $"默认 · {runtime.DisplayTitle} {runtime.VersionLabel}"
+                : "未选择默认浏览器";
+            SchemeCombo.SelectedIndex = (int)_store.Settings.PresetProxyScheme;
             HostBox.Text = _store.Settings.PresetProxyHost;
             PortBox.Text = _store.Settings.PresetProxyPort.ToString();
             RemarkBox.Text = _store.Settings.PresetProxyRemark;
-            ProxyStatus.Text = _store.ProxyCheckMessage;
+            if (!string.IsNullOrEmpty(_store.ProxyCheckMessage))
+                ProxyStatus.Text = _store.ProxyCheckMessage;
+            CheckBtn.IsEnabled = _store.ProxyCheckPhase != ProxyCheckPhase.Checking;
             DirectBtn.IsEnabled = ProxyBtn.IsEnabled = !_store.IsLaunching;
         }
 
-        private void DirectLaunch_Click(object s, RoutedEventArgs e) => _store.LaunchConfigured(false);
-        private void ProxyLaunch_Click(object s, RoutedEventArgs e) => _store.LaunchConfigured(true);
-        private void OpenManager_Click(object s, RoutedEventArgs e) => OpenManagerRequested?.Invoke(this, e);
-        private void Close_Click(object s, RoutedEventArgs e) => Hide();
+        private bool CommitProxyEditor()
+        {
+            if (!int.TryParse(PortBox.Text?.Trim(), out var port) || port < 1 || port > 65535)
+            {
+                ProxyStatus.Text = "请输入 1–65535 的端口";
+                ProxyStatus.Foreground = (Brush)FindResource("DangerBrush");
+                return false;
+            }
 
-        private void Focus_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserInstance i) _store.Focus(i);
+            _store.Settings.PresetProxyScheme = SchemeCombo.SelectedIndex == 1 ? ProxyScheme.Https : ProxyScheme.Http;
+            _store.Settings.PresetProxyHost = HostBox.Text?.Trim() ?? "";
+            _store.Settings.PresetProxyPort = port;
+            _store.Settings.PresetProxyRemark = RemarkBox.Text?.Trim() ?? "";
+            ProxyStatus.Foreground = (Brush)FindResource("WidgetTextSecondaryBrush");
+            return true;
         }
-        private void Capture_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserInstance i) _ = _store.CaptureAsync(i);
-        }
-        private void Stop_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserInstance i) _store.Stop(i);
-        }
-        private void Restore_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserInstance i) _store.RestoreHistory(i);
-        }
-        private void DeleteHistory_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserInstance i) _store.RemoveHistory(i);
-        }
-        private void Check_Click(object s, RoutedEventArgs e) => _ = _store.CheckPresetProxyAsync();
-        private void Save_Click(object s, RoutedEventArgs e) => _store.RememberPresetProxy();
-        private void ProxyHistory_Click(object s, RoutedEventArgs e) { /* menu popup - left as future enhancement */ }
 
-        protected override void OnLocationChanged(EventArgs e)
+        private void DirectLaunch_Click(object sender, RoutedEventArgs e) => _store.LaunchConfigured(false);
+        private void ProxyLaunch_Click(object sender, RoutedEventArgs e)
         {
-            base.OnLocationChanged(e);
+            if (!CommitProxyEditor()) return;
+            _store.LaunchConfigured(true);
+        }
+
+        private void OpenManager_Click(object sender, RoutedEventArgs e)
+        {
+            HideWidget();
+            OpenManagerRequested?.Invoke(this, e);
+        }
+
+        private void Close_Click(object sender, RoutedEventArgs e) => HideWidget();
+
+        private void Focus_Click(object sender, RoutedEventArgs e)
+        {
+            if (((FrameworkElement)sender).Tag is BrowserInstance instance) _store.Focus(instance);
+        }
+
+        private void Capture_Click(object sender, RoutedEventArgs e)
+        {
+            if (((FrameworkElement)sender).Tag is BrowserInstance instance) _ = _store.CaptureAsync(instance);
+        }
+
+        private void Stop_Click(object sender, RoutedEventArgs e)
+        {
+            if (((FrameworkElement)sender).Tag is BrowserInstance instance) _store.Stop(instance);
+        }
+
+        private void Restore_Click(object sender, RoutedEventArgs e)
+        {
+            if (((FrameworkElement)sender).Tag is BrowserInstance instance) _store.RestoreHistory(instance);
+        }
+
+        private void DeleteHistory_Click(object sender, RoutedEventArgs e)
+        {
+            if (((FrameworkElement)sender).Tag is BrowserInstance instance) _store.RemoveHistory(instance);
+        }
+
+        private async void Check_Click(object sender, RoutedEventArgs e)
+        {
+            if (!CommitProxyEditor()) return;
+            CheckBtn.IsEnabled = false;
+            ProxyStatus.Text = "检测中 · 最多 10 秒";
+            await _store.CheckPresetProxyAsync();
+            Refresh();
+        }
+
+        private void Save_Click(object sender, RoutedEventArgs e)
+        {
+            if (!CommitProxyEditor()) return;
+            var saved = _store.RememberPresetProxy();
+            ProxyStatus.Text = saved == null ? (_store.ErrorMessage ?? "保存失败") : "已保存";
+            ProxyStatus.Foreground = saved == null
+                ? (Brush)FindResource("DangerBrush")
+                : (Brush)FindResource("SuccessBrush");
         }
     }
 }

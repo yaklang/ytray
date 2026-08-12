@@ -237,9 +237,16 @@ namespace YTray.Models
         };
     }
 
+    public enum AppThemePreference
+    {
+        System,
+        Light,
+        Dark,
+    }
+
     public class LaunchSettings
     {
-        public const int CurrentConfigurationVersion = 4;
+        public const int CurrentConfigurationVersion = 5;
         public const int CertificateDefaultMigrationVersion = 2;
         public const string DefaultPresetProxyServer = "http://127.0.0.1:8083";
 
@@ -268,6 +275,10 @@ namespace YTray.Models
         public string AdditionalFlags { get; set; } = "";
         public List<Guid> DefaultPluginIDs { get; set; } = new List<Guid>();
         public string DockBadge { get; set; } = "";
+        public bool EdgeDockEnabled { get; set; } = true;
+        public bool EdgeDockOnLeft { get; set; }
+        public int EdgeDockYPercent { get; set; } = 58;
+        public AppThemePreference ThemePreference { get; set; } = AppThemePreference.System;
 
         public static readonly string[] BlockedCustomPrefixes =
         {
@@ -391,6 +402,22 @@ namespace YTray.Models
     {
         public string Version { get; set; }
         public List<MirrorArtifact> Artifacts { get; set; } = new List<MirrorArtifact>();
+
+        [JsonIgnore]
+        public string PlatformLabel
+        {
+            get
+            {
+                var labels = (Artifacts ?? new List<MirrorArtifact>())
+                    .Where(artifact => !string.IsNullOrWhiteSpace(artifact.OS) && !string.IsNullOrWhiteSpace(artifact.Arch))
+                    .Select(artifact => artifact.OS + "-" + artifact.Arch)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                return labels.Count == 0 ? "Windows" : string.Join(" / ", labels);
+            }
+        }
+
+        public override string ToString() => string.IsNullOrWhiteSpace(Version) ? "未知版本" : Version;
     }
 
     public class MirrorArtifact

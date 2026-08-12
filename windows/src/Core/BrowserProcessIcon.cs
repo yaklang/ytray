@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Collections.Generic;
 using YTray.Models;
 
 namespace YTray.Core
@@ -15,6 +16,8 @@ namespace YTray.Core
     public static class BrowserProcessIcon
     {
         public static readonly Color BrandOrange = Color.FromArgb(0xF2, 0x8B, 0x44);
+        private static readonly object IconHandleLock = new object();
+        private static readonly Dictionary<Guid, List<IntPtr>> LiveIconHandles = new Dictionary<Guid, List<IntPtr>>();
 
         public static string IconPath(Guid instanceId, string applicationDirectory) =>
             Path.Combine(applicationDirectory, "ProcessIcons", instanceId + ".ico");
@@ -42,17 +45,71 @@ namespace YTray.Core
                 var pngPath = PngPath(instanceId, applicationDirectory);
                 // Write PNG
                 rendered.Save(pngPath, System.Drawing.Imaging.ImageFormat.Png);
-                // Write ICO (multi-size)
-                SaveAsIcon(rendered, icoPath);
+                // Write native-size frames instead of asking Explorer to shrink one 256px image.
+                SaveAsIcon(baseIcon, label, icoPath);
                 return icoPath;
             }
         }
 
         public static void Remove(Guid instanceId, string applicationDirectory)
         {
+            ReleaseWindowIcons(instanceId);
             TryDelete(IconPath(instanceId, applicationDirectory));
             TryDelete(PngPath(instanceId, applicationDirectory));
             TryDelete(LnkPath(instanceId, applicationDirectory));
+        }
+
+        /// <summary>
+        /// Apply the generated icon and matching AUMID metadata to Chrome's live top-level window.
+        /// A shortcut alone does not change an already-created taskbar button; WM_SETICON does.
+        /// </summary>
+        public static bool ApplyToProcessWindow(Guid instanceId, int processId, string applicationDirectory,
+            string aumid, string displayName)
+        {
+            var hwnd = Native.WindowEnum.FindFirstVisibleWindow(processId);
+            if (hwnd == IntPtr.Zero) hwnd = Native.WindowEnum.FindAnyVisibleWindow(processId);
+            if (hwnd == IntPtr.Zero) return false;
+            var icoPath = IconPath(instanceId, applicationDirectory);
+            if (!File.Exists(icoPath)) return false;
+
+            var big = Native.Win32.LoadImage(IntPtr.Zero, icoPath, Native.Win32.IMAGE_ICON, 32, 32,
+                Native.Win32.LR_LOADFROMFILE);
+            var small = Native.Win32.LoadImage(IntPtr.Zero, icoPath, Native.Win32.IMAGE_ICON, 16, 16,
+                Native.Win32.LR_LOADFROMFILE);
+            if (big == IntPtr.Zero && small == IntPtr.Zero) return false;
+
+            ReleaseWindowIcons(instanceId);
+            var handles = new List<IntPtr>();
+            if (big != IntPtr.Zero)
+            {
+                Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON, (IntPtr)Native.Win32.ICON_BIG, big);
+                handles.Add(big);
+            }
+            if (small != IntPtr.Zero)
+            {
+                Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON, (IntPtr)Native.Win32.ICON_SMALL, small);
+                Native.Win32.SendMessage(hwnd, Native.Win32.WM_SETICON, (IntPtr)Native.Win32.ICON_SMALL2, small);
+                handles.Add(small);
+            }
+            lock (IconHandleLock) LiveIconHandles[instanceId] = handles;
+
+            bool changed;
+            var metadataApplied = Native.Win32.EnsureWindowAppProperties(
+                hwnd, aumid, icoPath + ",0", false, out changed);
+            return metadataApplied;
+        }
+
+        private static void ReleaseWindowIcons(Guid instanceId)
+        {
+            List<IntPtr> handles = null;
+            lock (IconHandleLock)
+            {
+                if (LiveIconHandles.TryGetValue(instanceId, out handles))
+                    LiveIconHandles.Remove(instanceId);
+            }
+            if (handles == null) return;
+            foreach (var handle in handles)
+                if (handle != IntPtr.Zero) Native.Win32.DestroyIcon(handle);
         }
 
         private static void TryDelete(string path)
@@ -81,28 +138,33 @@ namespace YTray.Core
                     }
                 }
 
-                // Badge circle at bottom-right.
-                float diameter = size * 0.31f;
-                float badgeRectX = size - diameter - size * 0.025f;
-                float badgeRectY = size * 0.025f;
-                var badgeRect = new RectangleF(badgeRectX, badgeRectY, diameter, diameter);
+                // Taskbar icons are commonly rendered at 24–32px. Give the identity badge nearly
+                // half the icon and render every ICO frame independently so A/B remains legible.
+                float badgeHeight = Math.Max(8, size * 0.46f);
+                float badgeWidth = badge.Length == 1 ? badgeHeight : Math.Min(size * 0.62f, badgeHeight * 1.38f);
+                float inset = Math.Max(1, size * 0.018f);
+                float badgeRectX = size - badgeWidth - inset;
+                float badgeRectY = size - badgeHeight - inset;
+                var badgeRect = new RectangleF(badgeRectX, badgeRectY, badgeWidth, badgeHeight);
 
-                // White border ring.
-                float border = size * 0.012f;
-                using (var borderPen = new Pen(Color.White, size * 0.024f))
-                    g.DrawEllipse(borderPen, RectangleF.Inflate(badgeRect, -border, -border));
-
-                // Orange fill.
+                // Dark keyline + white separator keep the orange badge readable on every browser.
+                using (var shadowBrush = new SolidBrush(Color.FromArgb(105, 0, 0, 0)))
+                    g.FillEllipse(shadowBrush, new RectangleF(badgeRect.X,
+                        badgeRect.Y + Math.Max(1, size * 0.018f), badgeRect.Width, badgeRect.Height));
+                using (var borderBrush = new SolidBrush(Color.White))
+                    g.FillEllipse(borderBrush, badgeRect);
+                var ring = Math.Max(1.2f, size * 0.035f);
+                var fillRect = RectangleF.Inflate(badgeRect, -ring, -ring);
                 using (var fillBrush = new SolidBrush(BrandOrange))
-                    g.FillEllipse(fillBrush, badgeRect);
+                    g.FillEllipse(fillBrush, fillRect);
 
-                // White bold letter.
-                float fontSize = badge.Length == 1 ? diameter * 0.59f : diameter * 0.43f;
+                // White bold letter, biased slightly upward to account for Segoe's baseline.
+                float fontSize = badge.Length == 1 ? badgeHeight * 0.62f : badgeHeight * 0.46f;
                 using (var font = new Font(SystemFonts.DefaultFont.FontFamily, fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
                 using (var brush = new SolidBrush(Color.White))
                 {
                     var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                    var textRect = new RectangleF(badgeRectX, badgeRectY + size * 0.008f, diameter, diameter);
+                    var textRect = new RectangleF(badgeRectX, badgeRectY - size * 0.008f, badgeWidth, badgeHeight);
                     g.DrawString(badge, font, brush, textRect, sf);
                 }
             }
@@ -123,35 +185,52 @@ namespace YTray.Core
             }
         }
 
-        /// <summary>Save a Bitmap as a multi-size .ico file.</summary>
-        private static void SaveAsIcon(Bitmap source, string path)
+        private sealed class IconFrame : IDisposable
         {
-            // Write a simple single-image ICO (256x256) using the raw ICO header + PNG-encoded image data.
-            // This is the modern "PNG-compressed ICO" format supported on Windows Vista+.
-            using (var ms = new MemoryStream())
-            {
-                source.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                var pngBytes = ms.ToArray();
+            public int Size { get; set; }
+            public byte[] Bytes { get; set; }
+            public void Dispose() { Bytes = null; }
+        }
 
-                using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
-                using (var bw = new BinaryWriter(fs))
+        /// <summary>Save native 16–256px PNG-compressed frames in one ICO.</summary>
+        private static void SaveAsIcon(Icon baseIcon, string badge, string path)
+        {
+            var frames = new List<IconFrame>();
+            foreach (var size in new[] { 16, 20, 24, 32, 40, 48, 64, 256 })
+            {
+                using (var rendered = RenderIcon(baseIcon, badge, size))
+                using (var stream = new MemoryStream())
                 {
-                    // ICONDIR
-                    bw.Write((ushort)0);      // reserved
-                    bw.Write((ushort)1);      // type = ICO
-                    bw.Write((ushort)1);      // count
-                    // ICONDIRENTRY
-                    bw.Write((byte)0);         // width 256 -> 0
-                    bw.Write((byte)0);        // height 256 -> 0
-                    bw.Write((byte)0);        // palette
-                    bw.Write((byte)0);        // reserved
-                    bw.Write((ushort)1);      // color planes
-                    bw.Write((ushort)32);     // bpp
-                    bw.Write((uint)pngBytes.Length);
-                    bw.Write((uint)(6 + 16)); // offset = header + 1 entry
-                    bw.Write(pngBytes);
+                    rendered.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                    frames.Add(new IconFrame { Size = size, Bytes = stream.ToArray() });
                 }
             }
+
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+                using (var writer = new BinaryWriter(fs))
+                {
+                    writer.Write((ushort)0);
+                    writer.Write((ushort)1);
+                    writer.Write((ushort)frames.Count);
+                    uint offset = (uint)(6 + frames.Count * 16);
+                    foreach (var frame in frames)
+                    {
+                        writer.Write((byte)(frame.Size >= 256 ? 0 : frame.Size));
+                        writer.Write((byte)(frame.Size >= 256 ? 0 : frame.Size));
+                        writer.Write((byte)0);
+                        writer.Write((byte)0);
+                        writer.Write((ushort)1);
+                        writer.Write((ushort)32);
+                        writer.Write((uint)frame.Bytes.Length);
+                        writer.Write(offset);
+                        offset += (uint)frame.Bytes.Length;
+                    }
+                    foreach (var frame in frames) writer.Write(frame.Bytes);
+                }
+            }
+            finally { foreach (var frame in frames) frame.Dispose(); }
         }
 
         /// <summary>

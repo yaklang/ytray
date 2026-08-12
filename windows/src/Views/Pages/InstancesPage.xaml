@@ -1,61 +1,125 @@
 <Page x:Class="YTray.Views.Pages.InstancesPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:hc="https://handyorg.github.io/handycontrol"
-      Background="{DynamicResource RegionBrush}">
+      Background="{DynamicResource AppBackgroundBrush}">
     <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Margin="28,28,28,16">
-            <TextBlock Text="运行与历史" FontSize="25" FontWeight="Bold"/>
-            <TextBlock Text="运行中显示全部浏览器；停止后保存最后页面标题，并进入历史记录。" Foreground="#888" Margin="0,5,0,0"/>
-        </StackPanel>
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="28,0,28,28">
+        <Grid DockPanel.Dock="Top" Margin="26,23,26,17">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel>
-                <TextBlock Text="运行中" FontWeight="Bold" Margin="0,0,0,8"/>
-                <ItemsControl x:Name="RunningList" Margin="0,0,0,16">
+                <TextBlock Text="运行与历史" Style="{StaticResource PageTitle}"/>
+                <TextBlock Text="查看当前页面、调试端口和实例图标标识；停止后保留最后访问状态。"
+                           Style="{StaticResource PageSubtitle}" Margin="0,4,0,0"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Padding="9,5" CornerRadius="8" Background="{DynamicResource SuccessPaleBrush}" Margin="0,0,7,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="6" Height="6" Fill="{DynamicResource SuccessBrush}" Margin="0,0,6,0"/>
+                        <TextBlock x:Name="RunningCountLabel" Text="0 运行中" FontSize="10" Foreground="{DynamicResource SuccessBrush}"/>
+                    </StackPanel>
+                </Border>
+                <Border Padding="9,5" CornerRadius="8" Background="{DynamicResource SurfaceMutedBrush}">
+                    <TextBlock x:Name="HistoryCountLabel" Text="0 历史" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="26,0,26,26">
+            <StackPanel>
+                <DockPanel Margin="1,0,1,8">
+                    <TextBlock Text="运行中" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="页面信息每 2 秒同步" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                               FontSize="9.5" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                </DockPanel>
+
+                <Border x:Name="RunningEmpty" Style="{StaticResource SurfaceBorder}" Height="72" Margin="0,0,0,16">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,9,0"/>
+                        <StackPanel>
+                            <TextBlock Text="暂无运行中的浏览器" FontWeight="SemiBold" FontSize="11.5"/>
+                            <TextBlock Text="从快速配置启动后，当前标题和地址会显示在这里。" FontSize="9.5"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <ItemsControl x:Name="RunningList" Margin="0,0,0,14">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Background="White" BorderBrush="#E8E8E8" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,8">
-                                <DockPanel>
-                                    <Border Width="92" Height="58" CornerRadius="8" Background="#FFF6EE" Margin="0,0,14,0"/>
-                                    <StackPanel>
+                            <Border Style="{StaticResource SurfaceBorder}" Padding="11" Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="104"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Border Width="94" Height="60" CornerRadius="8" Background="{DynamicResource BrandPaleBrush}"
+                                            HorizontalAlignment="Left" ClipToBounds="True">
+                                        <Grid>
+                                            <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill"/>
+                                            <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,4,4" Height="19" MinWidth="19"
+                                                    Padding="4,0" CornerRadius="7" Background="{DynamicResource BrandOrangeBrush}">
+                                                <TextBlock Text="{Binding DockBadge}" Foreground="White" FontSize="9" FontWeight="Bold"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14"/>
-                                            <hc:Badge Text="运行中" Status="Success" Margin="8,0,0,0"/>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5"/>
+                                            <Border Margin="8,0,0,0" Padding="6,2" CornerRadius="7" Background="{DynamicResource SuccessPaleBrush}">
+                                                <TextBlock Text="运行中" FontSize="9" Foreground="{DynamicResource SuccessBrush}" FontWeight="SemiBold"/>
+                                            </Border>
                                         </StackPanel>
-                                        <TextBlock Text="{Binding LastPageTitle, TargetNullValue=正在读取页面标题}" Foreground="#888" Margin="0,4,0,2" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock FontSize="11" Foreground="#BBB">
-                                            <Run Text="PID "/><Run Text="{Binding ProcessID}"/><Run Text=" · Debug 127.0.0.1:"/><Run Text="{Binding DebugPort}"/>
+                                        <TextBlock Text="{Binding LastPageTitle, TargetNullValue=正在读取页面标题}" FontSize="10.5"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
+                                        <TextBlock Text="{Binding LastPageURL, TargetNullValue=正在连接页面}" FontSize="9.5"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock FontSize="9" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis">
+                                            <Run Text="PID "/><Run Text="{Binding ProcessID}"/><Run Text="  ·  Debug 127.0.0.1:"/><Run Text="{Binding DebugPort}"/><Run Text="  ·  AUMID "/><Run Text="{Binding AppUserModelId}"/>
                                         </TextBlock>
                                     </StackPanel>
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <Button Content="截图" Padding="8,4" Margin="0,0,4,0" Click="Capture_Click" Tag="{Binding}"/>
-                                        <Button Content="目录" Padding="8,4" Margin="0,0,4,0" Click="Reveal_Click" Tag="{Binding}"/>
-                                        <Button Content="停止" Padding="8,4" Click="Stop_Click" Tag="{Binding}" Foreground="#E74C3C"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="打开" Margin="0,0,5,0" Click="Focus_Click" Tag="{Binding}" Style="{StaticResource YTrayButton}"/>
+                                        <Button Content="截图" Margin="0,0,5,0" Click="Capture_Click" Tag="{Binding}" Style="{StaticResource YTrayButton}"/>
+                                        <Button Content="目录" Margin="0,0,5,0" Click="Reveal_Click" Tag="{Binding}" Style="{StaticResource YTrayButton}"/>
+                                        <Button Content="停止" Click="Stop_Click" Tag="{Binding}" Foreground="{DynamicResource DangerBrush}" Style="{StaticResource YTrayButton}"/>
                                     </StackPanel>
-                                </DockPanel>
+                                </Grid>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <DockPanel Margin="0,0,0,8">
-                    <TextBlock Text="历史" FontWeight="Bold"/>
-                    <Button Content="清理全部" DockPanel.Dock="Right" HorizontalAlignment="Right" Padding="8,4" Click="ClearAll_Click" Foreground="#E74C3C"/>
+
+                <DockPanel Margin="1,0,1,8">
+                    <TextBlock Text="历史" Style="{StaticResource SectionTitle}"/>
+                    <Button Content="清理全部" DockPanel.Dock="Right" HorizontalAlignment="Right" Click="ClearAll_Click"
+                            Foreground="{DynamicResource DangerBrush}" Style="{StaticResource YTrayGhostButton}"/>
                 </DockPanel>
+                <Border x:Name="HistoryEmpty" Style="{StaticResource SurfaceBorder}" Height="60">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                   Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0"/>
+                        <TextBlock Text="停止后的实例会保留最后页面标题与地址" FontSize="10"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"/>
+                    </StackPanel>
+                </Border>
                 <ItemsControl x:Name="HistoryList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Background="White" BorderBrush="#E8E8E8" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,8">
-                                <DockPanel>
-                                    <Border Width="78" Height="48" CornerRadius="8" Background="#FFF6EE" Margin="0,0,14,0"/>
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding LastPageTitle, TargetNullValue=未记录页面标题}" FontWeight="Bold" FontSize="14" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding Name}" FontSize="11" Foreground="#888" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                            <Border Style="{StaticResource SurfaceBorder}" Padding="11" Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Border Width="35" Height="35" CornerRadius="10" Background="{DynamicResource SurfaceMutedBrush}" HorizontalAlignment="Left">
+                                        <TextBlock Text="{Binding DockBadge}" Foreground="{DynamicResource BrandOrangeBrush}" FontSize="11" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                                        <TextBlock Text="{Binding LastPageTitle, TargetNullValue=未记录页面标题}" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding LastPageURL, TargetNullValue=未记录页面地址}" FontSize="9.5" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Name}" FontSize="9" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <Button Content="▶ 打开" Padding="8,4" Margin="0,0,4,0" Click="Restore_Click" Tag="{Binding}" Background="#F28B44" Foreground="White" BorderBrush="#F28B44"/>
-                                        <Button Content="删除" Padding="8,4" Click="DeleteHistory_Click" Tag="{Binding}" Foreground="#E74C3C"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="恢复" Margin="0,0,5,0" Click="Restore_Click" Tag="{Binding}" Style="{StaticResource YTrayPrimaryButton}"/>
+                                        <Button Content="删除" Click="DeleteHistory_Click" Tag="{Binding}" Foreground="{DynamicResource DangerBrush}" Style="{StaticResource YTrayButton}"/>
                                     </StackPanel>
-                                </DockPanel>
+                                </Grid>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

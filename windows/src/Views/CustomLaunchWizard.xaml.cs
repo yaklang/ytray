@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Shapes;
 using YTray.Core;
 using YTray.Models;
@@ -55,9 +56,7 @@ namespace YTray.Views
             {
                 var dot = (System.Windows.Shapes.Ellipse)FindName("Step" + i + "Dot");
                 if (dot != null)
-                    dot.Fill = (i <= _step)
-                        ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x8B, 0x44))
-                        : System.Windows.Media.Brushes.LightGray;
+                    dot.SetResourceReference(Shape.FillProperty, i <= _step ? "BrandOrangeBrush" : "HairlineBrush");
             }
         }
 
@@ -68,19 +67,74 @@ namespace YTray.Views
             sp.Children.Add(label);
             foreach (var rt in _store.Runtimes)
             {
+                var content = new Grid();
+                content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+                content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var iconBorder = new Border
+                {
+                    Width = 34,
+                    Height = 34,
+                    CornerRadius = new CornerRadius(9),
+                    BorderThickness = new Thickness(1),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Child = new Image
+                    {
+                        Source = BrowserIconSource.FromExecutable(rt.ExecutablePath),
+                        Width = 25,
+                        Height = 25,
+                        Stretch = Stretch.Uniform,
+                    },
+                };
+                iconBorder.SetResourceReference(Border.BackgroundProperty, "SurfaceMutedBrush");
+                iconBorder.SetResourceReference(Border.BorderBrushProperty, "HairlineBrush");
+                content.Children.Add(iconBorder);
+
+                var detail = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                detail.Children.Add(new TextBlock
+                {
+                    Text = rt.DisplayTitle,
+                    FontWeight = FontWeights.SemiBold,
+                    FontSize = 12,
+                });
+                var meta = new TextBlock
+                {
+                    Text = $"{rt.VersionLabel} · {rt.Source.Title()}",
+                    FontSize = 9.5,
+                    Margin = new Thickness(0, 2, 0, 0),
+                };
+                meta.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                detail.Children.Add(meta);
+                Grid.SetColumn(detail, 1);
+                content.Children.Add(detail);
+
+                if (_draft.DefaultRuntimeID == rt.Id)
+                {
+                    var selected = new TextBlock
+                    {
+                        Text = "当前选择",
+                        FontSize = 9.5,
+                        FontWeight = FontWeights.SemiBold,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(12, 0, 2, 0),
+                    };
+                    selected.SetResourceReference(TextBlock.ForegroundProperty, "BrandOrangeBrush");
+                    Grid.SetColumn(selected, 2);
+                    content.Children.Add(selected);
+                }
                 var btn = new Button
                 {
                     Tag = rt,
-                    Content = new TextBlock
-                    {
-                        Text = $"{rt.DisplayTitle} {rt.VersionLabel} · {rt.Source.Title()}",
-                        Padding = new Thickness(14),
-                    },
-                    Padding = new Thickness(14),
+                    Content = content,
+                    Padding = new Thickness(12, 9, 12, 9),
                     Margin = new Thickness(0, 0, 0, 6),
                     HorizontalContentAlignment = HorizontalAlignment.Left,
-                    Background = _draft.DefaultRuntimeID == rt.Id ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x8B, 0x44)) { Opacity = 0.16 } : System.Windows.Media.Brushes.White,
                 };
+                btn.Style = (Style)FindResource("YTrayButton");
+                btn.SetResourceReference(Control.BackgroundProperty,
+                    _draft.DefaultRuntimeID == rt.Id ? "BrandPaleBrush" : "SurfaceBrush");
+                btn.SetResourceReference(Control.BorderBrushProperty,
+                    _draft.DefaultRuntimeID == rt.Id ? "BrandOrangeBrush" : "HairlineBrush");
                 btn.Click += (s, e) => { _draft.DefaultRuntimeID = ((BrowserRuntime)((Button)s).Tag).Id; ShowStep(); };
                 sp.Children.Add(btn);
             }
@@ -100,8 +154,23 @@ namespace YTray.Views
             var notif = new CheckBox { Content = "关闭通知", IsChecked = _draft.DisableNotifications, Margin = new Thickness(0, 0, 0, 4) };
             var cert = new CheckBox { Content = "忽略证书错误", IsChecked = _draft.IgnoreCertificateErrors, Margin = new Thickness(0, 0, 0, 8) };
             sp.Children.Add(webRtc); sp.Children.Add(notif); sp.Children.Add(cert);
-            sp.Children.Add(new TextBlock { Text = "附加参数（每行一个）", FontSize = 11, Foreground = System.Windows.Media.Brushes.Gray });
-            var flags = new TextBox { AcceptsReturn = true, Height = 90, FontFamily = new System.Windows.Media.FontFamily("Consolas"), TextWrapping = TextWrapping.Wrap, Text = _draft.AdditionalFlags };
+            var flagsLabel = new TextBlock { Text = "附加参数（每行一个）", FontSize = 11 };
+            flagsLabel.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            sp.Children.Add(flagsLabel);
+            var flags = new TextBox
+            {
+                AcceptsReturn = true,
+                Height = 104,
+                FontFamily = new System.Windows.Media.FontFamily("Cascadia Mono, Consolas"),
+                TextWrapping = TextWrapping.NoWrap,
+                Text = _draft.AdditionalFlags,
+                VerticalContentAlignment = VerticalAlignment.Top,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                TextAlignment = TextAlignment.Left,
+                Padding = new Thickness(11, 9, 11, 9),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            };
             sp.Children.Add(flags);
             // capture on Next
             sp.Tag = new System.Action(() =>
@@ -135,7 +204,11 @@ namespace YTray.Views
                 sp.Children.Add(cb);
             }
             if (_store.Plugins.Count == 0)
-                sp.Children.Add(new TextBlock { Text = "没有本地插件", Foreground = System.Windows.Media.Brushes.Gray });
+            {
+                var empty = new TextBlock { Text = "没有可用的本地插件" };
+                empty.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                sp.Children.Add(empty);
+            }
             return sp;
         }
 
@@ -161,8 +234,10 @@ namespace YTray.Views
 
         private void AddReviewRow(Grid grid, int row, string key, string value)
         {
-            grid.AddChild(new TextBlock { Text = key, Foreground = System.Windows.Media.Brushes.Gray }, row, 0);
-            grid.AddChild(new TextBlock { Text = value }, row, 1);
+            var keyLabel = new TextBlock { Text = key, Margin = new Thickness(0, 4, 0, 4) };
+            keyLabel.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            grid.AddChild(keyLabel, row, 0);
+            grid.AddChild(new TextBlock { Text = value, Margin = new Thickness(0, 4, 0, 4) }, row, 1);
         }
 
         private StackPanel MakeField(string label, out TextBox box)

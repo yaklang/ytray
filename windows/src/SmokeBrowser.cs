@@ -26,7 +26,11 @@ namespace YTray
                 Source = RuntimeSource.Local,
                 BrowserKind = BrowserKind.Chrome,
             };
-            var settings = new LaunchSettings { HomeURL = "data:text/html,<title>YTray Smoke</title><h1>YTray</h1>", DebugPort = 17777 };
+            var settings = new LaunchSettings
+            {
+                HomeURL = "data:text/html,%3Ctitle%3EYTray%20Smoke%3C/title%3E%3Ch1%3EYTray%3C/h1%3E",
+                DebugPort = 17777,
+            };
 
             try
             {
@@ -46,9 +50,18 @@ namespace YTray
                 var aumid = await AumidResolver.ResolveAsync(launched.Instance.ProcessID, launched.Instance.ProfilePath, BrowserKind.Chrome);
                 Console.WriteLine($"aumid={aumid}");
 
-                var ok = title == "YTray Smoke" && size > 0 && !string.IsNullOrEmpty(aumid);
+                var iconApplied = BrowserProcessIcon.ApplyToProcessWindow(launched.Instance.Id,
+                    launched.Instance.ProcessID, scratch, aumid, "YTray Smoke · A");
+                var hwnd = WindowEnum.FindFirstVisibleWindow(launched.Instance.ProcessID);
+                var liveIcon = hwnd == IntPtr.Zero ? IntPtr.Zero : Win32.SendMessage(hwnd,
+                    Win32.WM_GETICON, (IntPtr)Win32.ICON_BIG, IntPtr.Zero);
+                Console.WriteLine($"badged taskbar icon applied={iconApplied && liveIcon != IntPtr.Zero}");
+
+                var ok = title == "YTray Smoke" && size > 0 && !string.IsNullOrEmpty(aumid)
+                    && iconApplied && liveIcon != IntPtr.Zero;
                 Console.WriteLine($"browser smoke {(ok ? "passed" : "failed")}: title={title} screenshot={size} aumid={aumid}");
                 launched.Process.Kill();
+                BrowserProcessIcon.Remove(launched.Instance.Id, scratch);
             }
             catch (Exception ex)
             {

@@ -40,6 +40,7 @@ namespace YTray.Core
         {
             public Process Process;
             public BrowserInstance Instance;
+            public BrowserWindowTaskbarController TaskbarController;
         }
 
         public static List<string> BuildArguments(LaunchMode mode, LaunchSettings settings,
@@ -207,11 +208,43 @@ namespace YTray.Core
             // .NET Framework 4.8 has no ProcessStartInfo.ArgumentList; build the raw argument string.
             psi.Arguments = string.Join(" ", arguments.Select(a => a.Contains(" ") ? "\"" + a + "\"" : a));
 
+            // Both the shortcut and the live HWND must use the same stable, application-defined
+            // identity. Create the shortcut before launch so Explorer never has to reconcile a
+            // shortcut that appeared after the Chrome taskbar button.
+            var expectedAumid = AumidResolver.BuildInstanceAumid(runtime.Kind, normalizedBadge, id);
+            var displayName = $"{runtime.DisplayTitle} · {normalizedBadge}";
+            if (!string.IsNullOrEmpty(icoPath))
+            {
+                try
+                {
+                    BrowserProcessIcon.WriteInstanceShortcut(runtime.ExecutablePath, psi.Arguments,
+                        Path.GetDirectoryName(runtime.ExecutablePath), id, expectedAumid, displayName, applicationDirectory);
+                }
+                catch { /* shortcut creation remains best-effort */ }
+            }
+
             // Log file
             var logs = Path.Combine(applicationDirectory, "Logs");
             Directory.CreateDirectory(logs);
             var logFile = Path.Combine(logs, id + ".log");
             var logStream = new FileStream(logFile, FileMode.Create, FileAccess.Write, FileShare.Read);
+
+            // The hook must already be installed and pumping messages before Process.Start. This
+            // ordering is what prevents Explorer from drawing Chrome's stock icon for one frame.
+            BrowserWindowTaskbarController taskbarController = null;
+            if (!string.IsNullOrEmpty(icoPath))
+            {
+                try
+                {
+                    taskbarController = new BrowserWindowTaskbarController(
+                        runtime.ExecutablePath, expectedAumid, icoPath);
+                }
+                catch
+                {
+                    taskbarController?.Dispose();
+                    taskbarController = null;
+                }
+            }
 
             Process process;
             try
@@ -222,30 +255,20 @@ namespace YTray.Core
                 process.Start();
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
+                try { taskbarController?.AttachProcess(process.Id); }
+                catch
+                {
+                    taskbarController?.Dispose();
+                    taskbarController = null;
+                }
             }
             catch (Exception ex)
             {
+                taskbarController?.Dispose();
                 try { logStream.Dispose(); } catch { }
                 BrowserProcessIcon.Remove(id, applicationDirectory);
                 ProxyAuthenticationExtension.Remove(id, applicationDirectory);
                 throw new YTrayException(YTrayError.LaunchFailed, ex.Message);
-            }
-
-            // Create the per-instance .lnk carrying the AUMID + badged icon.
-            // The AUMID itself is resolved after the window appears (async, in InstanceStore).
-            // For now, pre-create the shortcut with the *expected* AUMID so the taskbar can group it.
-            try
-            {
-                var baseAumid = YTray.Native.ShellLink.ResolveBaseAumid(runtime.Kind);
-                var profileId = AumidResolver.ComputeProfileId(profile);
-                var expectedAumid = AumidResolver.BuildExpectedAumid(baseAumid, profileId);
-                var displayName = $"{runtime.DisplayTitle} · {normalizedBadge}";
-                BrowserProcessIcon.WriteInstanceShortcut(runtime.ExecutablePath, psi.Arguments,
-                    Path.GetDirectoryName(runtime.ExecutablePath), id, expectedAumid, displayName, applicationDirectory);
-            }
-            catch
-            {
-                // best-effort
             }
 
             var instance = new BrowserInstance
@@ -272,9 +295,15 @@ namespace YTray.Core
                 DockBadge = normalizedBadge,
                 SettingsSnapshot = settings,
                 PluginIDs = plugins.Select(p => p.Id).ToList(),
+                AppUserModelId = expectedAumid,
             };
 
-            return new LaunchResult { Process = process, Instance = instance };
+            return new LaunchResult
+            {
+                Process = process,
+                Instance = instance,
+                TaskbarController = taskbarController,
+            };
         }
 
         private static void LogLine(FileStream stream, string line)

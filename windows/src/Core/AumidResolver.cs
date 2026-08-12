@@ -64,6 +64,19 @@ namespace YTray.Core
         }
 
         /// <summary>
+        /// Stable application-defined identity used by YTray's staged Windows launcher. It is
+        /// intentionally independent of Chromium's internal profile AUMID algorithm: the same
+        /// instance keeps its taskbar group across restarts, while different instance IDs cannot
+        /// collapse into the same Chrome taskbar button.
+        /// </summary>
+        public static string BuildInstanceAumid(BrowserKind kind, string badge, Guid instanceId)
+        {
+            var browser = Sanitize(kind.ToString());
+            var label = Sanitize(DockBadgeLabel.Normalize(badge));
+            return $"YTray.{browser}.Inst{label}.{instanceId:N}";
+        }
+
+        /// <summary>
         /// Full robust resolution. Returns the AUMID to persist into instance metadata.
         /// Strategy:
         ///   - Try reading the live window AUMID (most authoritative — Chrome itself set it).

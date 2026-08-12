@@ -47,7 +47,10 @@ namespace YTray.Core
             var json = JsonConvert.SerializeObject(state, JsonSettings);
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, json);
-            File.Replace(tmp, path, null);
+            // File.Replace requires an existing destination. The previous implementation
+            // silently failed on first launch, so state.json was never created.
+            if (File.Exists(path)) File.Replace(tmp, path, null);
+            else File.Move(tmp, path);
             RestrictToCurrentUser(path);
         }
 

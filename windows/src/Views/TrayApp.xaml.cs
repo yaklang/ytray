@@ -1,45 +1,46 @@
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Windows;
-using System.Windows.Controls;
+using System.Windows.Threading;
 using YTray.Core;
 using YTray.Views;
 
 namespace YTray
 {
-    /// <summary>
-    /// System tray integration: NotifyIcon + context menu + widget popup.
-    /// WPF has no native tray, so we interop with WinForms NotifyIcon.
-    /// </summary>
+    /// <summary>System tray integration and the single shared popover instance.</summary>
     public class TrayApp : IDisposable
     {
         private readonly InstanceStore _store;
         private readonly System.Windows.Forms.NotifyIcon _notify;
         private WidgetView _widget;
         private ManagerView _manager;
-        private EdgeDock _edgeDock;
+        private readonly EdgeDock _edgeDock;
         private System.Windows.Forms.ContextMenu _menu;
 
         public TrayApp(InstanceStore store)
         {
             _store = store;
-            _store.PropertyChanged += (s, e) => UpdateStatusTitle();
+            _store.PropertyChanged += OnStorePropertyChanged;
 
             _notify = new System.Windows.Forms.NotifyIcon
             {
                 Icon = CreateTrayIcon(),
                 Visible = true,
-                Text = "YTray · 左键打开小组件 / 右键菜单",
+                Text = "YTray · 右键打开菜单",
             };
-            _notify.MouseClick += (s, e) =>
-            {
-                if (e.Button == System.Windows.Forms.MouseButtons.Left) ToggleWidget();
-            };
+
+            _edgeDock = new EdgeDock(_store, ShowWidgetBesideEdge);
             BuildMenu();
             UpdateStatusTitle();
-            // Show the edge dock (screen-edge tab, mirrors macOS EdgeDock).
-            _edgeDock = new EdgeDock(_store, () => ShowManager());
-            _edgeDock.ShowDock();
+            if (_store.Settings.EdgeDockEnabled) _edgeDock.ShowDock(remember: false);
+        }
+
+        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess()) UpdateStatusTitle();
+            else dispatcher.BeginInvoke(new Action(UpdateStatusTitle), DispatcherPriority.Background);
         }
 
         private void BuildMenu()
@@ -50,7 +51,7 @@ namespace YTray
             _menu.MenuItems.Add("显示小组件", (s, e) => ShowWidget());
             _menu.MenuItems.Add("全部管理", (s, e) => ShowManager());
             _menu.MenuItems.Add("-");
-            _menu.MenuItems.Add("显示边缘小组件", (s, e) => _edgeDock?.ShowDock());
+            _menu.MenuItems.Add("显示边缘小组件", (s, e) => _edgeDock.ShowDock());
             _menu.MenuItems.Add("-");
             _menu.MenuItems.Add("退出 YTray", (s, e) => Application.Current.Shutdown());
             _notify.ContextMenu = _menu;
@@ -62,57 +63,73 @@ namespace YTray
             _notify.Text = $"YTray · {count} 个运行中实例";
         }
 
-        public void ToggleWidget()
+        private void EnsureWidget()
         {
-            if (_widget != null && _widget.IsVisible) { _widget.Hide(); return; }
-            ShowWidget();
+            if (_widget != null) return;
+            _widget = new WidgetView(_store);
+            _widget.OpenManagerRequested += (s, e) => ShowManager();
         }
 
         public void ShowWidget()
         {
-            if (_widget == null)
-            {
-                _widget = new WidgetView(_store) { ShowActivated = false };
-                _widget.OpenManagerRequested += (s, e) => ShowManager();
-            }
-            _widget.Show();
-            _widget.PositionNearCursor();
+            EnsureWidget();
+            ShowWidgetCore(() => _widget.PositionNearCursor());
+        }
+
+        private void ShowWidgetBesideEdge(EdgeDock edge, bool onLeft)
+        {
+            EnsureWidget();
+            ShowWidgetCore(() => _widget.PositionBeside(edge, onLeft));
+        }
+
+        private void ShowWidgetCore(Action position)
+        {
+            _widget.PrepareToShow();
+            if (!_widget.IsVisible) _widget.Show();
+            _widget.RefreshAndMeasure();
+            position();
+            _widget.CancelPendingDismiss();
             _widget.Activate();
+            _widget.PlayEntrance();
         }
 
         public void ShowManager()
         {
+            _widget?.HideWidget();
             if (_manager == null)
             {
                 _manager = new ManagerView(_store);
                 _manager.Closed += (s, e) => _manager = null;
             }
             _manager.Show();
+            if (_manager.WindowState == WindowState.Minimized) _manager.WindowState = WindowState.Normal;
             _manager.Activate();
         }
 
         private Icon CreateTrayIcon()
         {
-            // Simple tray glyph: a 16x16 black "chrome + plus" circle, matching macOS TrayIconRenderer concept.
-            var bmp = new Bitmap(16, 16);
-            using (var g = Graphics.FromImage(bmp))
+            var bitmap = new Bitmap(16, 16);
+            using (var graphics = Graphics.FromImage(bitmap))
             {
-                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                g.Clear(System.Drawing.Color.Transparent);
-                using (var b = new SolidBrush(System.Drawing.Color.Black))
-                    g.FillEllipse(b, 1, 1, 14, 14);
-                // plus badge
-                g.FillEllipse(new SolidBrush(System.Drawing.Color.Transparent), 9, 9, 6, 6);
-                using (var b = new SolidBrush(System.Drawing.Color.Black))
-                    g.FillEllipse(b, 10, 10, 5, 5);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.Clear(Color.Transparent);
+                using (var orange = new SolidBrush(Color.FromArgb(242, 130, 61)))
+                    graphics.FillEllipse(orange, 1, 1, 14, 14);
+                using (var white = new Pen(Color.White, 1.5f))
+                {
+                    graphics.DrawEllipse(white, 4, 4, 8, 8);
+                    graphics.DrawLine(white, 8, 4, 8, 12);
+                }
             }
-            var handle = bmp.GetHicon();
+            var handle = bitmap.GetHicon();
             return Icon.FromHandle(handle);
         }
 
         public void Dispose()
         {
-            _edgeDock?.Hide();
+            _store.PropertyChanged -= OnStorePropertyChanged;
+            _widget?.Close();
+            _edgeDock?.Close();
             _notify.Visible = false;
             _notify.Dispose();
         }

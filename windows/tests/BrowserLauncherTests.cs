@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Windows;
+using System.Windows.Media;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using YTray.Core;
 using YTray.Models;
+using YTray.Native;
 
 namespace YTray.Tests
 {
@@ -197,6 +200,32 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void InstanceAumidIsStableUniqueAndUsesCanonicalIconPropertyKey()
+        {
+            var id = Guid.Parse("492bec6a-f532-4d92-b6ef-4213dd1239ff");
+            var same = AumidResolver.BuildInstanceAumid(BrowserKind.Chrome, "A", id);
+            Assert.AreEqual("YTray.Chrome.InstA.492bec6af5324d92b6ef4213dd1239ff", same);
+            Assert.AreEqual(same, AumidResolver.BuildInstanceAumid(BrowserKind.Chrome, "A", id));
+            Assert.AreNotEqual(same, AumidResolver.BuildInstanceAumid(BrowserKind.Chrome, "B", id));
+            Assert.IsTrue(same.Length <= 128);
+            Assert.IsFalse(same.Contains(" "));
+
+            // propkey.h: RelaunchIconResource = PID 3; RelaunchDisplayNameResource = PID 4.
+            Assert.AreEqual(3, Win32.PKEY_AppUserModel_RelaunchIconResource.pid);
+            Assert.AreEqual(4, Win32.PKEY_AppUserModel_RelaunchDisplayNameResource.pid);
+        }
+
+        [TestMethod]
+        public void PropVariantUsesComAllocatorAndClearsSafely()
+        {
+            var value = PROPVARIANT.FromString("YTray.Chrome.InstA.test");
+            Assert.AreEqual("YTray.Chrome.InstA.test", value.AsString());
+            value.Dispose();
+            Assert.AreEqual(PROPVARIANT.VT_EMPTY, value.vt);
+            Assert.AreEqual(IntPtr.Zero, value.pwszVal);
+        }
+
+        [TestMethod]
         public void ProxyReportAggregatesSuccessAcrossTargets()
         {
             var report = new ProxyCheckReport
@@ -211,6 +240,165 @@ namespace YTray.Tests
             Assert.IsTrue(report.IsSuccess);
             Assert.AreEqual(1, report.SuccessCount);
             Assert.IsTrue(report.Message.Contains("1/3"));
+        }
+
+        [TestMethod]
+        public void StatePersistenceCreatesFirstStateFileAndKeepsEdgeDockPreferences()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var state = new PersistedState
+                {
+                    Settings = new LaunchSettings
+                    {
+                        EdgeDockEnabled = false,
+                        EdgeDockOnLeft = true,
+                        EdgeDockYPercent = 37,
+                        ThemePreference = AppThemePreference.Dark,
+                    },
+                };
+
+                StatePersistence.Save(directory, state);
+
+                Assert.IsTrue(File.Exists(StatePersistence.StatePath(directory)));
+                var loaded = StatePersistence.Load(directory);
+                Assert.IsNotNull(loaded);
+                Assert.IsFalse(loaded.Settings.EdgeDockEnabled);
+                Assert.IsTrue(loaded.Settings.EdgeDockOnLeft);
+                Assert.AreEqual(37, loaded.Settings.EdgeDockYPercent);
+                Assert.AreEqual(AppThemePreference.Dark, loaded.Settings.ThemePreference);
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void MirrorVersionDisplaysItsVersionAndFiltersForCurrentWindowsArchitecture()
+        {
+            var compatible = new MirrorVersion
+            {
+                Version = "150.0.7339.2",
+                Artifacts = new List<MirrorArtifact>
+                {
+                    new MirrorArtifact { OS = "windows", Arch = RuntimeInstaller.Architecture, Format = "zip" },
+                },
+            };
+            var incompatible = new MirrorVersion
+            {
+                Version = "149.0.7000.1",
+                Artifacts = new List<MirrorArtifact>
+                {
+                    new MirrorArtifact { OS = "linux", Arch = "x64", Format = "zip" },
+                },
+            };
+
+            Assert.AreEqual("150.0.7339.2", compatible.ToString());
+            Assert.IsTrue(RuntimeInstaller.IsCompatible(compatible));
+            Assert.IsFalse(RuntimeInstaller.IsCompatible(incompatible));
+        }
+
+        [TestMethod]
+        public void InstallProgressFormatsBytesForUserFacingStatus()
+        {
+            Assert.AreEqual("512 B", RuntimeInstaller.FormatBytes(512));
+            Assert.AreEqual("1.5 KB", RuntimeInstaller.FormatBytes(1536));
+            Assert.AreEqual("2.0 MB", RuntimeInstaller.FormatBytes(2L * 1024 * 1024));
+        }
+
+        [TestMethod]
+        public void ThemePaletteMutatesLiveBrushesAndUsesGrayDarkBorders()
+        {
+            var background = new SolidColorBrush(Colors.White);
+            var hairline = new SolidColorBrush(Colors.White);
+            var windowBorder = new SolidColorBrush(Colors.White);
+            var resources = new ResourceDictionary
+            {
+                ["AppBackgroundColor"] = Colors.White,
+                ["AppBackgroundBrush"] = background,
+                ["HairlineColor"] = Colors.White,
+                ["HairlineBrush"] = hairline,
+                ["WindowBorderColor"] = Colors.White,
+                ["WindowBorderBrush"] = windowBorder,
+            };
+
+            ThemeManager.ApplyPalette(resources, dark: true);
+
+            Assert.AreSame(background, resources["AppBackgroundBrush"]);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#17181A"), background.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#2B2D32"), hairline.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#303238"), windowBorder.Color);
+            Assert.IsTrue(hairline.Color.R < 64 && hairline.Color.G < 64 && hairline.Color.B < 64,
+                "Dark-theme separators must stay gray instead of becoming white.");
+
+            var floatingBorder = new SolidColorBrush(Colors.White);
+            var floatingHairline = new SolidColorBrush(Colors.White);
+            var floatingSurface = new LinearGradientBrush(Colors.White, Colors.White, 90);
+            var floatingResources = new ResourceDictionary
+            {
+                ["WidgetBorderBrush"] = floatingBorder,
+                ["WidgetHairlineBrush"] = floatingHairline,
+                ["WidgetSurfaceBrush"] = floatingSurface,
+            };
+            ThemeManager.ApplyLocalPalette(floatingResources, dark: true);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF3A3C42"), floatingBorder.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF2C2E33"), floatingHairline.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF212226"), floatingSurface.GradientStops[0].Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF1A1B1E"), floatingSurface.GradientStops[1].Color);
+
+            ThemeManager.ApplyPalette(resources, dark: false);
+            ThemeManager.ApplyLocalPalette(floatingResources, dark: false);
+
+            Assert.AreSame(background, resources["AppBackgroundBrush"]);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#F5F5F3"), background.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#E3E3DF"), hairline.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#D8D8D4"), windowBorder.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FFD5D5D1"), floatingBorder.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FFE6E6E2"), floatingHairline.Color);
+        }
+
+        [TestMethod]
+        public void BadgedProcessIconRendersAVisibleOverlay()
+        {
+            using (var icon = BrowserProcessIcon.RenderIcon(null, "A", 64))
+            {
+                Assert.AreEqual(64, icon.Width);
+                Assert.AreEqual(64, icon.Height);
+                Assert.IsTrue(icon.GetPixel(52, 52).A > 0, "A badge should occupy the bottom-right icon area");
+            }
+        }
+
+        [TestMethod]
+        public void ProcessIconWritesNativeTaskbarSizes()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayIconTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var id = Guid.NewGuid();
+                var path = BrowserProcessIcon.Write(typeof(BrowserLauncherTests).Assembly.Location, "B", id, directory);
+                using (var stream = File.OpenRead(path))
+                using (var reader = new BinaryReader(stream))
+                {
+                    Assert.AreEqual((ushort)0, reader.ReadUInt16());
+                    Assert.AreEqual((ushort)1, reader.ReadUInt16());
+                    Assert.AreEqual((ushort)8, reader.ReadUInt16());
+                    var sizes = new List<int>();
+                    for (var index = 0; index < 8; index++)
+                    {
+                        var width = reader.ReadByte();
+                        reader.ReadBytes(15);
+                        sizes.Add(width == 0 ? 256 : width);
+                    }
+                    CollectionAssert.AreEqual(new[] { 16, 20, 24, 32, 40, 48, 64, 256 }, sizes);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
         }
     }
 }

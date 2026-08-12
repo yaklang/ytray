@@ -22,14 +22,16 @@ Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`
 
 ## ★ Chrome 任务栏图标区分（AUMID）
 
-macOS 版本通过 Dock 角标（A/B/C）区分实例图标。Windows 版本使用 **AppUserModelID (AUMID)** 实现等价效果，采用稳妥的三步方案：
+macOS 版本通过 Dock 角标（A/B/C）区分实例图标。Windows 版本使用 **AppUserModelID (AUMID)**、窗口级 `RelaunchIconResource` 和启动前 WinEvent Hook 实现等价效果：
 
-1. **从已安装 Chrome 快捷方式读取基础 AUMID**：`ShellLink.ResolveBaseAumid` 通过 `IShellLinkW` + `IPersistFile` + `IPropertyStore` 读取 Chrome `.lnk` 中的 `System.AppUserModel.ID`；失败时回退到按浏览器类型推断的默认值（`Chrome` / `Chromium` / `MicrosoftEdge`）。
-2. **启动后读取首个 Chrome 顶层窗口的真实 AUMID**：`WindowEnum.PollForWindowAumid` 枚举 `Chrome_WidgetWin_1` 类窗口并匹配 PID，通过 `SHGetPropertyStoreForWindow` + `IPropertyStore.GetValue(PKEY_AppUserModel_ID)` 读取 Chrome 自己设置的 AUMID。
-3. **按 Chromium profile ID 规则复算目标值**：`AumidResolver.ComputeProfileId` 复现 Chromium 的 `GetProfileIdFromPath` 规则——`profile_id = parent_basename + "." + profile_basename`，仅保留 `[A-Za-z0-9.]`；目标 AUMID = `基础AUMID + "." + profile_id`（如 `Chrome.InstA.Default`）。
-4. **写入实例 metadata 持久化**：`AumidResolver.ResolveAsync` 优先取窗口真实 AUMID，回退到复算值，最终存入 `BrowserInstance.AppUserModelId` 并持久化到 `state.json`。
+1. **启动前生成稳定实例身份**：AUMID 由浏览器类型、Dock 角标和持久化实例 UUID 组成，例如 `YTray.Chrome.InstA.<uuid>`；同一历史实例恢复后保持不变，不同实例不会合并到同一个任务栏组。
+2. **启动前准备 ICO 和 `.lnk`**：`BrowserProcessIcon` 用 GDI+ 合成浏览器图标与橙色 A/B/C 角标，快捷方式提前写入相同 AUMID 和 ICO。
+3. **先启用 Hook，再启动 Chrome**：`BrowserWindowTaskbarController` 的独立 STA 线程先注册并运行 WinEvent 消息循环，确认 ready 后 `BrowserLauncher` 才调用 `Process.Start`，避免 Chrome 窗口抢在 Hook 前出现在任务栏。
+4. **暂存首次展示**：Chrome 创建顶层窗口时使用 DWM cloak 暂时阻止画面呈现，同时临时设置 `WS_EX_TOOLWINDOW` 取消任务栏资格。这里不使用 `SW_HIDE`，不会打断 Chromium 的 GPU/DWM 首次初始化。
+5. **写入并稳定窗口属性**：等待 Chrome 自己生成非空原生 AUMID 后，通过 `SHGetPropertyStoreForWindow` 写入实例 AUMID 和 `System.AppUserModel.RelaunchIconResource`。属性连续稳定 250ms 后恢复窗口样式并解除 cloak，因此第一枚任务栏图标就是带 A/B/C 角标的版本。
+6. **持续管理新窗口**：控制器在浏览器进程生命周期内继续处理 `Ctrl+N` 等后续新窗口；进程退出或 YTray 关闭时恢复所有暂存窗口并释放 Hook。
 
-每个实例使用唯一 `--user-data-dir`（basename = `Inst{badge}`，如 `InstA`），Chrome 自动生成不同 AUMID → 任务栏天然分组。`BrowserProcessIcon` 用 GDI+ 合成 Chrome 图标 + 橙色圆形角标（白色 A/B/C 字母），并创建携带该 AUMID + 合成图标的 `.lnk`，使任务栏按钮显示带角标的图标。
+如果当前系统无法建立 WinEvent/DWM 暂存，程序会回退到窗口可见后的 AUMID/ICO 设置，不影响浏览器实例启动。
 
 ## 目录结构
 
@@ -45,8 +47,9 @@ windows/
 │   ├── Core/                            # 核心逻辑
 │   │   ├── InstanceStore.cs             # 状态管理 + 进程生命周期
 │   │   ├── BrowserLauncher.cs           # 参数构建 + 进程启动
-│   │   ├── AumidResolver.cs            # ★ AUMID 解析（窗口读取 + Chromium 规则复算 + 持久化）
+│   │   ├── AumidResolver.cs            # ★ 稳定实例 AUMID + Chromium 原生 AUMID 回退解析
 │   │   ├── BrowserProcessIcon.cs        # 图标合成 + .lnk 创建
+│   │   ├── BrowserWindowTaskbarController.cs # 启动前 Hook + DWM cloak + 窗口属性稳定
 │   │   ├── SystemBrowserDiscovery.cs    # 浏览器发现（注册表 + Program Files）
 │   │   ├── ScreenshotService.cs          # CDP 截图/导航/页面状态
 │   │   ├── ProxyConnectivityChecker.cs  # 代理检测
@@ -93,7 +96,7 @@ $msbuild = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\MSB
 pwsh -File windows/build.ps1 -Test
 ```
 
-测试覆盖：Dock 角标序列/校验、浏览器类型推断、HTTP 代理规范化、代理探测请求/响应解析、启动参数隔离边界、自定义参数防护、插件加载、Chrome for Testing 标志、会话恢复、命令行扩展能力、AUMID profile-ID 规则。
+测试覆盖：Dock 角标序列/校验、浏览器类型推断、HTTP 代理规范化、代理探测请求/响应解析、启动参数隔离边界、自定义参数防护、插件加载、Chrome for Testing 标志、会话恢复、命令行扩展能力、稳定实例 AUMID、Windows Shell PropertyKey 和 PROPVARIANT 生命周期。
 
 ### 命令行模式
 

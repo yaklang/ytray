@@ -21,8 +21,11 @@ namespace YTray.Core
         public string ApplicationDirectory { get; }
         private readonly DispatcherTimer _timer;
         private readonly Dictionary<Guid, Process> _processes = new Dictionary<Guid, Process>();
+        private readonly Dictionary<Guid, BrowserWindowTaskbarController> _taskbarControllers =
+            new Dictionary<Guid, BrowserWindowTaskbarController>();
         private readonly HashSet<Guid> _thumbnailInFlight = new HashSet<Guid>();
         private Dictionary<Guid, DateTime> _lastThumbnailAttempt = new Dictionary<Guid, DateTime>();
+        private bool _pageRefreshInFlight;
         private bool _disposed;
         private static readonly TimeSpan ThumbnailRefreshInterval = TimeSpan.FromSeconds(12);
         private const string LegacyDirectoryName = "InstanceDock";
@@ -37,6 +40,9 @@ namespace YTray.Core
         // Launch / activity UI state
         public bool IsInstalling { get; private set; }
         public string ActivityMessage { get; private set; } = "";
+        public int InstallProgressPercent { get; private set; }
+        public long InstallBytesReceived { get; private set; }
+        public long? InstallBytesTotal { get; private set; }
         public string ErrorMessage { get; private set; }
         public BrowserLaunchPhase LaunchPhase { get; private set; } = BrowserLaunchPhase.Idle;
         public string LaunchMessage { get; private set; } = "";
@@ -66,10 +72,9 @@ namespace YTray.Core
         public InstanceStore(string applicationDirectory = null, bool discoverSystemBrowsers = true)
         {
             ApplicationDirectory = applicationDirectory ?? StatePersistence.DefaultApplicationDirectory;
-            try { Directory.CreateDirectory(ApplicationDirectory); } catch { }
-
             // Legacy migration (InstanceDock -> YTray), best-effort.
             MigrateLegacyDirectoryIfNeeded();
+            try { Directory.CreateDirectory(ApplicationDirectory); } catch { }
 
             Load();
             if (discoverSystemBrowsers) RefreshSystemBrowsers();
@@ -275,6 +280,15 @@ namespace YTray.Core
 
         public void SaveSettings() => Save();
 
+        public void SetThemePreference(AppThemePreference preference)
+        {
+            if (!Enum.IsDefined(typeof(AppThemePreference), preference))
+                preference = AppThemePreference.System;
+            Settings.ThemePreference = preference;
+            ThemeManager.SetPreference(preference);
+            Save();
+        }
+
         public void Launch(LaunchMode mode, LaunchSettings customSettings = null, List<Guid> customPluginIDs = null,
             BrowserInstance restoring = null, bool? launchUsesProxy = null)
         {
@@ -287,6 +301,7 @@ namespace YTray.Core
             LaunchMessage = "正在准备浏览器…";
             LaunchPhase = BrowserLaunchPhase.Preparing;
             ErrorMessage = null;
+            OnPropertyChanged(string.Empty);
 
             var configuration = customSettings ?? Settings;
             if (mode == LaunchMode.Isolated)
@@ -318,6 +333,9 @@ namespace YTray.Core
                 var result = BrowserLauncher.Launch(runtime, mode, configuration, selectedPlugins,
                     ApplicationDirectory, Instances.Count + 1, badge, restoring);
                 _processes[result.Instance.Id] = result.Process;
+                ReleaseTaskbarController(result.Instance.Id);
+                if (result.TaskbarController != null)
+                    _taskbarControllers[result.Instance.Id] = result.TaskbarController;
                 result.Process.EnableRaisingEvents = true;
                 result.Process.Exited += (s, e) => System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
                 {
@@ -410,19 +428,34 @@ namespace YTray.Core
                 return;
             }
 
-            // Resolve the real AUMID from the live Chrome window and persist into instance metadata.
-            try
+            // The staged controller normally installs the custom AUMID/ICO before the window becomes
+            // visible. Keep the former post-launch path only as a fallback when WinEvent/DWM staging
+            // is unavailable on this machine.
+            var taskbarReady = false;
+            if (_taskbarControllers.TryGetValue(instance.Id, out var taskbarController))
             {
-                var aumid = await AumidResolver.ResolveAsync(instance.ProcessID, instance.ProfilePath,
-                    instance.RuntimeKind ?? BrowserKind.Chrome);
-                var i = Instances.FirstOrDefault(x => x.Id == instance.Id);
-                if (i != null)
-                {
-                    i.AppUserModelId = aumid;
-                    Save();
-                }
+                try { taskbarReady = await taskbarController.WaitForInitialWindowAsync(TimeSpan.FromSeconds(3)); }
+                catch { taskbarReady = false; }
+                if (!taskbarReady) ReleaseTaskbarController(instance.Id);
             }
-            catch { /* AUMID resolution is best-effort */ }
+
+            if (!taskbarReady)
+            {
+                try
+                {
+                    var aumid = await AumidResolver.ResolveAsync(instance.ProcessID, instance.ProfilePath,
+                        instance.RuntimeKind ?? BrowserKind.Chrome, TimeSpan.FromSeconds(5));
+                    var i = Instances.FirstOrDefault(x => x.Id == instance.Id);
+                    if (i != null)
+                    {
+                        i.AppUserModelId = string.IsNullOrEmpty(i.AppUserModelId) ? aumid : i.AppUserModelId;
+                        BrowserProcessIcon.ApplyToProcessWindow(i.Id, i.ProcessID, ApplicationDirectory,
+                            i.AppUserModelId, $"{i.RuntimeName} · {i.DockBadge}");
+                        Save();
+                    }
+                }
+                catch { /* live taskbar metadata remains best-effort on the fallback path */ }
+            }
 
             var usesProxyAuth = !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyUsername)
                 || !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyPassword);
@@ -445,18 +478,23 @@ namespace YTray.Core
                 }
             }
 
+            // Populate the compact widget immediately; the periodic poll keeps it current later.
+            await RefreshPageTitleAsync(instance);
+
             LaunchMessage = $"{instance.RuntimeName} 已启动";
             LaunchPhase = BrowserLaunchPhase.Succeeded;
             LaunchingMode = null;
             LaunchingUsesProxy = null;
             LaunchingInstanceID = null;
             RestoringInstanceID = null;
+            OnPropertyChanged(string.Empty);
             ScheduleAutomaticThumbnailRefresh(instance.Id);
             await Task.Delay(1200);
             if (LaunchToken != token || LaunchPhase != BrowserLaunchPhase.Succeeded) return;
             LaunchMessage = "";
             LaunchPhase = BrowserLaunchPhase.Idle;
             LaunchToken = null;
+            OnPropertyChanged(string.Empty);
         }
 
         private void FinishLaunchFailure(Exception ex, Guid token)
@@ -512,17 +550,20 @@ namespace YTray.Core
             {
                 ProxyCheckPhase = ProxyCheckPhase.Failure;
                 ProxyCheckMessage = ex.Message;
+                OnPropertyChanged(string.Empty);
                 return;
             }
             ProxyCheckPhase = ProxyCheckPhase.Checking;
             ProxyCheckMessage = "检测中 · 最多 10 秒";
             ProxyCheckReport = null;
+            OnPropertyChanged(string.Empty);
             var username = (Settings.PresetProxyUsername ?? "").Trim();
             var password = Settings.PresetProxyPassword;
             var report = await ProxyConnectivityChecker.CheckDefaultTargetsAsync(endpoint, username, password, Settings.PresetProxyCheckTarget, ProxyConnectivityChecker.DefaultTimeout);
             ProxyCheckReport = report;
             ProxyCheckPhase = report.IsSuccess ? ProxyCheckPhase.Success : ProxyCheckPhase.Failure;
             ProxyCheckMessage = report.Message;
+            OnPropertyChanged(string.Empty);
         }
 
         public void SelectProxyPreset(ProxyPreset preset)
@@ -599,19 +640,43 @@ namespace YTray.Core
         {
             try { AvailableVersions = await RuntimeInstaller.FetchVersionsAsync(); }
             catch (Exception ex) { Report(ex); }
+            OnPropertyChanged(string.Empty);
         }
 
         public async Task InstallAsync(MirrorVersion version)
         {
             IsInstalling = true;
-            ActivityMessage = $"正在下载并校验 {version.Version}…";
+            ErrorMessage = null;
+            InstallProgressPercent = 0;
+            InstallBytesReceived = 0;
+            InstallBytesTotal = null;
+            ActivityMessage = $"正在准备 {version.Version}…";
+            OnPropertyChanged(string.Empty);
             try
             {
-                var rt = await RuntimeInstaller.InstallAsync(version, ApplicationDirectory);
+                var progress = new Progress<RuntimeInstaller.InstallProgress>(value =>
+                {
+                    InstallProgressPercent = value.Percent;
+                    InstallBytesReceived = value.BytesReceived;
+                    InstallBytesTotal = value.TotalBytes;
+                    ActivityMessage = value.Message ?? "正在安装…";
+                    OnPropertyChanged(string.Empty);
+                });
+                var rt = await RuntimeInstaller.InstallAsync(version, ApplicationDirectory, progress);
                 Upsert(rt);
+                InstallProgressPercent = 100;
+                ActivityMessage = $"已安装 {version.Version}";
             }
-            catch (Exception ex) { Report(ex); }
-            finally { IsInstalling = false; ActivityMessage = ""; }
+            catch (Exception ex)
+            {
+                Report(ex);
+                ActivityMessage = ErrorMessage ?? "安装失败";
+            }
+            finally
+            {
+                IsInstalling = false;
+                OnPropertyChanged(string.Empty);
+            }
         }
 
         private void RefreshProcessStates()
@@ -623,6 +688,7 @@ namespace YTray.Core
                 if (i.ProcessID <= 0 || !ProcessAlive(i.ProcessID))
                 {
                     i.Status = InstanceStatus.Stopped;
+                    ReleaseTaskbarController(i.Id);
                     BrowserProcessIcon.Remove(i.Id, ApplicationDirectory);
                     ProxyAuthenticationExtension.Remove(i.Id, ApplicationDirectory);
                     changed = true;
@@ -644,6 +710,7 @@ namespace YTray.Core
         private void MarkStopped(Guid id)
         {
             _processes.Remove(id);
+            ReleaseTaskbarController(id);
             BrowserProcessIcon.Remove(id, ApplicationDirectory);
             ProxyAuthenticationExtension.Remove(id, ApplicationDirectory);
             if (LaunchingInstanceID == id && IsLaunching && LaunchToken is Guid token)
@@ -655,6 +722,13 @@ namespace YTray.Core
                 ConsolidateHistoryBadges();
                 Save();
             }
+        }
+
+        private void ReleaseTaskbarController(Guid id)
+        {
+            if (!_taskbarControllers.TryGetValue(id, out var controller)) return;
+            _taskbarControllers.Remove(id);
+            try { controller.Dispose(); } catch { }
         }
 
         private void ConsolidateHistoryBadges()
@@ -690,23 +764,31 @@ namespace YTray.Core
 
         private async Task RefreshRunningPageTitlesAsync()
         {
+            if (_pageRefreshInFlight) return;
             var targets = RunningInstances.Select(i => (i.Id, i.DebugPort)).ToList();
             if (targets.Count == 0) return;
-            var updates = new List<(Guid, ScreenshotService.PageState)>();
-            foreach (var (id, port) in targets)
+            _pageRefreshInFlight = true;
+            try
             {
-                var state = await ScreenshotService.CurrentPageStateAsync(port);
-                if (state.HasValue) updates.Add((id, state.Value));
+                var requests = targets.Select(async target =>
+                {
+                    var state = await ScreenshotService.CurrentPageStateAsync(target.DebugPort);
+                    return (target.Id, State: state);
+                }).ToArray();
+                var results = await Task.WhenAll(requests);
+                var changed = false;
+                foreach (var result in results)
+                {
+                    if (!result.State.HasValue) continue;
+                    var state = result.State.Value;
+                    var i = Instances.FirstOrDefault(x => x.Id == result.Id);
+                    if (i == null) continue;
+                    if (!string.IsNullOrEmpty(state.Title) && i.LastPageTitle != state.Title) { i.LastPageTitle = state.Title; changed = true; }
+                    if (!string.IsNullOrEmpty(state.URL) && i.LastPageURL != state.URL) { i.LastPageURL = state.URL; changed = true; }
+                }
+                if (changed) Save();
             }
-            var changed = false;
-            foreach (var (id, state) in updates)
-            {
-                var i = Instances.FirstOrDefault(x => x.Id == id);
-                if (i == null) continue;
-                if (!string.IsNullOrEmpty(state.Title) && i.LastPageTitle != state.Title) { i.LastPageTitle = state.Title; changed = true; }
-                if (!string.IsNullOrEmpty(state.URL) && i.LastPageURL != state.URL) { i.LastPageURL = state.URL; changed = true; }
-            }
-            if (changed) Save();
+            finally { _pageRefreshInFlight = false; }
         }
 
         private async Task RefreshPageTitleAsync(BrowserInstance instance)
@@ -779,6 +861,7 @@ namespace YTray.Core
                 Settings = Settings,
             };
             try { StatePersistence.Save(ApplicationDirectory, state); } catch { }
+            OnPropertyChanged(string.Empty);
         }
 
         private void Report(Exception ex)
@@ -800,6 +883,11 @@ namespace YTray.Core
                 try { if (!p.HasExited) p.Dispose(); } catch { }
             }
             _processes.Clear();
+            foreach (var controller in _taskbarControllers.Values.ToList())
+            {
+                try { controller.Dispose(); } catch { }
+            }
+            _taskbarControllers.Clear();
         }
     }
 

@@ -184,7 +184,9 @@ namespace YTray.Core
                     {
                         if (msg["id"]?.Value<int?>() != 1) continue;
                         var value = msg["result"]?["result"]?["value"]?.ToString();
-                        if (string.IsNullOrEmpty(value)) return null;
+                        // A background tab reports an empty value. Keep checking the remaining
+                        // targets instead of abandoning the whole lookup at the first hidden tab.
+                        if (string.IsNullOrEmpty(value)) continue;
                         var obj = JObject.Parse(value);
                         return new PageState
                         {
