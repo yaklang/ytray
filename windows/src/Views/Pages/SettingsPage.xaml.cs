@@ -109,5 +109,25 @@ namespace YTray.Views.Pages
             _store.SaveSettings();
             SaveStatus.Text = "✓ 设置已保存";
         }
+
+        private void Reset_Click(object sender, RoutedEventArgs e)
+        {
+            var defaults = new LaunchSettings(_store.Settings.DefaultRuntimeID);
+            HomeUrlBox.Text = defaults.HomeURL;
+            DebugPortBox.Text = defaults.DebugPort.ToString();
+            WebRTCCheck.IsChecked = defaults.RestrictWebRTC;
+            NotificationsCheck.IsChecked = defaults.DisableNotifications;
+            CertCheck.IsChecked = defaults.IgnoreCertificateErrors;
+            FlagsBox.Text = defaults.AdditionalFlags;
+            _store.SetThemePreference(AppThemePreference.System);
+            SaveStatus.Text = "已恢复默认值，点击保存生效";
+        }
+
+        private void RestoreFlags_Click(object sender, RoutedEventArgs e)
+        {
+            FlagsBox.Text = "--disable-features=Translate" + Environment.NewLine
+                + "--disable-background-networking";
+            SaveStatus.Text = "已填入推荐参数";
+        }
     }
 }

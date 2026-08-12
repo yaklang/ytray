@@ -96,6 +96,7 @@ namespace YTray.Models
         public bool Equals(BrowserRuntime? other) => other != null && Id == other.Id;
         public override bool Equals(object? obj) => obj is BrowserRuntime r && Equals(r);
         public override int GetHashCode() => Id.GetHashCode();
+        public override string ToString() => $"{DisplayTitle} {VersionLabel}";
     }
 
     public class BrowserPlugin : IEquatable<BrowserPlugin>

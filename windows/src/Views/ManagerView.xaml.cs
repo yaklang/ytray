@@ -38,7 +38,7 @@ namespace YTray.Views
             {
                 _loaded = true;
                 NavQuick.IsSelected = true;
-                ShowPage("quick");
+                ShowPage("overview");
                 _store.PropertyChanged += OnStorePropertyChanged;
                 ThemeManager.ThemeChanged += OnThemeChanged;
             }
@@ -53,7 +53,7 @@ namespace YTray.Views
             _pageCache.Clear();
         }
 
-        private void OnThemeChanged(object sender, EventArgs e) => RefreshSidebarStatus();
+        private void OnThemeChanged(object sender, EventArgs e) => RefreshStatusBar();
 
         private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
         {
@@ -63,15 +63,27 @@ namespace YTray.Views
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 _sidebarRefreshScheduled = false;
-                if (IsLoaded) RefreshSidebarStatus();
+                if (IsLoaded) RefreshStatusBar();
             }), DispatcherPriority.Background);
         }
 
-        private void RefreshSidebarStatus()
+        private void RefreshSidebarStatus() => RefreshStatusBar();
+
+        private void RefreshStatusBar()
         {
             var count = _store.RunningInstances.Count;
-            SidebarStatus.Text = count == 0 ? "暂无运行中实例" : $"{count} 个实例运行中";
+            StatusEnvironment.Text = count == 0 ? "运行环境正常" : $"{count} 个实例运行中";
             RunningDot.Opacity = count == 0 ? 0.35 : 1;
+            var runtime = _store.DefaultRuntime;
+            StatusRuntime.Text = runtime == null
+                ? "暂无默认浏览器"
+                : $"{runtime.DisplayTitle} {runtime.VersionLabel}";
+            StatusBrowserCount.Text = $"可用浏览器: {_store.Runtimes.Count}";
+            StatusPluginCount.Text = $"插件: {_store.Plugins.Count} 个";
+            var proxy = _store.Settings.PresetProxyServer;
+            if (string.IsNullOrWhiteSpace(proxy)) proxy = LaunchSettings.DefaultPresetProxyServer;
+            StatusProxy.Text = "HTTP 代理 " + proxy.Replace("http://", "").Replace("https://", "");
+            StatusDebug.Text = "调试基址 127.0.0.1";
             RefreshThemeControls();
         }
 
@@ -122,7 +134,7 @@ namespace YTray.Views
 
         private void ShowPage(string tag)
         {
-            tag = string.IsNullOrWhiteSpace(tag) ? "quick" : tag;
+            tag = string.IsNullOrWhiteSpace(tag) ? "overview" : tag;
             if (_currentPageTag == tag && ContentFrame.Content != null) return;
             if (!_pageCache.TryGetValue(tag, out var page))
             {
@@ -131,8 +143,9 @@ namespace YTray.Views
                     case "runtimes": page = new RuntimePage(_store); break;
                     case "settings": page = new SettingsPage(_store); break;
                     case "instances": page = new InstancesPage(_store); break;
+                    case "launch": page = new ProxyLaunchPage(_store); break;
                     case "plugins": page = new PluginsPage(_store); break;
-                    default: page = new QuickLaunchPage(_store); tag = "quick"; break;
+                    default: page = new QuickLaunchPage(_store); tag = "overview"; break;
                 }
                 _pageCache[tag] = page;
             }
@@ -144,5 +157,11 @@ namespace YTray.Views
         private void Maximize_Click(object sender, RoutedEventArgs e) =>
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
         private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+        private void StatusSettings_Click(object sender, RoutedEventArgs e)
+        {
+            NavSettings.IsSelected = true;
+            ShowPage("settings");
+        }
     }
 }

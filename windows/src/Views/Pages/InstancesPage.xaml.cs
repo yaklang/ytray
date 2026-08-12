@@ -20,6 +20,8 @@ namespace YTray.Views.Pages
         private ThumbnailPreviewWindow? _thumbnailPreview;
         private string? _runningSignature;
         private string? _historySignature;
+        private BrowserInstancePresentation? _selected;
+        private string _activeTab = "all";
 
         public InstancesPage(InstanceStore store)
         {
@@ -85,17 +87,52 @@ namespace YTray.Views.Pages
             if (_runningSignature != runningSignature)
             {
                 _runningSignature = runningSignature;
-                RunningList.ItemsSource = running.Select(i => new BrowserInstancePresentation(i)).ToList();
+                RunningList.ItemsSource = Filter(running).Select(i => new BrowserInstancePresentation(i, _store.RuntimeFor(i))).ToList();
             }
             if (_historySignature != historySignature)
             {
                 _historySignature = historySignature;
-                HistoryList.ItemsSource = history;
+                HistoryList.ItemsSource = Filter(history).Select(i => new BrowserInstancePresentation(i, _store.RuntimeFor(i))).ToList();
             }
             RunningCountLabel.Text = $"{running.Count} 运行中";
             HistoryCountLabel.Text = $"{history.Count} 历史";
             RunningEmpty.Visibility = running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             HistoryEmpty.Visibility = history.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RunningHeading.Text = $"运行中（{running.Count}）";
+            HistoryHeading.Text = $"历史（{history.Count}）";
+            var showRunning = _activeTab != "history";
+            RunningHeading.Visibility = showRunning ? Visibility.Visible : Visibility.Collapsed;
+            RunningList.Visibility = showRunning && running.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            RunningEmpty.Visibility = showRunning && running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            var showHistory = _activeTab != "running";
+            HistoryHeadingPanel.Visibility = showHistory ? Visibility.Visible : Visibility.Collapsed;
+            HistoryList.Visibility = showHistory && history.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            HistoryEmpty.Visibility = showHistory && history.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            var selectedId = _selected?.Instance.Id;
+            var candidate = RunningList.Items.Cast<BrowserInstancePresentation>()
+                .Concat(HistoryList.Items.Cast<BrowserInstancePresentation>())
+                .FirstOrDefault(item => item.Instance.Id == selectedId)
+                ?? RunningList.Items.Cast<BrowserInstancePresentation>().FirstOrDefault()
+                ?? HistoryList.Items.Cast<BrowserInstancePresentation>().FirstOrDefault();
+            if (candidate != null)
+            {
+                if (candidate.Instance.Status == InstanceStatus.Running)
+                    RunningList.SelectedItem = candidate;
+                else
+                    HistoryList.SelectedItem = candidate;
+            }
+            SetSelected(candidate);
+            UpdateTabVisuals();
+        }
+
+        private System.Collections.Generic.IEnumerable<BrowserInstance> Filter(System.Collections.Generic.IEnumerable<BrowserInstance> source)
+        {
+            var query = SearchBox?.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(query)) return source;
+            return source.Where(i => (i.Name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                || (i.LastPageTitle ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                || (i.LastPageURL ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         private static string InstanceSignature(System.Collections.Generic.IEnumerable<BrowserInstance> instances) =>
@@ -155,6 +192,94 @@ namespace YTray.Views.Pages
             if (((FrameworkElement)s).Tag is BrowserInstance i) _store.RemoveHistory(i);
         }
         private void ClearAll_Click(object s, RoutedEventArgs e) => _store.RemoveAllHistory();
+
+        private void Tab_Click(object sender, RoutedEventArgs e)
+        {
+            _activeTab = ((FrameworkElement)sender).Tag?.ToString() ?? "all";
+            _runningSignature = _historySignature = null;
+            Refresh();
+        }
+
+        private void UpdateTabVisuals()
+        {
+            if (AllTab == null) return;
+            SetTabState(AllTab, _activeTab == "all");
+            SetTabState(RunningTab, _activeTab == "running");
+            SetTabState(HistoryTab, _activeTab == "history");
+        }
+
+        private void SetTabState(Button button, bool selected)
+        {
+            button.SetResourceReference(BackgroundProperty, selected ? "BrandPaleBrush" : "SurfaceBrush");
+            button.SetResourceReference(Control.BorderBrushProperty, selected ? "BrandOrangeBrush" : "HairlineBrush");
+            button.SetResourceReference(ForegroundProperty, selected ? "BrandOrangeBrush" : "TextPrimaryBrush");
+        }
+
+        private void Search_Changed(object sender, TextChangedEventArgs e)
+        {
+            if (SearchPlaceholder != null)
+                SearchPlaceholder.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+            _runningSignature = _historySignature = null;
+            if (IsLoaded) Refresh();
+        }
+
+        private void InstanceSelection_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (sender == RunningList && RunningList.SelectedItem is BrowserInstancePresentation running)
+            {
+                HistoryList.SelectedItem = null;
+                SetSelected(running);
+            }
+            else if (sender == HistoryList && HistoryList.SelectedItem is BrowserInstancePresentation history)
+            {
+                RunningList.SelectedItem = null;
+                SetSelected(history);
+            }
+        }
+
+        private void SetSelected(BrowserInstancePresentation? selected)
+        {
+            _selected = selected;
+            if (DetailRuntime == null) return;
+            if (selected == null)
+            {
+                DetailRuntime.Text = DetailName.Text = DetailAumid.Text = DetailProfile.Text = DetailVersion.Text =
+                    DetailProxy.Text = DetailDebug.Text = DetailPlugins.Text = "—";
+                DetailThumbnail.Source = null;
+                DetailPreviewEmpty.Visibility = Visibility.Visible;
+                CaptureDetailButton.IsEnabled = StopDetailButton.IsEnabled = false;
+                return;
+            }
+            DetailRuntime.Text = selected.RuntimeTitle;
+            DetailName.Text = selected.Name;
+            DetailAumid.Text = selected.AppUserModelIdText;
+            DetailProfile.Text = selected.ProfilePath;
+            DetailVersion.Text = selected.RuntimeVersion;
+            DetailProxy.Text = selected.NetworkMode + " " + selected.NetworkAddress;
+            DetailDebug.Text = selected.DebugAddress;
+            DetailPlugins.Text = selected.PluginCount;
+            DetailThumbnail.Source = selected.ThumbnailSource;
+            DetailPreviewEmpty.Visibility = selected.HasThumbnail ? Visibility.Collapsed : Visibility.Visible;
+            var running = selected.Instance.Status == InstanceStatus.Running;
+            CaptureDetailButton.IsEnabled = running && selected.CanCapture;
+            StopDetailButton.IsEnabled = running && selected.CanStop;
+            StopDetailButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void FocusDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.Focus(_selected.Instance); }
+        private async void CaptureDetail_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selected == null) return;
+            var output = await _store.CaptureAsync(_selected.Instance);
+            ShowActionFeedback(output == null ? (_store.ErrorMessage ?? "截图失败") : "截图已保存 · " + output, output == null);
+        }
+        private void RevealDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.RevealProfile(_selected.Instance); }
+        private async void StopDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) await _store.StopAsync(_selected.Instance); }
+        private void NewInstance_Click(object sender, RoutedEventArgs e)
+        {
+            var wizard = new CustomLaunchWizard(_store) { Owner = Window.GetWindow(this) };
+            wizard.ShowDialog();
+        }
 
         private void Thumbnail_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
         {

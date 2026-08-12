@@ -31,6 +31,26 @@ namespace YTray.Core
         public int DebugPort => Instance.DebugPort;
         public string? AppUserModelId => Instance.AppUserModelId;
         public string? DockBadge => Instance.DockBadge;
+        public ImageSource? RuntimeIconSource { get; }
+        public string RuntimeTitle => !string.IsNullOrWhiteSpace(Instance.RuntimeName)
+            ? Instance.RuntimeName
+            : (Instance.RuntimeKind?.Title() ?? "Chromium");
+        public string RuntimeVersion => string.IsNullOrWhiteSpace(Instance.RuntimeVersion) ? "版本未知" : Instance.RuntimeVersion!;
+        public string PageTitle => string.IsNullOrWhiteSpace(Instance.LastPageTitle) ? "新标签页" : Instance.LastPageTitle!;
+        public string PageUrl => string.IsNullOrWhiteSpace(Instance.LastPageURL)
+            ? (string.IsNullOrWhiteSpace(Instance.StartURL) ? "chrome://newtab" : Instance.StartURL)
+            : Instance.LastPageURL!;
+        public bool UsesProxy => !string.IsNullOrWhiteSpace(Instance.SettingsSnapshot?.ProxyServer);
+        public string NetworkMode => UsesProxy ? "HTTP 代理" : "无代理";
+        public string NetworkAddress => UsesProxy
+            ? (Instance.SettingsSnapshot?.ProxyServer ?? "").Replace("http://", "").Replace("https://", "")
+            : "直连";
+        public string DebugAddress => "127.0.0.1:" + Instance.DebugPort;
+        public string Duration => FormatDuration(DateTime.Now - Instance.StartedAt);
+        public string LastUsed => Instance.StartedAt.ToString("yyyy-MM-dd HH:mm:ss");
+        public string ProfilePath => Instance.ProfilePath;
+        public string AppUserModelIdText => string.IsNullOrWhiteSpace(Instance.AppUserModelId) ? "尚未分配" : Instance.AppUserModelId!;
+        public string PluginCount => $"插件 {(Instance.PluginIDs ?? new List<Guid>()).Count} 个";
 
         public bool CanCapture => !Instance.IsCapturing && !Instance.IsStopping;
         public bool CanStop => !Instance.IsStopping;
@@ -46,13 +66,21 @@ namespace YTray.Core
                     ? "正在加载页面预览…"
                     : (HasThumbnailArtifact && !HasThumbnail ? "预览图片加载失败" : "正在获取页面预览…")));
 
-        public BrowserInstancePresentation(BrowserInstance instance)
+        public BrowserInstancePresentation(BrowserInstance instance, BrowserRuntime? runtime = null)
         {
             Instance = instance ?? throw new ArgumentNullException(nameof(instance));
+            RuntimeIconSource = runtime == null ? null : BrowserIconSource.FromExecutable(runtime.ExecutablePath);
             HasThumbnailArtifact = HasUsableThumbnailFile(instance.ThumbnailPath);
             ThumbnailSource = InstanceThumbnailImageSource.FromFile(instance.ThumbnailPath);
             IsThumbnailLoading = ThumbnailSource == null
                 && InstanceThumbnailImageSource.IsLoading(instance.ThumbnailPath);
+        }
+
+        private static string FormatDuration(TimeSpan value)
+        {
+            if (value < TimeSpan.Zero) value = TimeSpan.Zero;
+            if (value.TotalDays >= 1) return $"{(int)value.TotalDays}天 {value.Hours:00}:{value.Minutes:00}";
+            return $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}";
         }
 
         private static bool HasUsableThumbnailFile(string? path)

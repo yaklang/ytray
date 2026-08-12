@@ -57,6 +57,9 @@ namespace YTray.Core
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
+        [DllImport("user32.dll")]
+        private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
         public static async Task<IReadOnlyList<CaptureItem>> CaptureAsync(InstanceStore store, string outputDirectory)
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
@@ -108,11 +111,12 @@ namespace YTray.Core
 
             var pages = new[]
             {
-                new MainPageCapture { Slug = "quick-launch", Caption = "快速配置", Select = w => w.NavQuick },
+                new MainPageCapture { Slug = "overview-runtime-center", Caption = "运行中心", Select = w => w.NavQuick },
+                new MainPageCapture { Slug = "instances", Caption = "浏览器实例", Select = w => w.NavInstances },
                 new MainPageCapture { Slug = "browser-sources", Caption = "浏览器来源", Select = w => w.NavRuntimes },
-                new MainPageCapture { Slug = "launch-settings", Caption = "启动设置", Select = w => w.NavSettings },
-                new MainPageCapture { Slug = "instances-history", Caption = "运行与历史", Select = w => w.NavInstances },
-                new MainPageCapture { Slug = "plugins", Caption = "插件管理", Select = w => w.NavPlugins },
+                new MainPageCapture { Slug = "proxy-and-launch", Caption = "代理与启动", Select = w => w.NavLaunch },
+                new MainPageCapture { Slug = "plugins", Caption = "本地插件", Select = w => w.NavPlugins },
+                new MainPageCapture { Slug = "settings", Caption = "设置", Select = w => w.NavSettings },
             };
 
             foreach (var theme in new[] { AppThemePreference.Light, AppThemePreference.Dark })
@@ -384,8 +388,37 @@ namespace YTray.Core
             return Drawing.Rectangle.Intersect(rect, Forms.SystemInformation.VirtualScreen);
         }
 
-        private static void CaptureWindow(Window window, string outputPath) =>
-            CaptureScreen(WindowBounds(window), outputPath);
+        private static void CaptureWindow(Window window, string outputPath)
+        {
+            var bounds = WindowBounds(window);
+            var handle = new WindowInteropHelper(window).Handle;
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+            using (var bitmap = new Drawing.Bitmap(bounds.Width, bounds.Height,
+                System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (var graphics = Drawing.Graphics.FromImage(bitmap))
+            {
+                var hdc = graphics.GetHdc();
+                bool rendered;
+                try
+                {
+                    // PW_RENDERFULLCONTENT renders the real top-level window even when another
+                    // window temporarily covers it or the interactive desktop changes while an
+                    // automated design review is running. Fall back to screen copy on systems
+                    // where the flag is unavailable.
+                    rendered = PrintWindow(handle, hdc, 2);
+                }
+                finally
+                {
+                    graphics.ReleaseHdc(hdc);
+                }
+                if (!rendered)
+                {
+                    CaptureScreen(bounds, outputPath);
+                    return;
+                }
+                bitmap.Save(outputPath, ImageFormat.Png);
+            }
+        }
 
         private static void CaptureScreen(Drawing.Rectangle bounds, string outputPath)
         {

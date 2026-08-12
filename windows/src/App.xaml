@@ -11,9 +11,9 @@
 
             <!-- ThemeManager replaces these colours at runtime. Brushes keep a DynamicResource
                  colour reference so even existing windows update without being recreated. -->
-            <Color x:Key="BrandOrangeColor">#F2823D</Color>
-            <Color x:Key="BrandOrangeHoverColor">#E97431</Color>
-            <Color x:Key="BrandOrangePressedColor">#D96427</Color>
+            <Color x:Key="BrandOrangeColor">#F97324</Color>
+            <Color x:Key="BrandOrangeHoverColor">#FF8236</Color>
+            <Color x:Key="BrandOrangePressedColor">#DE5E16</Color>
             <Color x:Key="BrandPaleColor">#FFF0E5</Color>
             <Color x:Key="AppBackgroundColor">#F5F5F3</Color>
             <Color x:Key="TitleBarColor">#FAFAF8</Color>
@@ -90,8 +90,8 @@
             </Style>
 
             <Style x:Key="YTrayButton" TargetType="Button">
-                <Setter Property="MinHeight" Value="32"/>
-                <Setter Property="Padding" Value="13,0"/>
+                <Setter Property="MinHeight" Value="34"/>
+                <Setter Property="Padding" Value="14,0"/>
                 <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
@@ -106,7 +106,7 @@
                             <Border x:Name="Chrome" Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="8" SnapsToDevicePixels="True">
+                                    CornerRadius="5" SnapsToDevicePixels="True">
                                 <ContentPresenter Margin="{TemplateBinding Padding}"
                                                   HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                                   VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
@@ -142,7 +142,7 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5">
                                 <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                                   VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                                   TextElement.Foreground="{TemplateBinding Foreground}"/>
@@ -223,7 +223,7 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="TextBox">
-                            <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}"
+                            <Border x:Name="Chrome" CornerRadius="5" Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
                                 <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
                             </Border>
@@ -253,7 +253,7 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ComboBoxItem">
-                            <Border x:Name="Chrome" Padding="{TemplateBinding Padding}" CornerRadius="7" Background="Transparent">
+                            <Border x:Name="Chrome" Padding="{TemplateBinding Padding}" CornerRadius="4" Background="Transparent">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
                                     <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
@@ -293,7 +293,7 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="34"/>
                                 </Grid.ColumnDefinitions>
-                                <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}"
+                                <Border x:Name="Chrome" CornerRadius="5" Background="{TemplateBinding Background}"
                                         BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
                                         Grid.ColumnSpan="2"/>
                                 <ToggleButton Grid.ColumnSpan="2" Background="Transparent" BorderThickness="0" Focusable="False"
@@ -318,7 +318,7 @@
                                 <Popup x:Name="PART_Popup" Grid.ColumnSpan="2" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                                        AllowsTransparency="True" PopupAnimation="Fade" Focusable="False">
                                     <Border MinWidth="{TemplateBinding ActualWidth}" MaxHeight="248" Margin="0,6,0,0" Padding="5"
-                                            CornerRadius="10" Background="{DynamicResource SurfaceRaisedBrush}"
+                                            CornerRadius="5" Background="{DynamicResource SurfaceRaisedBrush}"
                                             BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1">
                                         <Border.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="5" Opacity="0.18"/></Border.Effect>
                                         <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto"><ItemsPresenter/></ScrollViewer>
@@ -394,21 +394,54 @@
                 <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="CornerRadius" Value="12"/>
+                <Setter Property="CornerRadius" Value="5"/>
             </Style>
             <Style x:Key="SectionTitle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="FontSize" Value="14"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
             </Style>
             <Style x:Key="PageTitle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="23"/>
+                <Setter Property="FontSize" Value="25"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
             </Style>
             <Style x:Key="PageSubtitle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12"/>
                 <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            </Style>
+
+            <!-- Production workspace primitives shared by all six manager pages. -->
+            <Style x:Key="PageEyebrow" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            </Style>
+            <Style x:Key="FieldLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+            </Style>
+            <Style x:Key="TableHeaderText" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+            <Style x:Key="TableCellText" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+            <Style x:Key="OutlinedAccentButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
+                <Setter Property="Foreground" Value="{DynamicResource BrandOrangeBrush}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+            </Style>
+            <Style TargetType="Button" BasedOn="{StaticResource YTrayButton}"/>
+            <Style x:Key="PillBadge" TargetType="Border">
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Padding" Value="7,2"/>
             </Style>
         </ResourceDictionary>
     </Application.Resources>

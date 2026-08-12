@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -27,11 +28,7 @@ namespace YTray.Views.Pages
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
-            if (!_subscribed)
-            {
-                _store.PropertyChanged += OnStorePropertyChanged;
-                _subscribed = true;
-            }
+            if (!_subscribed) { _store.PropertyChanged += OnStorePropertyChanged; _subscribed = true; }
             Refresh();
         }
 
@@ -53,30 +50,51 @@ namespace YTray.Views.Pages
             }), DispatcherPriority.Background);
         }
 
+        private BrowserInstancePresentation Present(BrowserInstance instance) =>
+            new BrowserInstancePresentation(instance, _store.RuntimeFor(instance));
+
         private void Refresh()
         {
-            if (RuntimeLabel == null) return;
-            var rt = _store.DefaultRuntime;
-            RuntimeLabel.Text = rt != null ? $"{rt.DisplayTitle} {rt.VersionLabel}" : "未设置";
-            RuntimeIcon.Source = rt == null ? null : BrowserIconSource.FromExecutable(rt.ExecutablePath);
-            HomeUrlLabel.Text = _store.Settings.HomeURL;
-            DebugPortLabel.Text = $"127.0.0.1:{_store.Settings.DebugPort} 起";
-            PluginLabel.Text = $"{_store.Settings.DefaultPluginIDs.Count} 个";
-            ProxySummaryLabel.Text = _store.Settings.PresetProxyServer;
-            DirectBtn.IsEnabled = ProxyBtn.IsEnabled = WizardBtn.IsEnabled = !_store.IsLaunching;
+            if (RuntimeCombo == null) return;
+            var selected = RuntimeCombo.SelectedItem as BrowserRuntime ?? _store.DefaultRuntime;
+            RuntimeCombo.ItemsSource = _store.Runtimes.OrderByDescending(r => r.Id == _store.Settings.DefaultRuntimeID).ToList();
+            RuntimeCombo.SelectedItem = selected == null ? _store.DefaultRuntime : _store.Runtimes.FirstOrDefault(r => r.Id == selected.Id);
+            if (!HomeUrlBox.IsKeyboardFocusWithin) HomeUrlBox.Text = _store.Settings.HomeURL;
+            ProxySummaryLabel.Text = (_store.Settings.PresetProxyServer ?? LaunchSettings.DefaultPresetProxyServer).Replace("http://", "").Replace("https://", "");
 
+            var running = _store.RunningInstances.Select(Present).ToList();
+            var history = _store.HistoryInstances.Take(3).Select(Present).ToList();
+            RunningList.ItemsSource = running;
+            HistoryList.ItemsSource = history;
+            RunningEmpty.Visibility = running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            HistoryEmpty.Visibility = history.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RunningList.Visibility = running.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            HistoryList.Visibility = history.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            RunningCountLabel.Text = $"共 {running.Count} 个实例";
             LaunchStatusLabel.Text = _store.IsLaunching
-                ? (string.IsNullOrEmpty(_store.LaunchMessage) ? "正在启动" : _store.LaunchMessage)
-                : "准备就绪";
-            LaunchStatusDot.Fill = _store.IsLaunching
-                ? (Brush)FindResource("BrandOrangeBrush")
-                : (Brush)FindResource("SuccessBrush");
-            LaunchStatusLabel.Foreground = LaunchStatusDot.Fill;
+                ? (string.IsNullOrWhiteSpace(_store.LaunchMessage) ? "正在启动实例" : _store.LaunchMessage)
+                : $"{running.Count} 个实例运行中";
+            LaunchStatusDot.Fill = (Brush)FindResource(_store.IsLaunching ? "BrandOrangeBrush" : "SuccessBrush");
+            LaunchButton.IsEnabled = WizardBtn.IsEnabled = !_store.IsLaunching && RuntimeCombo.SelectedItem != null;
         }
 
-        private void Direct_Click(object sender, RoutedEventArgs e) => _store.LaunchConfigured(false);
-        private void Proxy_Click(object sender, RoutedEventArgs e) => _store.LaunchConfigured(true);
+        private void RuntimeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (RuntimeCombo.SelectedItem is BrowserRuntime runtime && _store.Settings.DefaultRuntimeID != runtime.Id)
+                _store.SelectDefaultRuntime(runtime);
+        }
 
+        private void Launch_Click(object sender, RoutedEventArgs e)
+        {
+            _store.Settings.HomeURL = HomeUrlBox.Text.Trim();
+            _store.SaveSettings();
+            _store.LaunchConfigured(NetworkCombo.SelectedIndex == 1);
+        }
+
+        private void Focus_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) _store.Focus(i); }
+        private async void Stop_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) await _store.StopAsync(i); }
+        private void Restore_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) _store.RestoreHistory(i); }
+        private void ClearAll_Click(object sender, RoutedEventArgs e) => _store.RemoveAllHistory();
         private void Wizard_Click(object sender, RoutedEventArgs e)
         {
             var wizard = new CustomLaunchWizard(_store) { Owner = Window.GetWindow(this) };

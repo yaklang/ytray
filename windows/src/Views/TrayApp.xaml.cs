@@ -2,6 +2,7 @@
 using System;
 using System.ComponentModel;
 using System.Drawing;
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using YTray.Core;
@@ -15,7 +16,7 @@ namespace YTray
     {
         private readonly InstanceStore _store;
         private readonly System.Windows.Forms.NotifyIcon _notify;
-        private readonly Icon _trayIcon;
+        private Icon? _trayIcon;
         private WidgetView? _widget;
         private ManagerView? _manager;
         private readonly EdgeDock _edgeDock;
@@ -27,18 +28,30 @@ namespace YTray
             _store = store;
             _store.PropertyChanged += OnStorePropertyChanged;
 
-            _trayIcon = CreateTrayIcon();
+            _trayIcon = LoadTrayIcon();
             _notify = new System.Windows.Forms.NotifyIcon
             {
                 Icon = _trayIcon,
                 Visible = true,
                 Text = "YTray · 右键打开菜单",
             };
+            // Subscribe only after NotifyIcon is fully constructed. A Windows theme event can
+            // arrive at any time; the handler must never observe a partially initialized owner.
+            ThemeManager.ThemeChanged += OnThemeChanged;
 
             _edgeDock = new EdgeDock(_store, ShowWidgetBesideEdge);
             BuildMenu();
             UpdateStatusTitle();
             if (_store.Settings.EdgeDockEnabled) _edgeDock.ShowDock(remember: false);
+        }
+
+        private void OnThemeChanged(object sender, EventArgs e)
+        {
+            var replacement = LoadTrayIcon();
+            var previous = _trayIcon;
+            _trayIcon = replacement;
+            _notify.Icon = replacement;
+            previous?.Dispose();
         }
 
         private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -123,37 +136,28 @@ namespace YTray
             _manager = null;
         }
 
-        private static Icon CreateTrayIcon()
+        private static Icon LoadTrayIcon()
         {
-            using (var bitmap = new Bitmap(16, 16))
+            var resourceName = ThemeManager.IsDark
+                ? "ytray-tray-on-dark.ico"
+                : "ytray-tray-on-light.ico";
+            var uri = new Uri($"pack://application:,,,/Assets/Icons/{resourceName}", UriKind.Absolute);
+            var resource = Application.GetResourceStream(uri);
+            if (resource == null)
+                throw new FileNotFoundException("找不到系统托盘图标资源", resourceName);
+            using (resource.Stream)
+            using (var borrowed = new Icon(resource.Stream))
             {
-                using (var graphics = Graphics.FromImage(bitmap))
-                {
-                    graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    graphics.Clear(Color.Transparent);
-                    using (var orange = new SolidBrush(Color.FromArgb(242, 130, 61)))
-                        graphics.FillEllipse(orange, 1, 1, 14, 14);
-                    using (var white = new Pen(Color.White, 1.5f))
-                    {
-                        graphics.DrawEllipse(white, 4, 4, 8, 8);
-                        graphics.DrawLine(white, 8, 4, 8, 12);
-                    }
-                }
-
-                using (var handle = SafeIconHandle.Own(bitmap.GetHicon()))
-                {
-                    if (handle.IsInvalid) throw new InvalidOperationException("Unable to create tray icon handle.");
-                    // Icon.FromHandle does not own HICON. Clone it into a managed owner before
-                    // releasing the native handle returned by Bitmap.GetHicon.
-                    using (var borrowed = Icon.FromHandle(handle.DangerousGetHandle()))
-                        return (Icon)borrowed.Clone();
-                }
+                // Clone before disposing the pack resource stream: System.Drawing.Icon otherwise
+                // keeps a lazy reference to the stream and can fail when Explorer repaints it.
+                return (Icon)borrowed.Clone();
             }
         }
 
         public void Dispose()
         {
             _store.PropertyChanged -= OnStorePropertyChanged;
+            ThemeManager.ThemeChanged -= OnThemeChanged;
             _widget?.Close();
             _manager?.Close();
             _edgeDock?.Close();
@@ -162,7 +166,8 @@ namespace YTray
             _notify.Dispose();
             _menu?.Dispose();
             _menu = null;
-            _trayIcon.Dispose();
+            _trayIcon?.Dispose();
+            _trayIcon = null;
         }
     }
 }

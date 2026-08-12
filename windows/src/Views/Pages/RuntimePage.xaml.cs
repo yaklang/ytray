@@ -24,6 +24,7 @@ namespace YTray.Views.Pages
             public bool IsDefault { get; set; }
             public string SourceTitle => Runtime.Source.Title();
             public ImageSource? IconSource => BrowserIconSource.FromExecutable(Runtime.ExecutablePath);
+            public Visibility DefaultVisibility => IsDefault ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private readonly InstanceStore _store;
@@ -32,6 +33,7 @@ namespace YTray.Views.Pages
         private bool _loadingManifest;
         private bool _refreshScheduled;
         private int _feedbackGeneration;
+        private RuntimeRow? _selectedRow;
 
         public RuntimePage(InstanceStore store)
         {
@@ -87,6 +89,10 @@ namespace YTray.Views.Pages
                 IsDefault = runtime.Id == defaultId,
             }).ToList();
             RuntimeList.ItemsSource = rows;
+            var selectedId = _selectedRow?.Runtime.Id ?? defaultId;
+            _selectedRow = rows.FirstOrDefault(row => row.Runtime.Id == selectedId) ?? rows.FirstOrDefault();
+            RuntimeList.SelectedItem = _selectedRow;
+            RefreshDetails();
             RuntimeCountLabel.Text = rows.Count.ToString();
             var current = _store.DefaultRuntime;
             DefaultRuntimeLabel.Text = current == null ? "尚未选择默认浏览器" : $"默认 · {current.DisplayTitle} {current.VersionLabel}";
@@ -201,6 +207,30 @@ namespace YTray.Views.Pages
             {
                 ShowFeedback("无法打开所在文件夹：" + ex.Message);
             }
+        }
+
+        private void RuntimeSelection_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            _selectedRow = RuntimeList.SelectedItem as RuntimeRow;
+            RefreshDetails();
+        }
+
+        private void RefreshDetails()
+        {
+            if (DetailBrowser == null) return;
+            var runtime = _selectedRow?.Runtime;
+            DetailBrowser.Text = runtime?.DisplayTitle ?? "—";
+            DetailSource.Text = runtime?.Source.Title() ?? "—";
+            DetailVersion.Text = runtime == null ? "—" : $"{runtime.VersionLabel} ({runtime.Architecture})";
+            DetailPath.Text = runtime?.ExecutablePath ?? "—";
+            DetailCommand.Text = runtime == null ? "—" : $"\"{runtime.ExecutablePath}\" --remote-debugging-port={_store.Settings.DebugPort}";
+        }
+
+        private void OpenSelectedFolder_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedRow == null) return;
+            var proxy = new Button { Tag = _selectedRow.Runtime };
+            OpenFolder_Click(proxy, e);
         }
 
         private async void ShowFeedback(string text)
