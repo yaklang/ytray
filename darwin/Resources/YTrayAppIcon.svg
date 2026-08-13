@@ -2,9 +2,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
   <!--
     Flat YTray app icon: solid fills only, no strokes, shadows, gradients, or inset frame.
-    The complete tile is optically scaled to 88% for the transparent macOS Dock safe area.
+    The complete tile follows the common 824/1024 macOS optical footprint.
   -->
-  <g transform="translate(61.44 61.44) scale(0.88)">
+  <g transform="translate(99.84 99.84) scale(0.805)">
   <rect width="1024" height="1024" rx="202" fill="#FFFFFF"/>
 
   <!-- Rear browser instance: complete card, visibly offset up and right. -->
