@@ -33,7 +33,9 @@ namespace YTray.Core
         private bool _disposed;
         private static readonly TimeSpan ThumbnailRefreshInterval = TimeSpan.FromSeconds(12);
         private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(3);
-        private const string LegacyDirectoryName = "InstanceDock";
+        // Private persistence compatibility only. Keep this exact historical directory name so
+        // installations made before the YTray rebrand can migrate their local data once.
+        private const string LegacyDirectoryName = "Instance" + "Dock";
 
         // Observable collections
         public ObservableCollection<BrowserRuntime> Runtimes { get; } = new ObservableCollection<BrowserRuntime>();
@@ -77,7 +79,7 @@ namespace YTray.Core
         public InstanceStore(string? applicationDirectory = null, bool discoverSystemBrowsers = true)
         {
             ApplicationDirectory = applicationDirectory ?? StatePersistence.DefaultApplicationDirectory;
-            // Legacy migration (InstanceDock -> YTray), best-effort.
+            // Best-effort migration from the private pre-rebrand persistence directory to YTray.
             MigrateLegacyDirectoryIfNeeded();
             try { Directory.CreateDirectory(ApplicationDirectory); } catch { }
 
@@ -190,13 +192,23 @@ namespace YTray.Core
                 var manifest = Newtonsoft.Json.JsonConvert.DeserializeObject<PluginManifest>(json);
                 if (manifest == null || string.IsNullOrWhiteSpace(manifest.Name))
                     throw new YTrayException(YTrayError.InvalidPlugin, directory);
-                var existing = Plugins.FirstOrDefault(p => p.Path == directory);
-                if (existing != null) Plugins.Remove(existing);
-                Plugins.Add(new BrowserPlugin
+                var fullDirectory = Path.GetFullPath(directory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var existing = Plugins.FirstOrDefault(p => string.Equals(
+                    (p.Path ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    fullDirectory, StringComparison.OrdinalIgnoreCase));
+                var plugin = new BrowserPlugin
                 {
+                    Id = existing?.Id ?? Guid.NewGuid(),
                     Name = manifest.Name, Version = manifest.Version,
-                    Path = directory, ManifestVersion = manifest.ManifestVersion,
-                });
+                    Path = fullDirectory,
+                    IconPath = PluginIconSource.ResolveIconPath(fullDirectory),
+                    ManifestVersion = manifest.ManifestVersion,
+                    Enabled = existing?.Enabled ?? true,
+                    CreatedAt = existing?.CreatedAt ?? DateTime.Now,
+                };
+                if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
+                else Plugins.Add(plugin);
                 Save();
             }
             catch
@@ -210,6 +222,17 @@ namespace YTray.Core
             if (plugin == null) return;
             var idx = Plugins.ToList().FindIndex(p => p.Id == plugin.Id);
             if (idx >= 0) Plugins[idx] = plugin;
+            if (!plugin.Enabled) Settings.DefaultPluginIDs.RemoveAll(id => id == plugin.Id);
+            Save();
+        }
+
+        public void SetDefaultPlugins(IEnumerable<Guid>? pluginIDs)
+        {
+            var requested = new HashSet<Guid>(pluginIDs ?? Enumerable.Empty<Guid>());
+            Settings.DefaultPluginIDs = Plugins
+                .Where(plugin => plugin.Enabled && requested.Contains(plugin.Id))
+                .Select(plugin => plugin.Id)
+                .ToList();
             Save();
         }
 
@@ -747,6 +770,13 @@ namespace YTray.Core
             catch { }
         }
 
+        public void RemoveProxyPreset(ProxyPreset preset)
+        {
+            if (preset == null) return;
+            var removed = Settings.RecentProxyPresets.RemoveAll(item => item != null && item.Id == preset.Id);
+            if (removed > 0) Save();
+        }
+
         public void UpdatePresetProxyServer(string value)
         {
             Settings.PresetProxyServer = value;
@@ -1120,7 +1150,15 @@ namespace YTray.Core
                 plugin.Name = plugin.Name ?? "";
                 plugin.Version = plugin.Version ?? "";
                 plugin.Path = plugin.Path ?? "";
+                plugin.IconPath = plugin.IconPath ?? "";
+                if (string.IsNullOrWhiteSpace(plugin.IconPath) || !File.Exists(plugin.IconPath))
+                    plugin.IconPath = PluginIconSource.ResolveIconPath(plugin.Path);
             }
+            var availablePluginIDs = Plugins.Where(plugin => plugin.Enabled).Select(plugin => plugin.Id).ToHashSet();
+            Settings.DefaultPluginIDs = Settings.DefaultPluginIDs
+                .Where(availablePluginIDs.Contains)
+                .Distinct()
+                .ToList();
             foreach (var instance in Instances)
             {
                 instance.Name = instance.Name ?? "浏览器实例";

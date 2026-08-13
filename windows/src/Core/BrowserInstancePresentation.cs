@@ -32,6 +32,7 @@ namespace YTray.Core
         public string? AppUserModelId => Instance.AppUserModelId;
         public string? DockBadge => Instance.DockBadge;
         public ImageSource? RuntimeIconSource { get; }
+        public ImageSource? InstanceIconSource { get; }
         public string RuntimeTitle => !string.IsNullOrWhiteSpace(Instance.RuntimeName)
             ? Instance.RuntimeName
             : (Instance.RuntimeKind?.Title() ?? "Chromium");
@@ -47,7 +48,7 @@ namespace YTray.Core
             : "直连";
         public string DebugAddress => "127.0.0.1:" + Instance.DebugPort;
         public string Duration => FormatDuration(DateTime.Now - Instance.StartedAt);
-        public string LastUsed => Instance.StartedAt.ToString("yyyy-MM-dd HH:mm:ss");
+        public string LastUsed => FormatRelativeTime(DateTime.Now - Instance.StartedAt);
         public string ProfilePath => Instance.ProfilePath;
         public string AppUserModelIdText => string.IsNullOrWhiteSpace(Instance.AppUserModelId) ? "尚未分配" : Instance.AppUserModelId!;
         public string PluginCount => $"插件 {(Instance.PluginIDs ?? new List<Guid>()).Count} 个";
@@ -70,6 +71,9 @@ namespace YTray.Core
         {
             Instance = instance ?? throw new ArgumentNullException(nameof(instance));
             RuntimeIconSource = runtime == null ? null : BrowserIconSource.FromExecutable(runtime.ExecutablePath);
+            InstanceIconSource = runtime == null
+                ? RuntimeIconSource
+                : BrowserIconSource.FromExecutableWithBadge(runtime.ExecutablePath, instance.DockBadge);
             HasThumbnailArtifact = HasUsableThumbnailFile(instance.ThumbnailPath);
             ThumbnailSource = InstanceThumbnailImageSource.FromFile(instance.ThumbnailPath);
             IsThumbnailLoading = ThumbnailSource == null
@@ -81,6 +85,15 @@ namespace YTray.Core
             if (value < TimeSpan.Zero) value = TimeSpan.Zero;
             if (value.TotalDays >= 1) return $"{(int)value.TotalDays}天 {value.Hours:00}:{value.Minutes:00}";
             return $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}";
+        }
+
+        private static string FormatRelativeTime(TimeSpan value)
+        {
+            if (value < TimeSpan.Zero || value.TotalSeconds < 45) return "刚刚";
+            if (value.TotalMinutes < 60) return $"{Math.Max(1, (int)value.TotalMinutes)} 分钟前";
+            if (value.TotalHours < 24) return $"{Math.Max(1, (int)value.TotalHours)} 小时前";
+            if (value.TotalDays < 7) return $"{Math.Max(1, (int)value.TotalDays)} 天前";
+            return DateTime.Now.Subtract(value).ToString("yyyy-MM-dd");
         }
 
         private static bool HasUsableThumbnailFile(string? path)

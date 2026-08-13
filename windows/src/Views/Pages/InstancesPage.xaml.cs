@@ -17,11 +17,11 @@ namespace YTray.Views.Pages
         private bool _subscribed;
         private bool _refreshScheduled;
         private int _feedbackGeneration;
-        private ThumbnailPreviewWindow? _thumbnailPreview;
         private string? _runningSignature;
         private string? _historySignature;
         private BrowserInstancePresentation? _selected;
         private string _activeTab = "all";
+        private bool _refreshingSelection;
 
         public InstancesPage(InstanceStore store)
         {
@@ -48,8 +48,6 @@ namespace YTray.Views.Pages
             if (!_subscribed) return;
             _store.PropertyChanged -= OnStorePropertyChanged;
             InstanceThumbnailImageSource.ImageLoaded -= OnThumbnailImageLoaded;
-            _thumbnailPreview?.Close();
-            _thumbnailPreview = null;
             _subscribed = false;
         }
 
@@ -82,6 +80,7 @@ namespace YTray.Views.Pages
         {
             var running = _store.RunningInstances;
             var history = _store.HistoryInstances;
+            var selectedId = _selected?.Instance.Id;
             var runningSignature = InstanceSignature(running);
             var historySignature = InstanceSignature(history);
             if (_runningSignature != runningSignature)
@@ -96,31 +95,44 @@ namespace YTray.Views.Pages
             }
             RunningCountLabel.Text = $"{running.Count} 运行中";
             HistoryCountLabel.Text = $"{history.Count} 历史";
-            RunningEmpty.Visibility = running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            HistoryEmpty.Visibility = history.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            RunningHeading.Text = $"运行中（{running.Count}）";
-            HistoryHeading.Text = $"历史（{history.Count}）";
+            var visibleRunningCount = RunningList.Items.Count;
+            var visibleHistoryCount = HistoryList.Items.Count;
+            RunningHeading.Text = $"运行中（{visibleRunningCount}）";
+            HistoryHeading.Text = $"历史（{visibleHistoryCount}）";
             var showRunning = _activeTab != "history";
-            RunningHeading.Visibility = showRunning ? Visibility.Visible : Visibility.Collapsed;
-            RunningList.Visibility = showRunning && running.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            RunningEmpty.Visibility = showRunning && running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RunningSection.Visibility = showRunning ? Visibility.Visible : Visibility.Collapsed;
+            RunningList.Visibility = visibleRunningCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            RunningEmpty.Visibility = visibleRunningCount == 0 ? Visibility.Visible : Visibility.Collapsed;
             var showHistory = _activeTab != "running";
-            HistoryHeadingPanel.Visibility = showHistory ? Visibility.Visible : Visibility.Collapsed;
-            HistoryList.Visibility = showHistory && history.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            HistoryEmpty.Visibility = showHistory && history.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            HistorySection.Visibility = showHistory ? Visibility.Visible : Visibility.Collapsed;
+            HistorySection.Margin = showRunning ? new Thickness(0, 16, 0, 0) : new Thickness(0);
+            HistoryList.Visibility = visibleHistoryCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            HistoryEmpty.Visibility = visibleHistoryCount == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-            var selectedId = _selected?.Instance.Id;
             var candidate = RunningList.Items.Cast<BrowserInstancePresentation>()
                 .Concat(HistoryList.Items.Cast<BrowserInstancePresentation>())
-                .FirstOrDefault(item => item.Instance.Id == selectedId)
-                ?? RunningList.Items.Cast<BrowserInstancePresentation>().FirstOrDefault()
-                ?? HistoryList.Items.Cast<BrowserInstancePresentation>().FirstOrDefault();
-            if (candidate != null)
+                .FirstOrDefault(item => item.Instance.Id == selectedId);
+            // Preserve an explicit empty inspector on first navigation. Once an instance was
+            // selected, only keep it selected while it remains in the filtered/visible result.
+            _refreshingSelection = true;
+            try
             {
-                if (candidate.Instance.Status == InstanceStatus.Running)
-                    RunningList.SelectedItem = candidate;
+                if (candidate != null)
+                {
+                    if (candidate.Instance.Status == InstanceStatus.Running)
+                        RunningList.SelectedItem = candidate;
+                    else
+                        HistoryList.SelectedItem = candidate;
+                }
                 else
-                    HistoryList.SelectedItem = candidate;
+                {
+                    RunningList.SelectedItem = null;
+                    HistoryList.SelectedItem = null;
+                }
+            }
+            finally
+            {
+                _refreshingSelection = false;
             }
             SetSelected(candidate);
             UpdateTabVisuals();
@@ -141,48 +153,6 @@ namespace YTray.Views.Pages
                 i.ProcessID, i.DebugPort, i.AppUserModelId, i.ThumbnailPath,
                 i.ThumbnailUpdatedAt?.Ticks ?? 0, i.IsCapturing, i.IsStopping, i.PreviewError)));
 
-        private void Focus_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserInstance i) _store.Focus(i);
-        }
-
-        private async void Capture_Click(object s, RoutedEventArgs e)
-        {
-            try
-            {
-                if (!(((FrameworkElement)s).Tag is BrowserInstance i)) return;
-                ShowActionFeedback("正在截取当前页面…", false, keepVisible: true);
-                var output = await _store.CaptureAsync(i);
-                if (!string.IsNullOrWhiteSpace(output))
-                    ShowActionFeedback($"截图已保存 · {output}", false);
-                else
-                    ShowActionFeedback(_store.ErrorMessage ?? "截图失败，请确认浏览器仍在运行", true);
-            }
-            catch (Exception ex)
-            {
-                CrashGuard.Record("instances-capture-click", ex);
-                ShowActionFeedback("截图失败 · " + ex.Message, true);
-            }
-        }
-        private void Reveal_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserInstance i) _store.RevealProfile(i);
-        }
-        private async void Stop_Click(object s, RoutedEventArgs e)
-        {
-            try
-            {
-                if (!(((FrameworkElement)s).Tag is BrowserInstance i)) return;
-                ShowActionFeedback($"正在停止 {i.Name}…", false, keepVisible: true);
-                var stopped = await _store.StopAsync(i);
-                ShowActionFeedback(stopped ? $"{i.Name} 已停止并移入历史" : (_store.ErrorMessage ?? "停止失败"), !stopped);
-            }
-            catch (Exception ex)
-            {
-                CrashGuard.Record("instances-stop-click", ex);
-                ShowActionFeedback("停止失败 · " + ex.Message, true);
-            }
-        }
         private void Restore_Click(object s, RoutedEventArgs e)
         {
             if (((FrameworkElement)s).Tag is BrowserInstance i) _store.RestoreHistory(i);
@@ -225,6 +195,7 @@ namespace YTray.Views.Pages
 
         private void InstanceSelection_Changed(object sender, SelectionChangedEventArgs e)
         {
+            if (_refreshingSelection) return;
             if (sender == RunningList && RunningList.SelectedItem is BrowserInstancePresentation running)
             {
                 HistoryList.SelectedItem = null;
@@ -243,13 +214,15 @@ namespace YTray.Views.Pages
             if (DetailRuntime == null) return;
             if (selected == null)
             {
-                DetailRuntime.Text = DetailName.Text = DetailAumid.Text = DetailProfile.Text = DetailVersion.Text =
-                    DetailProxy.Text = DetailDebug.Text = DetailPlugins.Text = "—";
+                DetailEmptyState.Visibility = Visibility.Visible;
+                DetailContent.Visibility = Visibility.Collapsed;
                 DetailThumbnail.Source = null;
-                DetailPreviewEmpty.Visibility = Visibility.Visible;
-                CaptureDetailButton.IsEnabled = StopDetailButton.IsEnabled = false;
+                FocusDetailButton.IsEnabled = CaptureDetailButton.IsEnabled = RevealDetailButton.IsEnabled =
+                    StopDetailButton.IsEnabled = RestoreDetailButton.IsEnabled = false;
                 return;
             }
+            DetailEmptyState.Visibility = Visibility.Collapsed;
+            DetailContent.Visibility = Visibility.Visible;
             DetailRuntime.Text = selected.RuntimeTitle;
             DetailName.Text = selected.Name;
             DetailAumid.Text = selected.AppUserModelIdText;
@@ -260,38 +233,63 @@ namespace YTray.Views.Pages
             DetailPlugins.Text = selected.PluginCount;
             DetailThumbnail.Source = selected.ThumbnailSource;
             DetailPreviewEmpty.Visibility = selected.HasThumbnail ? Visibility.Collapsed : Visibility.Visible;
+            DetailPreviewMessage.Text = selected.PreviewMessage;
             var running = selected.Instance.Status == InstanceStatus.Running;
+            FocusDetailButton.IsEnabled = running;
             CaptureDetailButton.IsEnabled = running && selected.CanCapture;
+            RevealDetailButton.IsEnabled = true;
             StopDetailButton.IsEnabled = running && selected.CanStop;
             StopDetailButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+            RestoreDetailButton.IsEnabled = !running;
+            RestoreDetailButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void RoundedPreview_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (!(sender is FrameworkElement preview) || preview.ActualWidth <= 0 || preview.ActualHeight <= 0) return;
+            preview.Clip = new RectangleGeometry(
+                new Rect(0, 0, preview.ActualWidth, preview.ActualHeight), 7, 7);
         }
 
         private void FocusDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.Focus(_selected.Instance); }
         private async void CaptureDetail_Click(object sender, RoutedEventArgs e)
         {
-            if (_selected == null) return;
-            var output = await _store.CaptureAsync(_selected.Instance);
-            ShowActionFeedback(output == null ? (_store.ErrorMessage ?? "截图失败") : "截图已保存 · " + output, output == null);
+            try
+            {
+                if (_selected == null) return;
+                ShowActionFeedback("正在截取当前页面…", false, keepVisible: true);
+                var output = await _store.CaptureAsync(_selected.Instance);
+                ShowActionFeedback(output == null ? (_store.ErrorMessage ?? "截图失败") : "截图已保存 · " + output, output == null);
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("instances-detail-capture", ex);
+                ShowActionFeedback("截图失败 · " + ex.Message, true);
+            }
         }
         private void RevealDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.RevealProfile(_selected.Instance); }
-        private async void StopDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) await _store.StopAsync(_selected.Instance); }
+        private async void StopDetail_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_selected == null) return;
+                var instance = _selected.Instance;
+                ShowActionFeedback($"正在停止 {instance.Name}…", false, keepVisible: true);
+                var stopped = await _store.StopAsync(instance);
+                ShowActionFeedback(stopped ? $"{instance.Name} 已停止并移入历史" : (_store.ErrorMessage ?? "停止失败"), !stopped);
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("instances-detail-stop", ex);
+                ShowActionFeedback("停止失败 · " + ex.Message, true);
+            }
+        }
+        private void RestoreDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.RestoreHistory(_selected.Instance); }
         private void NewInstance_Click(object sender, RoutedEventArgs e)
         {
             var wizard = new CustomLaunchWizard(_store) { Owner = Window.GetWindow(this) };
             wizard.ShowDialog();
         }
-
-        private void Thumbnail_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
-        {
-            if (sender is FrameworkElement anchor && anchor.Tag is BrowserInstancePresentation row
-                && row.ThumbnailSource is ImageSource thumbnail)
-            {
-                if (_thumbnailPreview == null) _thumbnailPreview = new ThumbnailPreviewWindow();
-                _thumbnailPreview.Schedule(anchor, thumbnail, row.LastPageTitle ?? row.Name);
-            }
-        }
-
-        private void Thumbnail_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => _thumbnailPreview?.Dismiss();
 
         private async void ShowActionFeedback(string text, bool isError, bool keepVisible = false)
         {

@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using Newtonsoft.Json;
 using YTray.Core;
 using YTray.Models;
 
@@ -23,6 +24,12 @@ namespace YTray
             string? designCaptureDirectory = null;
             for (int i = 0; i < args.Length; i++)
             {
+                if (args[i] == "--verify-standalone" && i + 1 < args.Length)
+                {
+                    VerifyStandalone(args[++i]);
+                    Environment.Exit(0);
+                    return;
+                }
                 if (args[i] == "--capture-design-review" && i + 1 < args.Length)
                 {
                     designCaptureDirectory = args[++i];
@@ -69,6 +76,28 @@ namespace YTray
             _tray = new TrayApp(_store);
             // Show the manager window on launch so the user sees the UI immediately.
             _tray.ShowManager();
+        }
+
+        private static void VerifyStandalone(string markerPath)
+        {
+            // App.InitializeComponent has already resolved HandyControl's merged WPF resource
+            // dictionaries before OnStartup. Resolve one of our styles as an explicit smoke
+            // assertion, then exercise Newtonsoft.Json so both embedded dependencies are loaded.
+            if (Current.TryFindResource("YTrayButton") == null)
+                throw new InvalidOperationException("WPF resources were not loaded.");
+            if (string.IsNullOrWhiteSpace(markerPath))
+                throw new ArgumentException("A standalone verification marker path is required.", nameof(markerPath));
+
+            var fullPath = Path.GetFullPath(markerPath);
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory!);
+            var payload = JsonConvert.SerializeObject(new
+            {
+                application = "YTray",
+                framework = ".NET Framework 4.8.1",
+                jsonAssembly = typeof(JsonConvert).Assembly.GetName().Name,
+            });
+            File.WriteAllText(fullPath, payload);
         }
 
         private async Task RunDesignCaptureAsync(string outputDirectory)

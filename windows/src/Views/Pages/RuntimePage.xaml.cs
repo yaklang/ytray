@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -89,6 +90,8 @@ namespace YTray.Views.Pages
                 IsDefault = runtime.Id == defaultId,
             }).ToList();
             RuntimeList.ItemsSource = rows;
+            RuntimeEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RuntimeList.Visibility = rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             var selectedId = _selectedRow?.Runtime.Id ?? defaultId;
             _selectedRow = rows.FirstOrDefault(row => row.Runtime.Id == selectedId) ?? rows.FirstOrDefault();
             RuntimeList.SelectedItem = _selectedRow;
@@ -105,17 +108,35 @@ namespace YTray.Views.Pages
             var showProgress = _store.IsInstalling || _store.InstallProgressPercent > 0 || !string.IsNullOrEmpty(_store.ErrorMessage);
             InstallProgressPanel.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
             InstallProgressBar.Value = _store.InstallProgressPercent;
-            InstallPercentLabel.Text = _store.IsInstalling || _store.InstallProgressPercent > 0
-                ? _store.InstallProgressPercent + "%" : "";
+            InstallPercentLabel.Text = "";
             InstallStatus.Text = !string.IsNullOrEmpty(_store.ActivityMessage)
-                ? _store.ActivityMessage
+                ? InstallPhase(_store.ActivityMessage)
                 : (_store.ErrorMessage ?? "");
             InstallStatus.Foreground = (Brush)FindResource(string.IsNullOrEmpty(_store.ErrorMessage)
                 ? (_store.IsInstalling ? "TextSecondaryBrush" : "SuccessBrush")
                 : "DangerBrush");
-            InstallBytesLabel.Text = _store.InstallBytesReceived <= 0 ? "" : _store.InstallBytesTotal.HasValue
-                ? $"{RuntimeInstaller.FormatBytes(_store.InstallBytesReceived)} / {RuntimeInstaller.FormatBytes(_store.InstallBytesTotal.Value)}"
-                : RuntimeInstaller.FormatBytes(_store.InstallBytesReceived);
+            InstallBytesLabel.Text = FormatInstallProgress(
+                _store.InstallBytesReceived,
+                _store.InstallBytesTotal,
+                _store.InstallProgressPercent,
+                showProgress);
+        }
+
+        private static string InstallPhase(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return "";
+            var separator = message.IndexOf(" · ", StringComparison.Ordinal);
+            return separator > 0 ? message.Substring(0, separator) : message;
+        }
+
+        internal static string FormatInstallProgress(long received, long? total, int percent, bool showProgress)
+        {
+            if (!showProgress) return "";
+            if (received > 0 && total.HasValue && total.Value > 0)
+                return $"{RuntimeInstaller.FormatBytes(received)} / {RuntimeInstaller.FormatBytes(total.Value)} ({percent}%)";
+            if (received > 0)
+                return $"{RuntimeInstaller.FormatBytes(received)} ({percent}%)";
+            return percent > 0 ? percent + "%" : "";
         }
 
         private async System.Threading.Tasks.Task LoadManifestAsync()
@@ -246,6 +267,17 @@ namespace YTray.Views.Pages
         private void RefreshManifest_Click(object sender, RoutedEventArgs e) =>
             CrashGuard.Observe(LoadManifestAsync(), "refresh-runtime-manifest");
         private void VersionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => Refresh();
+
+        private void VersionCombo_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (!(sender is ComboBox combo) || !combo.IsEnabled) return;
+            var source = e.OriginalSource as DependencyObject;
+            if (source != null && ItemsControl.ContainerFromElement(combo, source) is ComboBoxItem) return;
+            var shouldOpen = !combo.IsDropDownOpen;
+            combo.Focus();
+            e.Handled = true;
+            Dispatcher.BeginInvoke(new Action(() => combo.IsDropDownOpen = shouldOpen), DispatcherPriority.Input);
+        }
 
         private async void Install_Click(object sender, RoutedEventArgs e)
         {

@@ -8,6 +8,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using YTray.Core;
 using YTray.Models;
 using YTray.Native;
+using YTray.Views.Pages;
 
 namespace YTray.Tests
 {
@@ -44,6 +45,25 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void BrowserExecutableArchitectureComesFromPeHeader()
+        {
+            var executable = typeof(BrowserLauncherTests).Assembly.Location;
+            var architecture = SystemBrowserDiscovery.ReadArchitecture(executable);
+
+            Assert.IsTrue(architecture == "x86" || architecture == "x64" || architecture == "arm64",
+                "A valid Windows assembly should expose a concrete PE architecture.");
+        }
+
+        [TestMethod]
+        public void RuntimeInstallProgressCombinesBytesAndPercent()
+        {
+            Assert.AreEqual("45.3 MB / 124.6 MB (36%)",
+                RuntimePage.FormatInstallProgress(47448064, 130652570, 36, true));
+            Assert.AreEqual("36%", RuntimePage.FormatInstallProgress(0, null, 36, true));
+            Assert.AreEqual("", RuntimePage.FormatInstallProgress(0, null, 0, false));
+        }
+
+        [TestMethod]
         public void HttpProxyNormalization()
         {
             Assert.AreEqual("http://127.0.0.1:8083", HTTPProxyAddress.Normalize("127.0.0.1:8083"));
@@ -55,6 +75,31 @@ namespace YTray.Tests
             Assert.AreEqual(ProxyScheme.Http, ep.Scheme);
             Assert.AreEqual("::1", ep.Host);
             Assert.AreEqual(8083, ep.Port);
+        }
+
+        [TestMethod]
+        public void RemovingRecentProxyPresetKeepsTheOtherEntries()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayProxyPresetTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                using (var store = new InstanceStore(directory, discoverSystemBrowsers: false))
+                {
+                    var first = new ProxyPreset("http://127.0.0.1:8083", "first");
+                    var second = new ProxyPreset("https://10.0.0.2:3128", "second");
+                    store.Settings.RecentProxyPresets.Add(first);
+                    store.Settings.RecentProxyPresets.Add(second);
+
+                    store.RemoveProxyPreset(first);
+
+                    Assert.AreEqual(1, store.Settings.RecentProxyPresets.Count);
+                    Assert.AreEqual(second.Id, store.Settings.RecentProxyPresets[0].Id);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
         }
 
         [TestMethod]
@@ -149,6 +194,72 @@ namespace YTray.Tests
             var args = BrowserLauncher.BuildArguments(LaunchMode.Quick, settings, "/tmp/profile", 9666, new List<BrowserPlugin> { plugin });
             Assert.IsTrue(args.Contains("--load-extension=/tmp/local-extension"));
             Assert.IsTrue(args.Contains("--disable-extensions-except=/tmp/local-extension"));
+        }
+
+        [TestMethod]
+        public void PluginManifestIconUsesTheLargestSafeDeclaredBitmap()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayPluginIconTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(directory, "icons"));
+                File.WriteAllText(Path.Combine(directory, "manifest.json"),
+                    "{\"name\":\"Local\",\"version\":\"1\",\"manifest_version\":3," +
+                    "\"icons\":{\"16\":\"icons/16.png\",\"128\":\"icons/128.png\"}}");
+                using (var bitmap = new System.Drawing.Bitmap(16, 16))
+                    bitmap.Save(Path.Combine(directory, "icons", "16.png"), System.Drawing.Imaging.ImageFormat.Png);
+                using (var bitmap = new System.Drawing.Bitmap(128, 128))
+                    bitmap.Save(Path.Combine(directory, "icons", "128.png"), System.Drawing.Imaging.ImageFormat.Png);
+
+                Assert.AreEqual(Path.Combine(directory, "icons", "128.png"),
+                    PluginIconSource.ResolveIconPath(directory));
+                Assert.IsNotNull(PluginIconSource.FromDirectory(directory));
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void ReaddingPluginPreservesDefaultQuickLaunchSelection()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayPluginSelectionTests", Guid.NewGuid().ToString("N"));
+            var extension = Path.Combine(directory, "extension");
+            try
+            {
+                Directory.CreateDirectory(extension);
+                File.WriteAllText(Path.Combine(extension, "manifest.json"),
+                    "{\"name\":\"Local\",\"version\":\"1.0\",\"manifest_version\":3}");
+                using (var store = new InstanceStore(directory, discoverSystemBrowsers: false))
+                {
+                    store.AddPlugin(extension);
+                    var original = store.Plugins.Single();
+                    store.SetDefaultPlugins(new[] { original.Id, Guid.NewGuid() });
+                    Assert.AreEqual(1, store.Settings.DefaultPluginIDs.Count);
+                    Assert.AreEqual(original.Id, store.Settings.DefaultPluginIDs[0]);
+                    var quick = store.QuickLaunchConfiguration(usePresetProxy: false);
+                    Assert.IsNotNull(quick);
+                    Assert.IsTrue(quick!.DefaultPluginIDs.Contains(original.Id));
+
+                    File.WriteAllText(Path.Combine(extension, "manifest.json"),
+                        "{\"name\":\"Local renamed\",\"version\":\"1.1\",\"manifest_version\":3}");
+                    store.AddPlugin(extension);
+
+                    Assert.AreEqual(1, store.Plugins.Count);
+                    Assert.AreEqual(original.Id, store.Plugins[0].Id);
+                    Assert.AreEqual("Local renamed", store.Plugins[0].Name);
+                    Assert.IsTrue(store.Settings.DefaultPluginIDs.Contains(original.Id));
+
+                    store.Plugins[0].Enabled = false;
+                    store.UpdatePlugin(store.Plugins[0]);
+                    Assert.AreEqual(0, store.Settings.DefaultPluginIDs.Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
         }
 
         [TestMethod]
@@ -421,6 +532,20 @@ namespace YTray.Tests
                 Assert.AreEqual(0, icon.GetPixel(58, 58).A,
                     "The bottom-right corner must remain available for Chrome for Testing's T badge");
             }
+        }
+
+        [TestMethod]
+        public void BadgedBrowserImageSourceUsesTheTaskbarComposite()
+        {
+            var executable = typeof(BrowserLauncherTests).Assembly.Location;
+            var source = BrowserIconSource.FromExecutableWithBadge(executable, "B")
+                as System.Windows.Media.Imaging.BitmapSource;
+
+            Assert.IsNotNull(source, "Instance tables should render a single composited browser icon.");
+            Assert.IsTrue(source!.PixelWidth >= 32 && source.PixelHeight >= 32);
+            Assert.IsTrue(source.IsFrozen, "The composited image must be safe to reuse across WPF views.");
+            Assert.AreSame(source, BrowserIconSource.FromExecutableWithBadge(executable, "B"),
+                "Composited list icons should be cached instead of rendered during every refresh.");
         }
 
         [TestMethod]

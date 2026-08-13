@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using YTray.Core;
 using YTray.Models;
@@ -15,6 +16,12 @@ namespace YTray.Views.Pages
 {
     public partial class PluginsPage : Page
     {
+        private sealed class PluginRow
+        {
+            public BrowserPlugin Plugin { get; set; } = null!;
+            public ImageSource? IconSource { get; set; }
+        }
+
         private readonly InstanceStore _store;
         private bool _subscribed;
         private bool _refreshScheduled;
@@ -56,10 +63,16 @@ namespace YTray.Views.Pages
         private void Refresh()
         {
             var selectedId = _selected?.Id;
-            PluginList.ItemsSource = _store.Plugins;
+            PluginList.ItemsSource = _store.Plugins.Select(plugin => new PluginRow
+            {
+                Plugin = plugin,
+                IconSource = PluginIconSource.FromPlugin(plugin),
+            }).ToList();
             _selected = _store.Plugins.FirstOrDefault(p => p.Id == selectedId) ?? _store.Plugins.FirstOrDefault();
-            PluginList.SelectedItem = _selected;
+            PluginList.SelectedItem = PluginList.Items.Cast<PluginRow>()
+                .FirstOrDefault(row => row.Plugin.Id == _selected?.Id);
             PluginCountLabel.Text = $"{_store.Plugins.Count} 个插件";
+            PluginCountDot.Fill = (Brush)FindResource(_store.Plugins.Count == 0 ? "TextTertiaryBrush" : "SuccessBrush");
             PluginEmpty.Visibility = _store.Plugins.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             PluginList.Visibility = _store.Plugins.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             RefreshDetails();
@@ -86,18 +99,23 @@ namespace YTray.Views.Pages
 
         private void PluginSelection_Changed(object sender, SelectionChangedEventArgs e)
         {
-            _selected = PluginList.SelectedItem as BrowserPlugin;
+            _selected = (PluginList.SelectedItem as PluginRow)?.Plugin;
             RefreshDetails();
         }
 
         private void RefreshDetails()
         {
             if (DetailName == null) return;
-            DetailName.Text = _selected?.Name ?? "—";
-            DetailVersion.Text = _selected == null ? "—" : $"v{_selected.Version} · Manifest V{_selected.ManifestVersion}";
-            DetailPath.Text = _selected?.Path ?? "—";
-            DetailState.Text = _selected == null ? "未选择" : (_selected.Enabled ? "已启用" : "已停用");
-            DetailStateDot.Opacity = _selected?.Enabled == true ? 1 : 0.35;
+            var hasSelection = _selected != null;
+            DetailContent.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+            DetailEmpty.Visibility = hasSelection ? Visibility.Collapsed : Visibility.Visible;
+            if (!hasSelection) return;
+            DetailName.Text = _selected!.Name;
+            DetailVersion.Text = $"v{_selected.Version} · Manifest V{_selected.ManifestVersion}";
+            DetailPath.Text = _selected.Path;
+            DetailIcon.Source = PluginIconSource.FromPlugin(_selected);
+            DetailState.Text = _selected.Enabled ? "已启用" : "已停用";
+            DetailStateDot.Fill = (Brush)FindResource(_selected.Enabled ? "SuccessBrush" : "TextTertiaryBrush");
         }
 
         private void OpenFolder_Click(object sender, RoutedEventArgs e)

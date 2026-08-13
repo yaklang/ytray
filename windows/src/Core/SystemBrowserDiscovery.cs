@@ -45,7 +45,7 @@ namespace YTray.Core
                     {
                         Name = c.DisplayName,
                         Version = ReadVersion(exe) ?? "版本未知",
-                        Architecture = "windows",
+                        Architecture = ReadArchitecture(exe),
                         ExecutablePath = exe,
                         Source = RuntimeSource.System,
                         BrowserKind = c.Kind,
@@ -66,7 +66,7 @@ namespace YTray.Core
             {
                 Name = kind.Title(),
                 Version = ReadVersion(selectedPath) ?? "版本未知",
-                Architecture = "windows",
+                Architecture = ReadArchitecture(selectedPath),
                 ExecutablePath = selectedPath,
                 Source = isSystem ? RuntimeSource.System : RuntimeSource.Local,
                 BrowserKind = kind,
@@ -135,6 +135,33 @@ namespace YTray.Core
             {
             }
             return null;
+        }
+
+        /// <summary>Reads the PE COFF machine field without launching the browser process.</summary>
+        public static string ReadArchitecture(string executable)
+        {
+            try
+            {
+                using (var stream = new FileStream(executable, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new BinaryReader(stream))
+                {
+                    if (stream.Length < 64 || reader.ReadUInt16() != 0x5A4D) return "unknown";
+                    stream.Position = 0x3C;
+                    var peOffset = reader.ReadInt32();
+                    if (peOffset < 0 || peOffset > stream.Length - 6) return "unknown";
+                    stream.Position = peOffset;
+                    if (reader.ReadUInt32() != 0x00004550) return "unknown";
+                    switch (reader.ReadUInt16())
+                    {
+                        case 0x014C: return "x86";
+                        case 0x8664: return "x64";
+                        case 0xAA64: return "arm64";
+                        default: return "unknown";
+                    }
+                }
+            }
+            catch { return "unknown"; }
         }
     }
 }

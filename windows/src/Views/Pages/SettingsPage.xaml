@@ -4,15 +4,24 @@
       Background="{DynamicResource AppBackgroundBrush}">
     <Page.Resources>
         <Style x:Key="ThemeOptionButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
-            <Setter Property="Height" Value="67"/><Setter Property="MinHeight" Value="67"/><Setter Property="Padding" Value="13,0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+            <Setter Property="Height" Value="68"/><Setter Property="MinHeight" Value="68"/><Setter Property="Padding" Value="13,0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+        </Style>
+        <Style x:Key="SettingsFieldLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
     </Page.Resources>
     <Grid Margin="25,20,25,22">
         <Grid.RowDefinitions><RowDefinition Height="80"/><RowDefinition Height="375"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <StackPanel><TextBlock Text="设置" Style="{StaticResource PageTitle}"/><TextBlock Text="应用外观、浏览器默认行为与高级参数" Style="{StaticResource PageSubtitle}" Margin="0,5,0,0"/></StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,5,0,0"><TextBlock x:Name="SaveStatus" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="{DynamicResource SuccessBrush}"/><Button Content="重置" Click="Reset_Click" MinWidth="82" Height="40"/><Button Content="保存设置" Click="Save_Click" MinWidth="116" Height="40" Margin="12,0,0,0" Style="{StaticResource YTrayPrimaryButton}"/></StackPanel>
+            <StackPanel><TextBlock Text="设置" Style="{StaticResource PageTitle}" FontSize="27"/><TextBlock Text="应用外观、浏览器默认行为与高级参数" Style="{StaticResource PageSubtitle}" FontSize="13" Margin="0,5,0,0"/></StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,5,0,0">
+                <Border x:Name="SaveStatusBorder" Visibility="Collapsed" Margin="0,0,10,0" Padding="11,8" CornerRadius="5" Background="{DynamicResource SuccessPaleBrush}"><TextBlock x:Name="SaveStatus" FontSize="11.5" Foreground="{DynamicResource SuccessBrush}"/></Border>
+                <Button Content="重置" Click="Reset_Click" MinWidth="88" Height="40" FontSize="12.5"/>
+                <Button Content="保存设置" Click="Save_Click" MinWidth="116" Height="40" FontSize="12.5" Margin="12,0,0,0" Style="{StaticResource YTrayPrimaryButton}"/>
+            </StackPanel>
         </Grid>
 
         <Grid Grid.Row="1">
@@ -21,40 +30,40 @@
                 <Grid.RowDefinitions><RowDefinition Height="194"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border Style="{StaticResource SurfaceBorder}" Padding="20,17">
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <TextBlock Text="应用外观" Style="{StaticResource SectionTitle}"/>
-                        <TextBlock Grid.Row="2" Text="主题" Style="{StaticResource FieldLabel}"/>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="9"/><RowDefinition Height="Auto"/><RowDefinition Height="9"/><RowDefinition Height="Auto"/><RowDefinition Height="7"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <TextBlock Text="应用外观" Style="{StaticResource SectionTitle}" FontSize="15"/>
+                        <TextBlock Grid.Row="2" Text="主题" Style="{StaticResource SettingsFieldLabel}"/>
                         <Grid Grid.Row="4">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Button x:Name="SystemThemeChoice" Tag="System" Click="ThemeChoice_Click" Style="{StaticResource ThemeOptionButton}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Ellipse Width="18" Height="18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3"/><Ellipse x:Name="SystemThemeCheck" Width="8" Height="8" Fill="{DynamicResource BrandOrangeBrush}"/><StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"><Path Data="M 1.5 2.5 L 14.5 2.5 L 14.5 11 L 1.5 11 Z M 5.5 13.5 L 10.5 13.5 M 8 11 L 8 13.5" Width="17" Height="17" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/><TextBlock Text="跟随系统" Margin="0,6,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Grid></Button>
-                            <Button x:Name="LightThemeChoice" Grid.Column="2" Tag="Light" Click="ThemeChoice_Click" Style="{StaticResource ThemeOptionButton}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Ellipse Width="18" Height="18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3"/><Ellipse x:Name="LightThemeCheck" Width="8" Height="8" Fill="{DynamicResource BrandOrangeBrush}"/><StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"><Path Data="M 8 4.7 A 3.3 3.3 0 1 1 7.99 4.7 M 8 0 L 8 2 M 8 14 L 8 16 M 0 8 L 2 8 M 14 8 L 16 8" Width="17" Height="17" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/><TextBlock Text="浅色" Margin="0,6,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Grid></Button>
-                            <Button x:Name="DarkThemeChoice" Grid.Column="4" Tag="Dark" Click="ThemeChoice_Click" Style="{StaticResource ThemeOptionButton}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Ellipse Width="18" Height="18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3"/><Ellipse x:Name="DarkThemeCheck" Width="8" Height="8" Fill="{DynamicResource BrandOrangeBrush}"/><StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"><Path Data="M 12.7 12.4 C 8.3 13.9 3.5 11.2 2.7 6.7 C 2.3 4.2 3.2 2 4.9 0.8 C 4.4 5.1 7.5 9.2 11.8 9.2 C 12.7 9.2 13.5 9 14.2 8.6" Width="17" Height="17" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/><TextBlock Text="深色" Margin="0,6,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Grid></Button>
+                            <Button x:Name="SystemThemeChoice" Tag="System" Click="ThemeChoice_Click" Style="{StaticResource ThemeOptionButton}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid Width="18" Height="18"><Ellipse Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3"/><Ellipse x:Name="SystemThemeCheck" Width="8" Height="8" Fill="{DynamicResource BrandOrangeBrush}"/></Grid><StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"><Path Data="M 1.5 2.5 L 14.5 2.5 L 14.5 11 L 1.5 11 Z M 5.5 13.5 L 10.5 13.5 M 8 11 L 8 13.5" Width="18" Height="18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/><TextBlock Text="跟随系统" FontSize="12.5" Margin="0,5,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Grid></Button>
+                            <Button x:Name="LightThemeChoice" Grid.Column="2" Tag="Light" Click="ThemeChoice_Click" Style="{StaticResource ThemeOptionButton}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid Width="18" Height="18"><Ellipse Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3"/><Ellipse x:Name="LightThemeCheck" Width="8" Height="8" Fill="{DynamicResource BrandOrangeBrush}"/></Grid><StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"><Path Data="M 8 4.7 A 3.3 3.3 0 1 1 7.99 4.7 M 8 0 L 8 2 M 8 14 L 8 16 M 0 8 L 2 8 M 14 8 L 16 8" Width="18" Height="18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/><TextBlock Text="浅色" FontSize="12.5" Margin="0,5,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Grid></Button>
+                            <Button x:Name="DarkThemeChoice" Grid.Column="4" Tag="Dark" Click="ThemeChoice_Click" Style="{StaticResource ThemeOptionButton}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid Width="18" Height="18"><Ellipse Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3"/><Ellipse x:Name="DarkThemeCheck" Width="8" Height="8" Fill="{DynamicResource BrandOrangeBrush}"/></Grid><StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"><Path Data="M 12.7 12.4 C 8.3 13.9 3.5 11.2 2.7 6.7 C 2.3 4.2 3.2 2 4.9 0.8 C 4.4 5.1 7.5 9.2 11.8 9.2 C 12.7 9.2 13.5 9 14.2 8.6" Width="18" Height="18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/><TextBlock Text="深色" FontSize="12.5" Margin="0,5,0,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Grid></Button>
                         </Grid>
+                        <TextBlock x:Name="ThemePreviewLabel" Grid.Row="6" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/>
                     </Grid>
                 </Border>
                 <Border Grid.Row="2" Style="{StaticResource SurfaceBorder}" Padding="20,16">
                     <Grid>
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="17"/><RowDefinition Height="Auto"/><RowDefinition Height="14"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                        <TextBlock Text="默认启动" Style="{StaticResource SectionTitle}"/>
-                        <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="起始地址" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/><TextBox x:Name="HomeUrlBox" Grid.Column="1"/></Grid>
-                        <Grid Grid.Row="4"><Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="调试端口" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/><TextBox x:Name="DebugPortBox" Grid.Column="1"/><CheckBox Grid.Column="2" Content="端口占用时自动递增" IsChecked="True" Margin="14,0,0,0" VerticalAlignment="Center"/></Grid>
+                        <TextBlock Text="默认启动" Style="{StaticResource SectionTitle}" FontSize="15"/>
+                        <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="起始地址" Style="{StaticResource SettingsFieldLabel}"/><TextBox x:Name="HomeUrlBox" Grid.Column="1" Height="42" FontSize="12.5"/></Grid>
+                        <Grid Grid.Row="4"><Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="调试端口" Style="{StaticResource SettingsFieldLabel}"/><TextBox x:Name="DebugPortBox" Grid.Column="1" Height="42" FontSize="12.5"/><CheckBox Grid.Column="2" Content="端口占用时自动递增" IsChecked="True" IsEnabled="False" FontSize="12" Opacity="0.9" Margin="14,0,0,0" VerticalAlignment="Center"/></Grid>
                     </Grid>
                 </Border>
             </Grid>
 
             <Border Grid.Column="2" Style="{StaticResource SurfaceBorder}" Padding="24,20">
-                <StackPanel><TextBlock Text="浏览器默认行为" Style="{StaticResource SectionTitle}" Margin="0,0,0,22"/><CheckBox x:Name="WebRTCCheck" Content="禁用 WebRTC" Margin="0,0,0,19"/><CheckBox x:Name="NotificationsCheck" Content="禁用浏览器通知" Margin="0,0,0,19"/><CheckBox x:Name="CertCheck" Content="忽略证书错误"/><TextBlock Text="作为新建实例和快速启动的默认值" Margin="0,22,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                <StackPanel><TextBlock Text="浏览器默认行为" Style="{StaticResource SectionTitle}" FontSize="15" Margin="0,0,0,22"/><CheckBox x:Name="WebRTCCheck" Content="禁用 WebRTC" FontSize="12.5" Margin="0,0,0,19"/><CheckBox x:Name="NotificationsCheck" Content="禁用浏览器通知" FontSize="12.5" Margin="0,0,0,19"/><CheckBox x:Name="CertCheck" Content="忽略证书错误" FontSize="12.5"/><TextBlock Text="作为新建实例和快速启动的默认值" Margin="0,22,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
             </Border>
         </Grid>
 
         <Border Grid.Row="3" Style="{StaticResource SurfaceBorder}" Padding="20,16">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="*"/><RowDefinition Height="11"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <TextBlock Text="Chrome 高级参数" Style="{StaticResource SectionTitle}"/>
-                <TextBox x:Name="FlagsBox" Grid.Row="2" AcceptsReturn="True" VerticalContentAlignment="Top" HorizontalContentAlignment="Left" TextAlignment="Left" Padding="13,10" FontFamily="Cascadia Mono, Consolas" FontSize="11.5" VerticalScrollBarVisibility="Auto"/>
+                <TextBlock Text="Chrome 高级参数" Style="{StaticResource SectionTitle}" FontSize="15"/>
+                <TextBox x:Name="FlagsBox" Grid.Row="2" AcceptsReturn="True" VerticalContentAlignment="Top" HorizontalContentAlignment="Left" TextAlignment="Left" Padding="13,10" FontFamily="Cascadia Mono, Consolas" FontSize="12" VerticalScrollBarVisibility="Auto"/>
                 <Grid Grid.Row="4"><TextBlock Text="高级参数会附加到浏览器启动命令，请逐行填写" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/><Button Content="恢复推荐参数" Click="RestoreFlags_Click" Style="{StaticResource YTrayGhostButton}" HorizontalAlignment="Right" Foreground="{DynamicResource TextSecondaryBrush}"/></Grid>
             </Grid>
         </Border>
-        <TextBlock x:Name="ThemePreviewLabel" Visibility="Collapsed"/>
     </Grid>
 </Page>

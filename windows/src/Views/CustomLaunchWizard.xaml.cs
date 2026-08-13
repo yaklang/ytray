@@ -49,6 +49,7 @@ namespace YTray.Views
             UpdateStepper();
             PrevBtn.Visibility = _step > 0 ? Visibility.Visible : Visibility.Collapsed;
             NextBtn.Content = _step < 3 ? "下一步" : "启动实例";
+            NextBtn.Width = _step < 3 ? 80 : 88;
         }
 
         private void UpdateStepper()

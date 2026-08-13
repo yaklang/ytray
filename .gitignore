@@ -6,6 +6,8 @@ darwin/.build/
 # C# / .NET build artifacts
 **/bin/
 **/obj/
+/windows/artifacts/
+/windows/src/FodyWeavers.xsd
 packages/
 *.user
 *.suo
@@ -41,3 +43,4 @@ project.lock.json
 # ZCode CLI workspace
 .zcode/
 ytray-design-review/
+ytray-design-concepts/

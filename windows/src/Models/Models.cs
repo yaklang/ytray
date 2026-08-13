@@ -105,6 +105,7 @@ namespace YTray.Models
         public string Name { get; set; } = "";
         public string Version { get; set; } = "";
         public string Path { get; set; } = "";
+        public string IconPath { get; set; } = "";
         public int ManifestVersion { get; set; }
         public bool Enabled { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.Now;

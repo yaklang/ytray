@@ -297,6 +297,7 @@
                                         BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
                                         Grid.ColumnSpan="2"/>
                                 <ToggleButton Grid.ColumnSpan="2" Background="Transparent" BorderThickness="0" Focusable="False"
+                                              ClickMode="Press" Cursor="Hand"
                                               IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                                     <ToggleButton.Template>
                                         <ControlTemplate TargetType="ToggleButton">

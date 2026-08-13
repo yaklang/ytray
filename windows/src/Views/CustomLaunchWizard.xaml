@@ -78,11 +78,14 @@
             </Border>
 
             <Border Grid.Row="3" Background="{DynamicResource TitleBarBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0">
-                <DockPanel Margin="18,0">
-                    <Button Content="取消" DockPanel.Dock="Left" Click="Cancel_Click" Style="{StaticResource YTrayGhostButton}"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button x:Name="PrevBtn" Content="上一步" MinWidth="78" Margin="0,0,8,0" Click="Prev_Click" Style="{StaticResource YTrayButton}"/>
-                        <Button x:Name="NextBtn" Content="下一步" MinWidth="88" Click="Next_Click" Style="{StaticResource YTrayPrimaryButton}"/>
+                <DockPanel Margin="18,0" LastChildFill="True">
+                    <Button Content="取消" DockPanel.Dock="Left" Width="64" Height="36" VerticalAlignment="Center"
+                            Click="Cancel_Click" Style="{StaticResource YTrayGhostButton}"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button x:Name="PrevBtn" Content="上一步" Width="76" Height="36" Margin="0,0,8,0"
+                                Click="Prev_Click" Style="{StaticResource YTrayButton}"/>
+                        <Button x:Name="NextBtn" Content="下一步" Width="80" Height="36"
+                                Click="Next_Click" Style="{StaticResource YTrayPrimaryButton}"/>
                     </StackPanel>
                 </DockPanel>
             </Border>

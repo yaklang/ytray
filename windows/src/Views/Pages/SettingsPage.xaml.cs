@@ -12,6 +12,7 @@ namespace YTray.Views.Pages
     {
         private readonly InstanceStore _store;
         private bool _loadingControls;
+        private int _feedbackGeneration;
 
         public SettingsPage(InstanceStore store)
         {
@@ -66,7 +67,7 @@ namespace YTray.Views.Pages
             if (_store == null || _loadingControls || !(sender is Button button)
                 || !Enum.TryParse(button.Tag?.ToString(), out AppThemePreference preference)) return;
             _store.SetThemePreference(preference);
-            SaveStatus.Text = "✓ 主题已应用";
+            ShowFeedback("主题已应用");
             UpdateThemeChoiceVisuals();
             RefreshThemeDescription();
         }
@@ -94,20 +95,33 @@ namespace YTray.Views.Pages
         {
             if (ThemePreviewLabel == null) return;
             ThemePreviewLabel.Text = _store.Settings.ThemePreference == AppThemePreference.System
-                ? $"当前跟随 Windows，正在使用{(ThemeManager.IsDark ? "深色" : "浅色")}外观。"
-                : $"当前固定使用{(_store.Settings.ThemePreference == AppThemePreference.Dark ? "深色" : "浅色")}外观。";
+                ? $"更改后立即应用 · 当前跟随 Windows（{(ThemeManager.IsDark ? "深色" : "浅色")}）"
+                : $"更改后立即应用 · 当前固定为{(_store.Settings.ThemePreference == AppThemePreference.Dark ? "深色" : "浅色")}";
         }
 
         private void Save_Click(object s, RoutedEventArgs e)
         {
-            _store.Settings.HomeURL = HomeUrlBox.Text;
-            if (int.TryParse(DebugPortBox.Text, out int port)) _store.Settings.DebugPort = port;
+            var homeUrl = HomeUrlBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(homeUrl))
+            {
+                ShowFeedback("请输入起始地址", true);
+                HomeUrlBox.Focus();
+                return;
+            }
+            if (!int.TryParse(DebugPortBox.Text, out int port) || port < 1024 || port > 65535)
+            {
+                ShowFeedback("调试端口应为 1024–65535", true);
+                DebugPortBox.Focus();
+                return;
+            }
+            _store.Settings.HomeURL = homeUrl;
+            _store.Settings.DebugPort = port;
             _store.Settings.RestrictWebRTC = WebRTCCheck.IsChecked == true;
             _store.Settings.DisableNotifications = NotificationsCheck.IsChecked == true;
             _store.Settings.IgnoreCertificateErrors = CertCheck.IsChecked == true;
             _store.Settings.AdditionalFlags = FlagsBox.Text;
             _store.SaveSettings();
-            SaveStatus.Text = "✓ 设置已保存";
+            ShowFeedback("设置已保存");
         }
 
         private void Reset_Click(object sender, RoutedEventArgs e)
@@ -120,14 +134,26 @@ namespace YTray.Views.Pages
             CertCheck.IsChecked = defaults.IgnoreCertificateErrors;
             FlagsBox.Text = defaults.AdditionalFlags;
             _store.SetThemePreference(AppThemePreference.System);
-            SaveStatus.Text = "已恢复默认值，点击保存生效";
+            ShowFeedback("已恢复默认值，点击保存生效");
         }
 
         private void RestoreFlags_Click(object sender, RoutedEventArgs e)
         {
             FlagsBox.Text = "--disable-features=Translate" + Environment.NewLine
                 + "--disable-background-networking";
-            SaveStatus.Text = "已填入推荐参数";
+            ShowFeedback("已填入推荐参数");
+        }
+
+        private async void ShowFeedback(string message, bool isError = false)
+        {
+            var generation = ++_feedbackGeneration;
+            SaveStatus.Text = message;
+            SaveStatus.Foreground = (Brush)FindResource(isError ? "DangerBrush" : "SuccessBrush");
+            SaveStatusBorder.Background = (Brush)FindResource(isError ? "DangerPaleBrush" : "SuccessPaleBrush");
+            SaveStatusBorder.Visibility = Visibility.Visible;
+            await System.Threading.Tasks.Task.Delay(2400);
+            if (generation == _feedbackGeneration && IsLoaded)
+                SaveStatusBorder.Visibility = Visibility.Collapsed;
         }
     }
 }

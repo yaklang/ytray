@@ -1,0 +1,66 @@
+name: Windows
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-package:
+    name: Windows build, test, and single-file release
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build, test, and package Release
+        shell: pwsh
+        run: ./windows/build.ps1 -Release -Test -Package
+
+      - name: Verify standalone executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactDir = Join-Path $PWD 'windows\artifacts'
+          $files = @(Get-ChildItem $artifactDir -File)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'YTray.exe') {
+            throw 'Release artifact must contain exactly one file: YTray.exe'
+          }
+
+          $isolatedDir = Join-Path $env:RUNNER_TEMP 'ytray-standalone'
+          New-Item -ItemType Directory -Path $isolatedDir -Force | Out-Null
+          Copy-Item $files[0].FullName (Join-Path $isolatedDir 'YTray.exe')
+
+          # App.xaml must resolve the embedded HandyControl resources before this diagnostic can
+          # run; the diagnostic then exercises embedded Newtonsoft.Json and writes a marker.
+          $marker = Join-Path $isolatedDir 'standalone-ok.json'
+          $process = Start-Process (Join-Path $isolatedDir 'YTray.exe') -ArgumentList @('--verify-standalone', ('"' + $marker + '"')) -PassThru
+          if (-not $process.WaitForExit(30000)) {
+            $process.Kill()
+            throw 'Standalone YTray.exe smoke test timed out.'
+          }
+          if ($process.ExitCode -ne 0) { throw "Standalone YTray.exe exited with $($process.ExitCode)." }
+          if (-not (Test-Path $marker)) { throw 'Standalone YTray.exe did not write its verification marker.' }
+          $verification = Get-Content $marker -Raw | ConvertFrom-Json
+          if ($verification.application -ne 'YTray' -or $verification.jsonAssembly -ne 'Newtonsoft.Json') {
+            throw 'Standalone verification marker is invalid.'
+          }
+          Get-FileHash $files[0].FullName -Algorithm SHA256
+
+      - name: Upload single-file Windows Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: YTray-windows
+          path: windows/artifacts/YTray.exe
+          if-no-files-found: error
+          retention-days: 14

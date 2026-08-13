@@ -72,6 +72,7 @@ windows/
 - Visual Studio 2022 Build Tools（MSBuild + Roslyn csc）
 - .NET Framework 4.8.1 引用程序集（随 VS BuildTools 安装）
 - NuGet 包通过 MSBuild 自动还原（Newtonsoft.Json / MSTest）
+- Release 使用 Costura/Fody 将 HandyControl、Newtonsoft.Json 等托管依赖嵌入单个 `YTray.exe`
 
 ### 构建
 
@@ -79,6 +80,8 @@ windows/
 pwsh -File windows/build.ps1
 # Release:
 pwsh -File windows/build.ps1 -Release
+# 生成可直接分发的单文件 windows/artifacts/YTray.exe：
+pwsh -File windows/build.ps1 -Release -Test -Package
 # 构建 + 测试:
 pwsh -File windows/build.ps1 -Test
 ```
@@ -97,6 +100,8 @@ pwsh -File windows/build.ps1 -Test
 ```
 
 测试覆盖：Dock 角标序列/校验、浏览器类型推断、HTTP 代理规范化、代理探测请求/响应解析、启动参数隔离边界、自定义参数防护、插件加载、Chrome for Testing 标志、会话恢复、命令行扩展能力、稳定实例 AUMID、Windows Shell PropertyKey 和 PROPVARIANT 生命周期。
+
+CI 上传的 Windows Release artifact 只包含 `YTray.exe`。目标机器仍需安装 Windows 自带/系统提供的 .NET Framework 4.8.1；第三方托管 DLL 不需要与 exe 一起分发。
 
 ### 命令行模式
 

@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using YTray.Models;
 using YTray.Views;
@@ -132,6 +133,62 @@ namespace YTray.Core
                     var relative = $"main/{themeName}-{page.Slug}.png";
                     CaptureWindow(manager, Path.Combine(root, relative));
                     captures.Add(new CaptureItem { RelativePath = relative, Caption = $"{page.Caption} · {ThemeCaption(theme)}" });
+
+                    if (page.Slug == "instances"
+                        && manager.ContentFrame.Content is InstancesPage instancesPage)
+                    {
+                        var detailCandidate = instancesPage.RunningList.Items.Count > 0
+                            ? instancesPage.RunningList.Items[0]
+                            : (instancesPage.HistoryList.Items.Count > 0 ? instancesPage.HistoryList.Items[0] : null);
+                        if (detailCandidate != null)
+                        {
+                            if (instancesPage.RunningList.Items.Contains(detailCandidate))
+                                instancesPage.RunningList.SelectedItem = detailCandidate;
+                            else
+                                instancesPage.HistoryList.SelectedItem = detailCandidate;
+                            await SettleAsync(manager, 260);
+                            relative = $"main/{themeName}-instances-detail.png";
+                            CaptureWindow(manager, Path.Combine(root, relative));
+                            captures.Add(new CaptureItem
+                            {
+                                RelativePath = relative,
+                                Caption = $"浏览器实例 · 详情 · {ThemeCaption(theme)}",
+                            });
+                        }
+                    }
+
+                    if (page.Slug == "overview-runtime-center"
+                        && manager.ContentFrame.Content is QuickLaunchPage overviewPage
+                        && overviewPage.NetworkCombo.Items.Count > 0)
+                    {
+                        overviewPage.NetworkCombo.IsDropDownOpen = true;
+                        await SettleAsync(manager, 260);
+                        relative = $"main/{themeName}-overview-network-menu.png";
+                        // Popup is a separate native HWND; PrintWindow captures only the owner.
+                        // Use the composed screen region here so the expanded menu itself is part
+                        // of the interaction review artifact.
+                        CaptureScreen(WindowBounds(manager), Path.Combine(root, relative));
+                        captures.Add(new CaptureItem
+                        {
+                            RelativePath = relative,
+                            Caption = $"运行中心 · 网络下拉 · {ThemeCaption(theme)}",
+                        });
+                        overviewPage.NetworkCombo.IsDropDownOpen = false;
+
+                        if (overviewPage.PluginChoiceList.Items.Count > 0)
+                        {
+                            overviewPage.PluginPopup.IsOpen = true;
+                            await SettleAsync(manager, 260);
+                            relative = $"main/{themeName}-overview-plugin-menu.png";
+                            CaptureScreen(WindowBounds(manager), Path.Combine(root, relative));
+                            captures.Add(new CaptureItem
+                            {
+                                RelativePath = relative,
+                                Caption = $"运行中心 · 插件多选 · {ThemeCaption(theme)}",
+                            });
+                            overviewPage.PluginPopup.IsOpen = false;
+                        }
+                    }
 
                     if (page.Slug == "browser-sources" && manager.ContentFrame.Content is RuntimePage runtimePage)
                     {
@@ -390,6 +447,8 @@ namespace YTray.Core
 
         private static void CaptureWindow(Window window, string outputPath)
         {
+            if (CaptureWpfVisual(window, outputPath)) return;
+
             var bounds = WindowBounds(window);
             var handle = new WindowInteropHelper(window).Handle;
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
@@ -411,13 +470,59 @@ namespace YTray.Core
                 {
                     graphics.ReleaseHdc(hdc);
                 }
-                if (!rendered)
+                // Some custom-chrome WPF windows report PrintWindow success while returning a
+                // fully black bitmap. Treat that as a failed capture and use the composed desktop.
+                if (!rendered || IsNearlyBlack(bitmap))
                 {
                     CaptureScreen(bounds, outputPath);
                     return;
                 }
                 bitmap.Save(outputPath, ImageFormat.Png);
             }
+        }
+
+        private static bool CaptureWpfVisual(Window window, string outputPath)
+        {
+            try
+            {
+                window.UpdateLayout();
+                var dpi = VisualTreeHelper.GetDpi(window);
+                var pixelWidth = Math.Max(1, (int)Math.Round(window.ActualWidth * dpi.DpiScaleX));
+                var pixelHeight = Math.Max(1, (int)Math.Round(window.ActualHeight * dpi.DpiScaleY));
+                var bitmap = new RenderTargetBitmap(pixelWidth, pixelHeight,
+                    96d * dpi.DpiScaleX, 96d * dpi.DpiScaleY, PixelFormats.Pbgra32);
+                bitmap.Render(window);
+                bitmap.Freeze();
+
+                Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                using (var stream = File.Create(outputPath)) encoder.Save(stream);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("design-capture-wpf-visual", ex);
+                return false;
+            }
+        }
+
+        private static bool IsNearlyBlack(Drawing.Bitmap bitmap)
+        {
+            long brightness = 0;
+            var samples = 0;
+            var stepX = Math.Max(1, bitmap.Width / 20);
+            var stepY = Math.Max(1, bitmap.Height / 14);
+            for (var y = stepY / 2; y < bitmap.Height; y += stepY)
+            {
+                for (var x = stepX / 2; x < bitmap.Width; x += stepX)
+                {
+                    var color = bitmap.GetPixel(x, y);
+                    brightness += color.R + color.G + color.B;
+                    samples++;
+                }
+            }
+            return samples == 0 || brightness / (samples * 3d) < 4d;
         }
 
         private static void CaptureScreen(Drawing.Rectangle bounds, string outputPath)
