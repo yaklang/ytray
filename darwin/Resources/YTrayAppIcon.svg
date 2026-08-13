@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <!--
+    YTray app icon — flat master artwork.
+    Deliberately limited to three solid colors and simple rounded geometry.
+    There are no strokes, shadows, gradients, rims, platforms, or inset frames.
+  -->
+
+  <!-- Full-size white macOS tile; only the four outside corners are transparent. -->
+  <rect width="1024" height="1024" rx="202" fill="#FFFFFF"/>
+
+  <!-- Rear browser instance. -->
+  <path d="M398 90H838C894.333 90 940 135.667 940 192V646C940 702.333 894.333 748 838 748H398C341.667 748 296 702.333 296 646V192C296 135.667 341.667 90 398 90Z" fill="#FF7A18"/>
+  <rect x="376" y="180" width="164" height="34" rx="17" fill="#FFFFFF"/>
+  <path d="M296 264H820C886.274 264 940 317.726 940 384V646C940 702.333 894.333 748 838 748H398C341.667 748 296 702.333 296 646V264Z" fill="#FFFFFF"/>
+
+  <!-- Middle isolated instance. -->
+  <path d="M266 226H706C762.333 226 808 271.667 808 328V782C808 838.333 762.333 884 706 884H266C209.667 884 164 838.333 164 782V328C164 271.667 209.667 226 266 226Z" fill="#FFB15A"/>
+  <rect x="244" y="316" width="164" height="34" rx="17" fill="#FFFFFF"/>
+  <path d="M164 400H688C754.274 400 808 453.726 808 520V782C808 838.333 762.333 884 706 884H266C209.667 884 164 838.333 164 782V400Z" fill="#FFFFFF"/>
+
+  <!-- Front active instance. Its large silhouette reaches close to the tile edges. -->
+  <path d="M158 370H574C630.333 370 676 415.667 676 472V838C676 894.333 630.333 940 574 940H158C101.667 940 56 894.333 56 838V472C56 415.667 101.667 370 158 370Z" fill="#F26512"/>
+  <rect x="136" y="456" width="164" height="34" rx="17" fill="#FFFFFF"/>
+  <rect x="106" y="542" width="520" height="348" rx="70" fill="#FFFFFF"/>
+
+  <!-- YTray identity badge. The Y is a geometric path, so rendering has no font dependency. -->
+  <circle cx="824" cy="824" r="148" fill="#FFFFFF"/>
+  <circle cx="824" cy="824" r="132" fill="#F26512"/>
+  <path d="M752 754H799L824 798L849 754H896L848 832V894H800V832L752 754Z" fill="#FFFFFF"/>
+</svg>

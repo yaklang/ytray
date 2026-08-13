@@ -1,4 +1,5 @@
 .DS_Store
 .swiftpm/
 darwin/.build/
+dist/
 *.xcuserstate
