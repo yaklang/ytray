@@ -1,0 +1,248 @@
+<Page x:Class="YTray.Views.Pages.RuntimePage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{DynamicResource AppBackgroundBrush}">
+    <Page.Resources>
+        <Style x:Key="RuntimeSectionTitle" TargetType="TextBlock" BasedOn="{StaticResource SectionTitle}">
+            <Setter Property="FontSize" Value="15"/>
+        </Style>
+        <Style x:Key="RuntimeTableHeader" TargetType="TextBlock" BasedOn="{StaticResource TableHeaderText}">
+            <Setter Property="FontSize" Value="11.5"/>
+        </Style>
+        <Style x:Key="RuntimeTableCell" TargetType="TextBlock" BasedOn="{StaticResource TableCellText}">
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="RuntimeActionButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="11,0"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="RuntimeDetailLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="RuntimeDetailValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Page.Resources>
+
+    <Grid Margin="25,20,25,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="72"/>
+            <RowDefinition Height="142"/>
+            <RowDefinition Height="13"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="13"/>
+            <RowDefinition Height="145"/>
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="浏览器来源" Style="{StaticResource PageTitle}" FontSize="27"/>
+                <TextBlock Text="发现系统浏览器、管理本地路径与安装隔离运行时" Style="{StaticResource PageSubtitle}" FontSize="13" Margin="0,5,0,0"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,5,0,0">
+                <Border x:Name="DefaultFeedbackBorder" Visibility="Collapsed" Padding="11,8" Margin="0,0,9,0"
+                        CornerRadius="5" Background="{DynamicResource SuccessPaleBrush}" BorderThickness="1">
+                    <TextBlock x:Name="DefaultFeedbackText" FontSize="11.5" Foreground="{DynamicResource SuccessBrush}"/>
+                </Border>
+                <Button Content="重新扫描本机" Margin="0,0,9,0" Click="Rescan_Click" Height="38" FontSize="12.5"/>
+                <Button Content="添加本地浏览器…" Click="Choose_Click" Height="38" FontSize="12.5"/>
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1" Style="{StaticResource SurfaceBorder}" Padding="19,14">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="14"/><RowDefinition Height="44"/></Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Chrome for Testing" Style="{StaticResource RuntimeSectionTitle}"/>
+                    <TextBlock Text="独立安装，不影响系统中的 Chrome" Margin="0,4,0,0" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                </StackPanel>
+
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="118"/><ColumnDefinition Width="14"/>
+                        <ColumnDefinition Width="320"/><ColumnDefinition Width="14"/>
+                        <ColumnDefinition Width="116"/><ColumnDefinition Width="145"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="RefreshManifestBtn" Content="刷新版本" Click="RefreshManifest_Click" Height="42" FontSize="12.5"/>
+                    <ComboBox x:Name="VersionCombo" Grid.Column="2" Height="42" MaxDropDownHeight="260"
+                              AutomationProperties.AutomationId="RuntimeVersionCombo"
+                              PreviewMouseLeftButtonDown="VersionCombo_PreviewMouseLeftButtonDown"
+                              SelectionChanged="VersionCombo_SelectionChanged">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Height="38">
+                                    <TextBlock Text="{Binding Version}" FontWeight="SemiBold" FontSize="12.5"
+                                               VerticalAlignment="Center" TextOptions.TextFormattingMode="Display"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button x:Name="InstallBtn" Grid.Column="4" Content="安装此版本" Click="Install_Click"
+                            Height="42" FontSize="12.5" Style="{StaticResource YTrayPrimaryButton}"/>
+                    <TextBlock x:Name="ManifestStatus" Grid.Column="5" Margin="14,0,8,0" VerticalAlignment="Center"
+                               FontSize="11" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+
+                    <Grid x:Name="InstallProgressPanel" Grid.Column="6" Visibility="Collapsed" Margin="7,1,0,0">
+                        <Grid.RowDefinitions><RowDefinition Height="20"/><RowDefinition Height="8"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="InstallStatus" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="InstallBytesLabel" Grid.Column="1" Margin="10,0,0,0" FontSize="10.5"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontWeight="SemiBold"/>
+                        <ProgressBar x:Name="InstallProgressBar" Grid.Row="2" Grid.ColumnSpan="2" Height="7" VerticalAlignment="Top"/>
+                        <TextBlock x:Name="InstallPercentLabel" Visibility="Collapsed"/>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" Style="{StaticResource SurfaceBorder}" ClipToBounds="True">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="38"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid Margin="14,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="可用浏览器" Style="{StaticResource RuntimeSectionTitle}"/>
+                        <Border Margin="10,0,0,0" Padding="7,2" CornerRadius="8" Background="{DynamicResource SurfaceMutedBrush}">
+                            <TextBlock x:Name="RuntimeCountLabel" Text="0" FontSize="10.5" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock x:Name="DefaultRuntimeLabel" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </Grid>
+
+                <Border Grid.Row="1" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
+                        <Border Padding="14,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="浏览器" Style="{StaticResource RuntimeTableHeader}"/></Border>
+                        <Border Grid.Column="1" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="来源" Style="{StaticResource RuntimeTableHeader}"/></Border>
+                        <Border Grid.Column="2" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="版本" Style="{StaticResource RuntimeTableHeader}"/></Border>
+                        <Border Grid.Column="3" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="架构" Style="{StaticResource RuntimeTableHeader}"/></Border>
+                        <Border Grid.Column="4" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="可执行文件" Style="{StaticResource RuntimeTableHeader}"/></Border>
+                        <Border Grid.Column="5" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="状态" Style="{StaticResource RuntimeTableHeader}"/></Border>
+                        <Border Grid.Column="6" Padding="12,0"><TextBlock Text="操作" Style="{StaticResource RuntimeTableHeader}"/></Border>
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Row="2">
+                    <TextBlock x:Name="RuntimeEmpty" Text="未发现可用浏览器" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="12.5" Foreground="{DynamicResource TextTertiaryBrush}" Visibility="Collapsed"/>
+                    <ListBox x:Name="RuntimeList" SelectionChanged="RuntimeSelection_Changed" BorderThickness="0" Background="Transparent"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Grid>
+                                                <Border x:Name="Row" MinHeight="68" BorderBrush="{DynamicResource HairlineBrush}"
+                                                        BorderThickness="0,0,0,1" Background="Transparent">
+                                                    <ContentPresenter/>
+                                                </Border>
+                                                <Border x:Name="SelectionAccent" Width="3" HorizontalAlignment="Left"
+                                                        Background="{DynamicResource BrandOrangeBrush}" Visibility="Collapsed"/>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Row" Property="Background" Value="{DynamicResource BrandPaleBrush}"/>
+                                                    <Setter TargetName="SelectionAccent" Property="Visibility" Value="Visible"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
+                                    <Border Padding="14,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Image Source="{Binding IconSource}" Width="36" Height="36" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                            <TextBlock Text="{Binding Runtime.DisplayTitle}" Margin="12,0,0,0" MaxWidth="126" VerticalAlignment="Center"
+                                                       FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="1" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="{Binding SourceTitle}" Style="{StaticResource RuntimeTableCell}" Foreground="{DynamicResource TextSecondaryBrush}"/></Border>
+                                    <Border Grid.Column="2" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="{Binding Runtime.VersionLabel}" Style="{StaticResource RuntimeTableCell}" FontWeight="SemiBold"/></Border>
+                                    <Border Grid.Column="3" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="{Binding Runtime.Architecture}" Style="{StaticResource RuntimeTableCell}"/></Border>
+                                    <Border Grid.Column="4" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
+                                        <TextBlock Text="{Binding Runtime.ExecutablePath}" VerticalAlignment="Center" FontSize="10.5"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" MaxHeight="37"/>
+                                    </Border>
+                                    <Border Grid.Column="5" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
+                                        <Border Visibility="{Binding DefaultVisibility}" Style="{StaticResource PillBadge}"
+                                                Background="{DynamicResource SuccessPaleBrush}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                            <TextBlock Text="默认" FontSize="10" Foreground="{DynamicResource SuccessBrush}"/>
+                                        </Border>
+                                    </Border>
+                                    <Border Grid.Column="6" Padding="10,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Tag="{Binding Runtime}" Click="OpenFolder_Click" Margin="0,0,7,0"
+                                                    Style="{StaticResource YTrayIconButton}" ToolTip="打开浏览器所在文件夹"
+                                                    AutomationProperties.Name="打开浏览器所在文件夹">
+                                                <Viewbox Width="16" Height="16"><Path Data="M 1.5 4 L 6.2 4 L 7.7 5.5 L 14.5 5.5 L 14.5 13.5 L 1.5 13.5 Z M 1.5 5.5 L 1.5 2.5 L 6 2.5 L 7.2 4" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/></Viewbox>
+                                            </Button>
+                                            <Button Tag="{Binding Runtime}" Click="SetDefault_Click">
+                                                <Button.Style>
+                                                    <Style TargetType="Button" BasedOn="{StaticResource RuntimeActionButton}">
+                                                        <Setter Property="Content" Value="设为默认"/>
+                                                        <Style.Triggers><DataTrigger Binding="{Binding IsDefault}" Value="True"><Setter Property="Content" Value="当前默认"/><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="5" Style="{StaticResource SurfaceBorder}" Padding="17,14">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="270"/><ColumnDefinition Width="1"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                    <TextBlock Text="浏览器" Style="{StaticResource RuntimeDetailLabel}"/><TextBlock x:Name="DetailBrowser" Grid.Column="1" Style="{StaticResource RuntimeDetailValue}" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Row="1" Text="来源" Style="{StaticResource RuntimeDetailLabel}"/><TextBlock x:Name="DetailSource" Grid.Row="1" Grid.Column="1" Style="{StaticResource RuntimeDetailValue}"/>
+                    <TextBlock Grid.Row="2" Text="版本" Style="{StaticResource RuntimeDetailLabel}"/><TextBlock x:Name="DetailVersion" Grid.Row="2" Grid.Column="1" Style="{StaticResource RuntimeDetailValue}"/>
+                </Grid>
+                <Border Grid.Column="1" Background="{DynamicResource HairlineBrush}"/>
+                <Grid Grid.Column="3">
+                    <Grid.RowDefinitions><RowDefinition Height="32"/><RowDefinition Height="8"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="可执行文件" Style="{StaticResource RuntimeDetailLabel}"/>
+                        <TextBlock x:Name="DetailPath" Grid.Column="1" FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"/>
+                        <Button Grid.Column="2" Click="OpenSelectedFolder_Click" Style="{StaticResource YTrayIconButton}" ToolTip="打开所在文件夹">
+                            <Viewbox Width="16" Height="16"><Path Data="M 1.5 4 L 6.2 4 L 7.7 5.5 L 14.5 5.5 L 14.5 13.5 L 1.5 13.5 Z M 1.5 5.5 L 1.5 2.5 L 6 2.5 L 7.2 4" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/></Viewbox>
+                        </Button>
+                    </Grid>
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="命令行示例" Style="{StaticResource RuntimeDetailLabel}" VerticalAlignment="Top" Margin="0,8,0,0"/>
+                        <Border Grid.Column="1" Padding="11,7" CornerRadius="5" Background="{DynamicResource SurfaceMutedBrush}"
+                                BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
+                            <TextBlock x:Name="DetailCommand" FontFamily="Cascadia Mono, Consolas" FontSize="10.5" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

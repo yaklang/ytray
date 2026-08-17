@@ -1,0 +1,94 @@
+<Window x:Class="YTray.Views.CustomLaunchWizard"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="自定义启动" Width="720" Height="570" MinWidth="720" MinHeight="570"
+        Background="{DynamicResource AppBackgroundBrush}" WindowStyle="None"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        UseLayoutRounding="True">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="0" CornerRadius="0"
+                            GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Border BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1"
+            Background="{DynamicResource AppBackgroundBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="42"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="58"/>
+            </Grid.RowDefinitions>
+
+            <Border Background="{DynamicResource TitleBarBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" Margin="13,0" VerticalAlignment="Center">
+                        <Border Width="19" Height="19" CornerRadius="6" Background="{DynamicResource BrandOrangeBrush}">
+                            <TextBlock Text="Y" Foreground="White" FontWeight="Bold" FontSize="10"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="自定义启动" Margin="8,0,0,0" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button HorizontalAlignment="Right" Style="{StaticResource WindowCloseButton}" Click="Cancel_Click"
+                            ToolTip="关闭" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <Path Data="M 0 0 L 10 10 M 10 0 L 0 10"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" Margin="24,18,24,14">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="配置本次浏览器实例" FontSize="20" FontWeight="SemiBold"/>
+                    <TextBlock Text="本次参数独立生效；可在确认页选择是否记住浏览器。" FontSize="10.5"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Grid x:Name="StepPanel" Grid.Row="1" Margin="0,17,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*"/><ColumnDefinition Width="26"/><ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="26"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="26"/><ColumnDefinition Width="1*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" x:Name="Step0Panel">
+                        <Ellipse x:Name="Step0Dot" Width="24" Height="24" Fill="{DynamicResource BrandOrangeBrush}"/>
+                        <StackPanel Margin="7,0,0,0"><TextBlock Text="运行时" FontSize="10.5" FontWeight="SemiBold"/><TextBlock Text="选择浏览器" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                    </StackPanel>
+                    <Rectangle Grid.Column="1" Height="1" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" x:Name="Step1Panel">
+                        <Ellipse x:Name="Step1Dot" Width="24" Height="24" Fill="{DynamicResource HairlineBrush}"/>
+                        <StackPanel Margin="7,0,0,0"><TextBlock Text="参数" FontSize="10.5"/><TextBlock Text="启动与调试" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                    </StackPanel>
+                    <Rectangle Grid.Column="3" Height="1" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" x:Name="Step2Panel">
+                        <Ellipse x:Name="Step2Dot" Width="24" Height="24" Fill="{DynamicResource HairlineBrush}"/>
+                        <StackPanel Margin="7,0,0,0"><TextBlock Text="插件" FontSize="10.5"/><TextBlock Text="本地扩展" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                    </StackPanel>
+                    <Rectangle Grid.Column="5" Height="1" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="6" Orientation="Horizontal" x:Name="Step3Panel">
+                        <Ellipse x:Name="Step3Dot" Width="24" Height="24" Fill="{DynamicResource HairlineBrush}"/>
+                        <StackPanel Margin="7,0,0,0"><TextBlock Text="确认" FontSize="10.5"/><TextBlock Text="启动实例" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <Border Grid.Row="2" Margin="24,0,24,14" Style="{StaticResource SurfaceBorder}" Padding="17">
+                <Grid x:Name="ContentArea"/>
+            </Border>
+
+            <Border Grid.Row="3" Background="{DynamicResource TitleBarBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0">
+                <DockPanel Margin="18,0" LastChildFill="True">
+                    <Button Content="取消" DockPanel.Dock="Left" Width="64" Height="36" VerticalAlignment="Center"
+                            Click="Cancel_Click" Style="{StaticResource YTrayGhostButton}"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button x:Name="PrevBtn" Content="上一步" Width="76" Height="36" Margin="0,0,8,0"
+                                Click="Prev_Click" Style="{StaticResource YTrayButton}"/>
+                        <Button x:Name="NextBtn" Content="下一步" Width="80" Height="36"
+                                Click="Next_Click" Style="{StaticResource YTrayPrimaryButton}"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
