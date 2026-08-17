@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
   workflow_dispatch:
 
@@ -64,3 +66,26 @@ jobs:
           path: windows/artifacts/YTray.exe
           if-no-files-found: error
           retention-days: 14
+
+  # Tag pushes run workflows from the tagged commit, so releases always ship the
+  # exact executable built from that tag; the build above stays CI-only on main.
+  publish-release:
+    name: Publish GitHub Release from tag
+    needs: build-test-package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged executable
+        uses: actions/download-artifact@v4
+        with:
+          name: YTray-windows
+          path: dist
+
+      - name: Attach YTray.exe to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/YTray.exe
+          generate_release_notes: true
