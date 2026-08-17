@@ -187,3 +187,13 @@ darwin/     # Swift / AppKit / SwiftUI 原生实现
 windows/    # Windows 原生实现预留
 script/     # 本地启动脚本
 ```
+
+## 打包 macOS 应用
+
+应用图标的可编辑矢量源位于 `darwin/Resources/YTrayAppIcon.svg`。运行以下命令会构建 Release 可执行文件、生成完整的 macOS `.iconset` 和 `.icns`，并创建临时签名的应用包：
+
+```bash
+./script/package-macos.sh
+```
+
+输出位于 `dist/YTray.app`。打包需要 Xcode Command Line Tools 和 ImageMagick 的 `magick` 命令。

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <!--
+    Flat YTray app icon: solid fills only, no strokes, shadows, gradients, or inset frame.
+    The complete tile follows the common 824/1024 macOS optical footprint.
+  -->
+  <g transform="translate(99.84 99.84) scale(0.805)">
+  <rect width="1024" height="1024" rx="202" fill="#FFFFFF"/>
+
+  <!-- Rear browser instance: complete card, visibly offset up and right. -->
+  <rect x="340" y="88" width="604" height="574" rx="112" fill="#FF7A18"/>
+  <rect x="406" y="158" width="152" height="32" rx="16" fill="#FFFFFF"/>
+  <rect x="390" y="228" width="504" height="384" rx="74" fill="#FFF4E8"/>
+
+  <!-- Middle isolated instance: complete warm card, offset between rear and front. -->
+  <rect x="194" y="220" width="604" height="574" rx="112" fill="#FFB15A"/>
+  <rect x="260" y="290" width="152" height="32" rx="16" fill="#FFFFFF"/>
+  <rect x="244" y="360" width="504" height="384" rx="74" fill="#FFF9F2"/>
+
+  <!-- Front active browser instance. -->
+  <rect x="48" y="352" width="604" height="574" rx="112" fill="#F26512"/>
+  <rect x="114" y="422" width="152" height="32" rx="16" fill="#FFFFFF"/>
+  <rect x="98" y="492" width="504" height="384" rx="74" fill="#FFFFFF"/>
+
+  <!-- Small Y identity badge, separated from the active card by a white ring. -->
+  <circle cx="842" cy="842" r="116" fill="#FFFFFF"/>
+  <circle cx="842" cy="842" r="98" fill="#F26512"/>
+  <path d="M790 790H825L842 820L859 790H894L866 838V890H818V838L790 790Z" fill="#FFFFFF"/>
+  </g>
+</svg>

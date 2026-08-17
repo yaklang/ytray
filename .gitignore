@@ -1,6 +1,7 @@
 .DS_Store
 .swiftpm/
 darwin/.build/
+dist/
 *.xcuserstate
 
 # C# / .NET build artifacts
