@@ -65,44 +65,7 @@ namespace YTray.Core
             try
             {
                 progress?.Report(new InstallProgress { Percent = 2, Message = "正在连接下载镜像…" });
-                using (var resp = await Http.GetAsync(new Uri(artifact.Url), HttpCompletionOption.ResponseHeadersRead, cancellationToken))
-                {
-                    if (!resp.IsSuccessStatusCode) throw new YTrayException(YTrayError.DownloadFailed, "ZIP 下载返回异常");
-                    var total = resp.Content.Headers.ContentLength ?? artifact.Size;
-                    using (var input = await resp.Content.ReadAsStreamAsync())
-                    using (var output = new FileStream(tmpZip, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
-                    {
-                        var buffer = new byte[81920];
-                        long received = 0;
-                        int read;
-                        var lastReportedPercent = -1;
-                        var lastReportAt = DateTime.UtcNow;
-                        while ((read = await input.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
-                        {
-                            await output.WriteAsync(buffer, 0, read, cancellationToken);
-                            received += read;
-                            var downloadPercent = total.HasValue && total.Value > 0
-                                ? Math.Min(78, 5 + (int)(received * 73L / total.Value))
-                                : 5;
-                            var now = DateTime.UtcNow;
-                            var shouldReport = downloadPercent != lastReportedPercent
-                                && (now - lastReportAt >= TimeSpan.FromMilliseconds(90)
-                                    || total.HasValue && received >= total.Value);
-                            if (!shouldReport) continue;
-                            lastReportedPercent = downloadPercent;
-                            lastReportAt = now;
-                            progress?.Report(new InstallProgress
-                            {
-                                Percent = downloadPercent,
-                                Message = total.HasValue && total.Value > 0
-                                    ? $"正在下载 · {FormatBytes(received)} / {FormatBytes(total.Value)}"
-                                    : $"正在下载 · {FormatBytes(received)}",
-                                BytesReceived = received,
-                                TotalBytes = total,
-                            });
-                        }
-                    }
-                }
+                await DownloadAsync(Http, new Uri(artifact.Url), tmpZip, artifact.Size, progress, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 progress?.Report(new InstallProgress { Percent = 81, Message = "正在校验 SHA-256…" });
                 var actualHash = await Sha256Async(tmpZip);
@@ -158,8 +121,57 @@ namespace YTray.Core
             }
         }
 
-        private static Task ExtractAsync(string zipPath, string destination, IProgress<InstallProgress>? progress,
-            CancellationToken cancellationToken)
+        /// <summary>
+        /// Streams a remote file to disk with throttled progress reporting. Shared by the runtime
+        /// and extension installers so both report the same download phase mapping (5–78%).
+        /// </summary>
+        internal static async Task DownloadAsync(HttpClient http, Uri url, string destination, long? fallbackTotal,
+            IProgress<InstallProgress>? progress, CancellationToken cancellationToken)
+        {
+            using (var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+            {
+                if (!resp.IsSuccessStatusCode) throw new YTrayException(YTrayError.DownloadFailed, "ZIP 下载返回异常");
+                var total = resp.Content.Headers.ContentLength ?? fallbackTotal;
+                using (var input = await resp.Content.ReadAsStreamAsync())
+                using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+                {
+                    var buffer = new byte[81920];
+                    long received = 0;
+                    int read;
+                    var lastReportedPercent = -1;
+                    var lastReportAt = DateTime.UtcNow;
+                    while ((read = await input.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
+                    {
+                        await output.WriteAsync(buffer, 0, read, cancellationToken);
+                        received += read;
+                        var downloadPercent = total.HasValue && total.Value > 0
+                            ? Math.Min(78, 5 + (int)(received * 73L / total.Value))
+                            : 5;
+                        var now = DateTime.UtcNow;
+                        var shouldReport = downloadPercent != lastReportedPercent
+                            && (now - lastReportAt >= TimeSpan.FromMilliseconds(90)
+                                || total.HasValue && received >= total.Value);
+                        if (!shouldReport) continue;
+                        lastReportedPercent = downloadPercent;
+                        lastReportAt = now;
+                        progress?.Report(new InstallProgress
+                        {
+                            Percent = downloadPercent,
+                            Message = total.HasValue && total.Value > 0
+                                ? $"正在下载 · {FormatBytes(received)} / {FormatBytes(total.Value)}"
+                                : $"正在下载 · {FormatBytes(received)}",
+                            BytesReceived = received,
+                            TotalBytes = total,
+                        });
+                    }
+                }
+            }
+        }
+
+        internal static Task<string> HashFileAsync(string path) => Sha256Async(path);
+
+        internal static Task ExtractAsync(string zipPath, string destination, IProgress<InstallProgress>? progress,
+            CancellationToken cancellationToken, YTrayError error = YTrayError.DownloadFailed)
         {
             return Task.Run(() =>
             {
@@ -175,7 +187,7 @@ namespace YTray.Core
                         var entry = archive.Entries[index];
                         var outputPath = Path.GetFullPath(Path.Combine(destination, entry.FullName));
                         if (!outputPath.StartsWith(destinationRoot, StringComparison.OrdinalIgnoreCase))
-                            throw new YTrayException(YTrayError.DownloadFailed, "ZIP 包含不安全的文件路径");
+                            throw new YTrayException(error, "ZIP 包含不安全的文件路径");
                         if (string.IsNullOrEmpty(entry.Name))
                         {
                             Directory.CreateDirectory(outputPath);
@@ -184,7 +196,7 @@ namespace YTray.Core
                         {
                             var outputDirectory = Path.GetDirectoryName(outputPath);
                             if (string.IsNullOrWhiteSpace(outputDirectory))
-                                throw new YTrayException(YTrayError.DownloadFailed, "ZIP 项目没有有效的目标目录");
+                                throw new YTrayException(error, "ZIP 项目没有有效的目标目录");
                             Directory.CreateDirectory(outputDirectory);
                             entry.ExtractToFile(outputPath, true);
                         }

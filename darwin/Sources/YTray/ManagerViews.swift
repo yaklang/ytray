@@ -401,6 +401,7 @@ struct PluginsPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             PageHeader(title: "插件管理", subtitle: "Chrome 命令行只能加载已解压插件目录；请选择根部包含 manifest.json 的文件夹。")
+            yakitExtensionSection
             HStack { Button("添加本地插件目录…") { choosePlugin() }.buttonStyle(FilledOrangeButtonStyle()); Spacer() }
             List {
                 ForEach(store.plugins) { plugin in
@@ -421,6 +422,46 @@ struct PluginsPage: View {
                 }
             }.overlay { if store.plugins.isEmpty { ContentUnavailableView("还没有插件", systemImage: "puzzlepiece.extension", description: Text("添加一个已解压的 Chrome 插件目录")) } }
         }.padding(28)
+        .task { if store.extensionManifest == nil { await store.refreshExtensionManifest() } }
+    }
+
+    private var latestEnterpriseVersion: ExtensionReleaseVersion? {
+        store.extensionManifest?.versions.first { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }
+    }
+
+    private var yakitExtensionSection: some View {
+        let installed = store.managedExtension
+        let latest = latestEnterpriseVersion
+        let busy = store.isInstallingExtension
+        let buttonTitle = busy ? "安装中…"
+            : installed == nil ? (latest.map { "下载 Yakit 插件 v\($0.version)" } ?? "下载 Yakit 插件")
+            : store.isExtensionUpdateAvailable && latest != nil ? "更新到 v\(latest!.version)"
+            : "重新下载"
+        return HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Brand.orange).font(.title2)
+            VStack(alignment: .leading, spacing: 2) {
+                if let installed, let manifest = store.extensionManifest, !store.isExtensionUpdateAvailable {
+                    Text("Yakit 浏览器插件 v\(installed.version) 已是最新").font(.callout)
+                } else if let installed, store.isExtensionUpdateAvailable {
+                    Text("当前 v\(installed.version) · 最新 v\(latest?.version ?? store.extensionManifest?.latest ?? "")").font(.callout)
+                } else if let latest {
+                    Text("Yakit 浏览器插件 v\(latest.version) 可下载").font(.callout)
+                } else {
+                    Text("Yakit 浏览器插件").font(.callout)
+                }
+                if !store.extensionStatusMessage.isEmpty {
+                    Text(store.extensionStatusMessage).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button("检查更新") { Task { await store.refreshExtensionManifest() } }
+                .disabled(busy)
+            Button(buttonTitle) { Task { await store.installExtension() } }
+                .buttonStyle(FilledOrangeButtonStyle())
+                .disabled(busy || latest == nil)
+        }
+        .padding(14)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func choosePlugin() {
