@@ -6,7 +6,7 @@
 
 YTray 是一个面向 Chrome 独立实例的开源桌面工作台。它把浏览器版本、独立用户目录、代理、调试端口、本地插件和常用启动参数组合成可重复使用的身份环境，并通过菜单栏托盘与桌面贴边小组件快速管理。
 
-当前已经实现 macOS 原生版本；`windows/` 是独立实现的预留目录。项目不包含授权码、许可证校验、订阅或功能解锁逻辑。
+macOS 与 Windows 均为各自平台的原生实现（Swift / AppKit 与 C# / WPF），功能对等。项目不包含授权码、许可证校验、订阅或功能解锁逻辑。
 
 ## 它解决什么问题
 
@@ -35,7 +35,19 @@ YTray 不修改系统浏览器应用的名称、签名、Bundle ID 或钥匙链�
 
 <p align="center"><sub>点击贴边标签会展开与菜单栏托盘一致的完整面板；失焦自动隐藏，PIN 后保持显示。</sub></p>
 
-## 启动 macOS 版本
+## 安装 macOS 应用
+
+需要 macOS 14 或更高版本、Xcode Command Line Tools，以及 ImageMagick（提供 `magick` 命令）。进入仓库根目录后运行：
+
+```bash
+./script/package-macos.sh
+```
+
+脚本会构建 Release 可执行文件、生成应用图标，并组装临时签名的应用包，输出位于 `dist/YTray.app`。把 `YTray.app` 拖入 `/Applications`（或保留在任意目录）双击运行即完成安装，无需开发者账号。图标源文件与打包细节见下文[打包 macOS 应用](#打包-macos-应用)。
+
+## 从源码运行（开发模式）
+
+`./script/startup.sh` 面向开发调试：它编译 Debug 版本并在当前终端前台运行 YTray，**不会安装应用**，关闭终端或按 Ctrl-C 后即退出，适合修改代码后快速验证。
 
 需要 macOS 14 或更高版本以及 Xcode Command Line Tools。进入仓库根目录后运行：
 
@@ -184,7 +196,7 @@ YTRAY_CFT_PATH="/path/to/Google Chrome for Testing" swift test --package-path da
 
 ```text
 darwin/     # Swift / AppKit / SwiftUI 原生实现
-windows/    # Windows 原生实现预留
+windows/    # Windows 原生（C# / WPF）实现
 script/     # 本地启动脚本
 ```
 
