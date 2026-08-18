@@ -61,7 +61,9 @@ render_icon 512 icon_512x512.png
 cp "$BASE_PNG" "$ICONSET_DIR/icon_512x512@2x.png"
 
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/YTray.icns"
-cp "$INFO_PLIST_SOURCE" "$APP_BUNDLE/Info.plist"
+# Info.plist belongs in Contents/; a copy at the bundle root makes codesign
+# fail with "unsealed contents present in the bundle root".
+cp "$INFO_PLIST_SOURCE" "$APP_BUNDLE/Contents/Info.plist"
 
 codesign --force --deep --sign - "$APP_BUNDLE"
 echo "$APP_BUNDLE"
