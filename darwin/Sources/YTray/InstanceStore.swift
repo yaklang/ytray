@@ -13,6 +13,9 @@ final class InstanceStore: NSObject, ObservableObject {
     @Published var isInstalling = false
     @Published var activityMessage = ""
     @Published var errorMessage: String?
+    @Published var extensionManifest: ExtensionManifest?
+    @Published var isInstallingExtension = false
+    @Published var extensionStatusMessage = ""
     @Published private(set) var launchPhase: BrowserLaunchPhase = .idle
     @Published private(set) var launchMessage = ""
     @Published private(set) var launchingMode: LaunchMode?
@@ -148,6 +151,88 @@ final class InstanceStore: NSObject, ObservableObject {
         defer { isInstalling = false; activityMessage = "" }
         do { _ = upsert(try await RuntimeInstaller.install(version: version, into: applicationDirectory)) }
         catch { report(error) }
+    }
+
+    /// The managed Yakit extension, if installed under the application's Plugins root.
+    /// Matched by extension name + managed path so upgrades keep pointing at it.
+    var managedExtension: BrowserPlugin? {
+        let prefix = ExtensionInstaller.pluginsRoot(applicationDirectory: applicationDirectory).path
+        return plugins.first {
+            $0.name == ExtensionInstaller.extensionName && $0.path.hasPrefix(prefix)
+        }
+    }
+
+    var isExtensionUpdateAvailable: Bool {
+        guard let manifest = extensionManifest else { return false }
+        let latest = manifest.versions.first { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }
+            ?? ExtensionReleaseVersion(version: manifest.latest, publishedAt: "", commit: "", artifacts: [])
+        guard ExtensionInstaller.enterpriseArtifact(of: latest) != nil else { return false }
+        guard let installed = managedExtension else { return true }
+        return ExtensionInstaller.compareVersions(latest.version, installed.version) == .orderedDescending
+    }
+
+    func refreshExtensionManifest() async {
+        extensionStatusMessage = "正在获取插件版本…"
+        do {
+            extensionManifest = try await ExtensionInstaller.fetchManifest()
+            extensionStatusMessage = ""
+        } catch {
+            extensionStatusMessage = error.localizedDescription
+            report(error)
+        }
+    }
+
+    func installExtension(version: ExtensionReleaseVersion? = nil) async {
+        guard !isInstallingExtension else { return }
+        guard let target = version
+            ?? extensionManifest?.versions.first(where: { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }) else {
+            report(YTrayError.extensionInstallFailed("没有可安装的插件版本，请先刷新插件清单"))
+            return
+        }
+        isInstallingExtension = true
+        errorMessage = nil
+        extensionStatusMessage = "正在下载并校验 Yakit 插件 \(target.version)…"
+        defer { isInstallingExtension = false }
+        do {
+            let directory = try await ExtensionInstaller.install(version: target, into: applicationDirectory)
+            registerManagedExtension(directory: directory)
+            ExtensionInstaller.cleanupOldVersions(applicationDirectory: applicationDirectory, installedVersion: target.version)
+            extensionStatusMessage = "Yakit 插件 \(target.version) 安装完成"
+        } catch {
+            report(error)
+            extensionStatusMessage = error.localizedDescription
+        }
+    }
+
+    /// Upserts the extracted managed-extension directory. Unlike addPlugin this keeps the
+    /// previous plugin id on upgrades so settings.defaultPluginIDs stays valid.
+    private func registerManagedExtension(directory: URL) {
+        do {
+            let data = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
+            let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
+            var previous = managedExtension
+            if previous == nil, let index = plugins.firstIndex(where: { $0.path == directory.path }) {
+                previous = plugins[index]
+            }
+            var plugin = BrowserPlugin(name: manifest.name, version: manifest.version,
+                                       path: directory.path, manifestVersion: manifest.manifestVersion)
+            if let previous {
+                plugin.id = previous.id
+                plugin.enabled = previous.enabled
+                plugin.createdAt = previous.createdAt
+                if let index = plugins.firstIndex(where: { $0.id == previous.id }) {
+                    plugins[index] = plugin
+                } else {
+                    plugins.append(plugin)
+                }
+            } else {
+                plugins.removeAll { $0.path == directory.path }
+                plugins.append(plugin)
+            }
+            save()
+        } catch {
+            report(YTrayError.invalidPlugin(directory.path))
+        }
     }
 
     @discardableResult

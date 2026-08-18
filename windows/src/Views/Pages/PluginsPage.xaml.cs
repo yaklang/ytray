@@ -25,6 +25,7 @@ namespace YTray.Views.Pages
         private readonly InstanceStore _store;
         private bool _subscribed;
         private bool _refreshScheduled;
+        private bool _extensionManifestLoading;
         private BrowserPlugin? _selected;
 
         public PluginsPage(InstanceStore store)
@@ -34,6 +35,8 @@ namespace YTray.Views.Pages
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
             Refresh();
+            if (_store.ExtensionManifest == null)
+                CrashGuard.Observe(LoadExtensionManifestAsync(), "load-extension-manifest");
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -75,8 +78,69 @@ namespace YTray.Views.Pages
             PluginCountDot.Fill = (Brush)FindResource(_store.Plugins.Count == 0 ? "TextTertiaryBrush" : "SuccessBrush");
             PluginEmpty.Visibility = _store.Plugins.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             PluginList.Visibility = _store.Plugins.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            RefreshExtensionBar();
             RefreshDetails();
         }
+
+        private void RefreshExtensionBar()
+        {
+            if (ExtensionInstallBtn == null) return;
+            var installed = _store.ManagedExtension;
+            var manifest = _store.ExtensionManifest;
+            var latest = manifest?.Versions.FirstOrDefault(v =>
+                ExtensionInstaller.EnterpriseArtifact(v) != null);
+            var busy = _store.IsInstallingExtension || _extensionManifestLoading;
+
+            ExtensionInstallBtn.IsEnabled = !busy && latest != null;
+            ExtensionRefreshBtn.IsEnabled = !_store.IsInstallingExtension;
+            ExtensionUpdateBadge.Visibility = _store.IsExtensionUpdateAvailable && !busy
+                ? Visibility.Visible : Visibility.Collapsed;
+
+            string buttonLabel;
+            if (_store.IsInstallingExtension) buttonLabel = $"安装中 {_store.ExtensionInstallPercent}%";
+            else if (installed == null) buttonLabel = latest == null ? "下载 Yakit 插件" : $"下载 Yakit 插件 v{latest.Version}";
+            else if (_store.IsExtensionUpdateAvailable && latest != null) buttonLabel = $"更新到 v{latest.Version}";
+            else buttonLabel = "重新下载";
+            ExtensionInstallBtn.Content = buttonLabel;
+
+            ExtensionProgressBar.Visibility = _store.IsInstallingExtension ? Visibility.Visible : Visibility.Collapsed;
+            ExtensionProgressBar.Value = _store.ExtensionInstallPercent;
+
+            string status;
+            if (_store.IsInstallingExtension)
+                status = _store.ExtensionStatusMessage;
+            else if (_extensionManifestLoading)
+                status = "正在检查插件版本…";
+            else if (installed != null && manifest != null)
+                status = _store.IsExtensionUpdateAvailable
+                    ? $"当前 v{installed.Version} · 最新 v{latest?.Version ?? manifest.Latest}"
+                    : $"Yakit 插件 v{installed.Version} 已是最新";
+            else if (manifest != null)
+                status = $"Yakit 浏览器插件 v{latest?.Version ?? manifest.Latest} 可下载";
+            else
+                status = _store.ExtensionStatusMessage;
+            ExtensionStatusText.Text = status;
+            ExtensionStatusText.ToolTip = status;
+        }
+
+        private async System.Threading.Tasks.Task LoadExtensionManifestAsync()
+        {
+            if (_extensionManifestLoading) return;
+            _extensionManifestLoading = true;
+            RefreshExtensionBar();
+            try { await _store.RefreshExtensionManifestAsync(); }
+            finally
+            {
+                _extensionManifestLoading = false;
+                if (IsLoaded) RefreshExtensionBar();
+            }
+        }
+
+        private void ExtensionRefresh_Click(object sender, RoutedEventArgs e) =>
+            CrashGuard.Observe(LoadExtensionManifestAsync(), "refresh-extension-manifest");
+
+        private void ExtensionInstall_Click(object sender, RoutedEventArgs e) =>
+            CrashGuard.Observe(_store.InstallExtensionAsync(), "install-extension");
 
         private void Add_Click(object s, RoutedEventArgs e)
         {

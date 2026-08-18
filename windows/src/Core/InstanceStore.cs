@@ -46,11 +46,19 @@ namespace YTray.Core
 
         // Launch / activity UI state
         public bool IsInstalling { get; private set; }
+        public bool IsInstallingExtension { get; private set; }
         public string ActivityMessage { get; private set; } = "";
         public int InstallProgressPercent { get; private set; }
         public long InstallBytesReceived { get; private set; }
         public long? InstallBytesTotal { get; private set; }
         public string? ErrorMessage { get; private set; }
+        public ExtensionManifest? ExtensionManifest { get; private set; }
+        public string ExtensionStatusMessage { get; private set; } = "";
+        public int ExtensionInstallPercent { get; private set; }
+        public BrowserPlugin? ManagedExtension => Plugins.FirstOrDefault(p =>
+            p.Name == ExtensionInstaller.ExtensionName
+            && (p.Path ?? "").StartsWith(ExtensionInstaller.PluginsRoot(ApplicationDirectory),
+                StringComparison.OrdinalIgnoreCase));
         public BrowserLaunchPhase LaunchPhase { get; private set; } = BrowserLaunchPhase.Idle;
         public string LaunchMessage { get; private set; } = "";
         public LaunchMode? LaunchingMode { get; private set; }
@@ -836,6 +844,114 @@ namespace YTray.Core
             try { AvailableVersions = await RuntimeInstaller.FetchVersionsAsync(); }
             catch (Exception ex) { Report(ex); }
             OnPropertyChanged(string.Empty);
+        }
+
+        public async Task RefreshExtensionManifestAsync()
+        {
+            ExtensionStatusMessage = "正在获取插件版本…";
+            OnPropertyChanged(string.Empty);
+            try
+            {
+                ExtensionManifest = await ExtensionInstaller.FetchManifestAsync();
+                ExtensionStatusMessage = "";
+            }
+            catch (Exception ex)
+            {
+                ExtensionStatusMessage = ex.Message;
+                Report(ex);
+            }
+            OnPropertyChanged(string.Empty);
+        }
+
+        /// <summary>
+        /// True when the remote latest enterprise artifact is newer than the installed
+        /// managed extension. Unknown remote manifest or first install counts as available.
+        /// </summary>
+        public bool IsExtensionUpdateAvailable
+        {
+            get
+            {
+                if (ExtensionManifest == null) return false;
+                var latest = ExtensionManifest.Versions.FirstOrDefault()
+                    ?? new ExtensionReleaseVersion { Version = ExtensionManifest.Latest };
+                if (ExtensionInstaller.EnterpriseArtifact(latest) == null) return false;
+                var installed = ManagedExtension;
+                if (installed == null) return true;
+                return ExtensionInstaller.CompareVersions(latest.Version, installed.Version) > 0;
+            }
+        }
+
+        public async Task InstallExtensionAsync(ExtensionReleaseVersion? version = null)
+        {
+            if (IsInstallingExtension) return;
+            var target = version ?? ExtensionManifest?.Versions.FirstOrDefault();
+            if (target == null)
+            {
+                Report(new YTrayException(YTrayError.ExtensionInstallFailed, "没有可安装的插件版本，请先刷新插件清单"));
+                return;
+            }
+            IsInstallingExtension = true;
+            ErrorMessage = null;
+            ExtensionInstallPercent = 0;
+            ExtensionStatusMessage = $"正在准备 Yakit 插件 {target.Version}…";
+            var previousId = ManagedExtension?.Id;
+            var wasEnabled = ManagedExtension?.Enabled ?? true;
+            OnPropertyChanged(string.Empty);
+            try
+            {
+                var progress = new Progress<RuntimeInstaller.InstallProgress>(value =>
+                {
+                    ExtensionInstallPercent = value.Percent;
+                    ExtensionStatusMessage = value.Message ?? "正在安装…";
+                    OnPropertyChanged(string.Empty);
+                });
+                var directory = await ExtensionInstaller.InstallAsync(target, ApplicationDirectory, progress);
+                RegisterManagedExtension(directory, previousId, wasEnabled);
+                ExtensionInstaller.CleanupOldVersions(ApplicationDirectory, target.Version);
+                ExtensionInstallPercent = 100;
+                ExtensionStatusMessage = $"Yakit 插件 {target.Version} 安装完成";
+            }
+            catch (Exception ex)
+            {
+                Report(ex);
+                ExtensionStatusMessage = ErrorMessage ?? "插件安装失败";
+            }
+            finally
+            {
+                IsInstallingExtension = false;
+                OnPropertyChanged(string.Empty);
+            }
+        }
+
+        /// <summary>
+        /// Upserts the extracted managed-extension directory. Unlike AddPlugin this keeps the
+        /// previous plugin Id on upgrades so Settings.DefaultPluginIDs stays valid, and throws
+        /// inward errors to the caller instead of swallowing them.
+        /// </summary>
+        private void RegisterManagedExtension(string directory, Guid? previousId, bool enabled)
+        {
+            var manifestPath = Path.Combine(directory, "manifest.json");
+            var manifest = Newtonsoft.Json.JsonConvert.DeserializeObject<PluginManifest>(File.ReadAllText(manifestPath));
+            if (manifest == null || string.IsNullOrWhiteSpace(manifest.Name))
+                throw new YTrayException(YTrayError.InvalidPlugin, directory);
+            var fullDirectory = Path.GetFullPath(directory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var existing = Plugins.FirstOrDefault(p => p.Id == previousId) ?? Plugins.FirstOrDefault(p =>
+                string.Equals((p.Path ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    fullDirectory, StringComparison.OrdinalIgnoreCase));
+            var plugin = new BrowserPlugin
+            {
+                Id = existing?.Id ?? Guid.NewGuid(),
+                Name = manifest.Name, Version = manifest.Version,
+                Path = fullDirectory,
+                IconPath = PluginIconSource.ResolveIconPath(fullDirectory),
+                ManifestVersion = manifest.ManifestVersion,
+                Enabled = existing?.Enabled ?? enabled,
+                CreatedAt = existing?.CreatedAt ?? DateTime.Now,
+            };
+            if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
+            else Plugins.Add(plugin);
+            Save();
         }
 
         public async Task InstallAsync(MirrorVersion version)

@@ -399,6 +399,43 @@ struct PluginManifest: Decodable {
     }
 }
 
+struct ExtensionManifest: Decodable {
+    let latest: String
+    let updatedAt: String
+    let versions: [ExtensionReleaseVersion]
+    enum CodingKeys: String, CodingKey {
+        case latest, versions
+        case updatedAt = "updated_at"
+    }
+}
+
+struct ExtensionReleaseVersion: Decodable, Identifiable {
+    let version: String
+    let publishedAt: String
+    let commit: String
+    let artifacts: [ExtensionArtifact]
+    enum CodingKeys: String, CodingKey {
+        case version, commit, artifacts
+        case publishedAt = "published_at"
+    }
+    var id: String { version }
+}
+
+struct ExtensionArtifact: Decodable {
+    let variant: String
+    let browser: String
+    let mode: String
+    let filename: String
+    let url: String
+    let sha256: String
+    let size: Int64?
+    let checksumUrl: String
+    enum CodingKeys: String, CodingKey {
+        case variant, browser, mode, filename, url, sha256, size
+        case checksumUrl = "checksum_url"
+    }
+}
+
 enum YTrayError: LocalizedError {
     case noRuntime
     case invalidExecutable(String)
@@ -408,6 +445,7 @@ enum YTrayError: LocalizedError {
     case invalidFlag(String)
     case launchFailed(String)
     case downloadFailed(String)
+    case extensionInstallFailed(String)
     case screenshotFailed(String)
 
     var errorDescription: String? {
@@ -420,6 +458,7 @@ enum YTrayError: LocalizedError {
         case .invalidFlag(let value): return "不允许覆盖实例隔离或调试参数：\(value)"
         case .launchFailed(let value): return "浏览器启动失败：\(value)"
         case .downloadFailed(let value): return "运行时安装失败：\(value)"
+        case .extensionInstallFailed(let value): return "插件下载失败：\(value)"
         case .screenshotFailed(let value): return "快速截图失败：\(value)"
         }
     }
