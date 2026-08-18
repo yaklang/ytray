@@ -37,13 +37,21 @@ YTray 不修改系统浏览器应用的名称、签名、Bundle ID 或钥匙链�
 
 ## 安装 macOS 应用
 
+### 方式一：下载 DMG（推荐）
+
+从 [GitHub Releases](https://github.com/yaklang/ytray/releases) 下载最新的 `YTray.dmg`，打开后把 YTray 拖入 Applications 文件夹即完成安装。DMG 由 CI 构建，是 arm64 + x86_64 通用应用，Apple Silicon 与 Intel Mac 均可运行。
+
+应用仅做本机临时签名（没有 Apple 开发者证书），首次打开如被 Gatekeeper 拦截，请在 Finder 中右键点击 YTray.app 并选择“打开”。
+
+### 方式二：本地打包
+
 需要 macOS 14 或更高版本、Xcode Command Line Tools，以及 ImageMagick（提供 `magick` 命令）。进入仓库根目录后运行：
 
 ```bash
 ./script/package-macos.sh
 ```
 
-脚本会构建 Release 可执行文件、生成应用图标，并组装临时签名的应用包，输出位于 `dist/YTray.app`。把 `YTray.app` 拖入 `/Applications`（或保留在任意目录）双击运行即完成安装，无需开发者账号。图标源文件与打包细节见下文[打包 macOS 应用](#打包-macos-应用)。
+脚本会构建 Release 可执行文件、生成应用图标，并组装临时签名的应用包，输出位于 `dist/YTray.app`。把 `YTray.app` 拖入 `/Applications`（或保留在任意目录）双击运行即完成安装，无需开发者账号。追加 `--universal` 可构建双架构应用，`--dmg` 会额外生成 `dist/YTray.dmg`（含 Applications 快捷方式）。图标源文件与打包细节见下文[打包 macOS 应用](#打包-macos-应用)。
 
 ## 从源码运行（开发模式）
 
@@ -209,3 +217,10 @@ script/     # 本地启动脚本
 ```
 
 输出位于 `dist/YTray.app`。打包需要 Xcode Command Line Tools 和 ImageMagick 的 `magick` 命令。
+
+两个可选参数：
+
+- `--universal`：构建 arm64 + x86_64 双架构应用（会校验产物确实包含两种架构）；
+- `--dmg`：额外生成 `dist/YTray.dmg`，内含 YTray.app 与 `/Applications` 快捷方式，并输出 SHA-256。
+
+CI 会在 push `v*` tag 时自动执行 `./script/package-macos.sh --universal --dmg`，把 `YTray.dmg` 与 Windows 的 `YTray.exe` 一并附到对应的 GitHub Release。
