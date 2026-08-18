@@ -4,7 +4,10 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -79,3 +82,77 @@ jobs:
           test -s "$RUNNER_TEMP/ytray-widget.png"
           test -s "$RUNNER_TEMP/ytray-wizard.png"
           test -s "$RUNNER_TEMP/ytray-edge-dock.png"
+
+  # Tag pushes run workflows from the tagged commit; package on tag (and main) so the
+  # DMG pipeline is exercised before any release depends on it.
+  package-dmg:
+    name: Package universal YTray.app and DMG
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Ensure ImageMagick
+        shell: bash
+        run: command -v magick >/dev/null 2>&1 || brew install imagemagick
+
+      - name: Package universal app and DMG
+        shell: bash
+        run: ./script/package-macos.sh --universal --dmg
+
+      - name: Verify DMG mounts the app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mount_dir="$(mktemp -d)"
+          hdiutil attach dist/YTray.dmg -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
+          test -x "$mount_dir/YTray.app/Contents/MacOS/YTray"
+          lipo -archs "$mount_dir/YTray.app/Contents/MacOS/YTray"
+          hdiutil detach "$mount_dir" >/dev/null
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YTray-macos-dmg
+          path: dist/YTray.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  # The Windows workflow owns release creation from the same tag; wait for it and
+  # attach the DMG so both platform assets land on one release.
+  publish-release:
+    name: Attach DMG to GitHub Release
+    needs: package-dmg
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: YTray-macos-dmg
+          path: dist
+
+      - name: Wait for release and upload DMG
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$TAG" dist/YTray.dmg --repo "$GITHUB_REPOSITORY" --clobber
+              echo "DMG attached to release $TAG"
+              exit 0
+            fi
+            echo "Release $TAG not published yet (attempt $attempt/20); waiting 30s…"
+            sleep 30
+          done
+          echo "Release $TAG never appeared; attach the DMG manually from the run artifacts." >&2
+          exit 1
