@@ -440,7 +440,7 @@ struct PluginsPage: View {
         return HStack(spacing: 12) {
             Image(systemName: "arrow.down.circle.fill").foregroundStyle(Brand.orange).font(.title2)
             VStack(alignment: .leading, spacing: 2) {
-                if let installed, let manifest = store.extensionManifest, !store.isExtensionUpdateAvailable {
+                if let installed, store.extensionManifest != nil, !store.isExtensionUpdateAvailable {
                     Text("Yakit 浏览器插件 v\(installed.version) 已是最新").font(.callout)
                 } else if let installed, store.isExtensionUpdateAvailable {
                     Text("当前 v\(installed.version) · 最新 v\(latest?.version ?? store.extensionManifest?.latest ?? "")").font(.callout)
