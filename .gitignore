@@ -9,6 +9,7 @@ dist/
 **/obj/
 /windows/artifacts/
 /windows/src/FodyWeavers.xsd
+/windows/src/Assets/BundledExtension/
 packages/
 *.user
 *.suo

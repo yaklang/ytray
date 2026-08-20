@@ -34,6 +34,12 @@ $windowsDir = $PSScriptRoot
 $solution = Join-Path $windowsDir 'YTray.sln'
 $config = if ($Release) { 'Release' } else { 'Debug' }
 
+if ($Package) {
+    if (-not $Release) { throw "-Package requires -Release." }
+    $bundledExtensionDir = Join-Path $windowsDir 'src\Assets\BundledExtension'
+    & (Join-Path $windowsDir 'prepare-yakit-browser-agent.ps1') -OutputDirectory $bundledExtensionDir
+}
+
 Write-Host "Building $solution ($config)..." -ForegroundColor Yellow
 & $msbuild $solution -p:Configuration=$config -restore -nologo -v:minimal
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
@@ -56,8 +62,6 @@ if ($Test) {
 }
 
 if ($Package) {
-    if (-not $Release) { throw "-Package requires -Release." }
-
     $releaseExe = Join-Path $windowsDir 'src\bin\Release\YTray.exe'
     if (-not (Test-Path $releaseExe -PathType Leaf)) { throw "Release executable was not produced: $releaseExe" }
 

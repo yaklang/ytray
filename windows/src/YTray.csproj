@@ -108,6 +108,10 @@
     <Resource Include="Assets\Icons\ytray-app.ico" />
     <Resource Include="Assets\Icons\ytray-tray-on-light.ico" />
     <Resource Include="Assets\Icons\ytray-tray-on-dark.ico" />
+    <EmbeddedResource Include="Assets\BundledExtension\yakit-browser-agent.zip"
+                      Condition="Exists('Assets\BundledExtension\yakit-browser-agent.zip')" />
+    <EmbeddedResource Include="Assets\BundledExtension\bundled-extension.json"
+                      Condition="Exists('Assets\BundledExtension\bundled-extension.json')" />
   </ItemGroup>
 
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

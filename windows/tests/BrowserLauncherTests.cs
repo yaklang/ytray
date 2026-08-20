@@ -222,7 +222,7 @@ namespace YTray.Tests
         }
 
         [TestMethod]
-        public void ReaddingPluginPreservesDefaultQuickLaunchSelection()
+        public void EnabledPluginsAreDefaultedForEveryQuickLaunch()
         {
             var directory = Path.Combine(Path.GetTempPath(), "YTrayPluginSelectionTests", Guid.NewGuid().ToString("N"));
             var extension = Path.Combine(directory, "extension");
@@ -235,7 +235,6 @@ namespace YTray.Tests
                 {
                     store.AddPlugin(extension);
                     var original = store.Plugins.Single();
-                    store.SetDefaultPlugins(new[] { original.Id, Guid.NewGuid() });
                     Assert.AreEqual(1, store.Settings.DefaultPluginIDs.Count);
                     Assert.AreEqual(original.Id, store.Settings.DefaultPluginIDs[0]);
                     var quick = store.QuickLaunchConfiguration(usePresetProxy: false);
@@ -254,6 +253,10 @@ namespace YTray.Tests
                     store.Plugins[0].Enabled = false;
                     store.UpdatePlugin(store.Plugins[0]);
                     Assert.AreEqual(0, store.Settings.DefaultPluginIDs.Count);
+
+                    store.Plugins[0].Enabled = true;
+                    store.UpdatePlugin(store.Plugins[0]);
+                    Assert.AreEqual(original.Id, store.Settings.DefaultPluginIDs.Single());
                 }
             }
             finally

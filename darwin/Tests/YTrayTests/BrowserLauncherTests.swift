@@ -3,6 +3,30 @@ import Network
 @testable import YTray
 
 final class BrowserLauncherTests: XCTestCase {
+    @MainActor
+    func testEnabledPluginsBecomeDefaultsForNewInstances() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-plugin-default-test-\(UUID().uuidString)", isDirectory: true)
+        let pluginDirectory = directory.appendingPathComponent("extension", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try Data(#"{"name":"Local","version":"1.0","manifest_version":3}"#.utf8)
+            .write(to: pluginDirectory.appendingPathComponent("manifest.json"))
+
+        let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
+        store.addPlugin(directory: pluginDirectory)
+        var plugin = try XCTUnwrap(store.plugins.first)
+        XCTAssertEqual(store.settings.defaultPluginIDs, [plugin.id])
+
+        plugin.enabled = false
+        store.updatePlugin(plugin)
+        XCTAssertTrue(store.settings.defaultPluginIDs.isEmpty)
+
+        plugin.enabled = true
+        store.updatePlugin(plugin)
+        XCTAssertEqual(store.settings.defaultPluginIDs, [plugin.id])
+    }
+
     func testDockBadgeSequenceAndValidation() throws {
         XCTAssertEqual(DockBadgeLabel.defaultLabel(for: 1), "A")
         XCTAssertEqual(DockBadgeLabel.defaultLabel(for: 26), "Z")

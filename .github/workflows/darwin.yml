@@ -110,6 +110,9 @@ jobs:
           mount_dir="$(mktemp -d)"
           hdiutil attach dist/YTray.dmg -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
           test -x "$mount_dir/YTray.app/Contents/MacOS/YTray"
+          test -s "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip"
+          test -s "$mount_dir/YTray.app/Contents/Resources/BundledExtension/bundled-extension.json"
+          unzip -t "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
           lipo -archs "$mount_dir/YTray.app/Contents/MacOS/YTray"
           hdiutil detach "$mount_dir" >/dev/null
 

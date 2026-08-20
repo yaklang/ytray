@@ -2,8 +2,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -30,6 +35,14 @@ namespace YTray.Core
         // (no Accept-Encoding handling by default), so decode gzip/deflate explicitly.
         private static readonly HttpClient Http = CreateHttpClient();
 
+        private sealed class BundledExtensionDescriptor
+        {
+            public string Version { get; set; } = "";
+            public string Sha256 { get; set; } = "";
+            public long Size { get; set; }
+            public string Variant { get; set; } = "";
+        }
+
         private static HttpClient CreateHttpClient()
         {
             var handler = new HttpClientHandler
@@ -45,6 +58,155 @@ namespace YTray.Core
 
         public static string PluginDirectory(string applicationDirectory, string version) =>
             Path.Combine(PluginsRoot(applicationDirectory), "yakit-browser-agent", version);
+
+        private static string ManagedExtensionOptOutPath(string applicationDirectory) =>
+            Path.Combine(PluginsRoot(applicationDirectory), ".yakit-browser-agent-removed");
+
+        public static bool TryGetBundledVersion(out string version)
+        {
+            version = "";
+            try
+            {
+                var package = ReadBundledPackage(includeArchive: false);
+                if (package.Descriptor == null) return false;
+                version = package.Descriptor.Version;
+                return !string.IsNullOrWhiteSpace(version);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Extracts the release archive embedded by the packaging workflow. The archive is
+        /// revalidated at runtime and expanded beneath the normal per-user Plugins directory.
+        /// </summary>
+        public static bool TryInstallBundled(string applicationDirectory, out string directory,
+            out string version, bool ignoreOptOut = false, bool replaceExisting = false)
+        {
+            directory = "";
+            version = "";
+            if (!ignoreOptOut && File.Exists(ManagedExtensionOptOutPath(applicationDirectory))) return false;
+
+            var package = ReadBundledPackage(includeArchive: true);
+            if (package.Descriptor == null || package.Archive == null) return false;
+            version = package.Descriptor.Version;
+            ValidateBundledPackage(package.Descriptor, package.Archive);
+
+            var destination = PluginDirectory(applicationDirectory, version);
+            try
+            {
+                if (!replaceExisting)
+                {
+                    directory = ResolveExtensionRoot(destination);
+                    return true;
+                }
+            }
+            catch { }
+
+            var temporary = destination + ".partial-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                ExtractArchiveSafely(package.Archive, temporary);
+                _ = ResolveExtensionRoot(temporary);
+                if (Directory.Exists(destination)) Directory.Delete(destination, true);
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                Directory.Move(temporary, destination);
+                directory = ResolveExtensionRoot(destination);
+                return true;
+            }
+            finally
+            {
+                try { if (Directory.Exists(temporary)) Directory.Delete(temporary, true); } catch { }
+            }
+        }
+
+        public static void MarkManagedExtensionRemoved(string applicationDirectory)
+        {
+            try
+            {
+                Directory.CreateDirectory(PluginsRoot(applicationDirectory));
+                File.WriteAllText(ManagedExtensionOptOutPath(applicationDirectory), DateTime.UtcNow.ToString("O"));
+            }
+            catch { }
+        }
+
+        public static void ClearManagedExtensionRemoved(string applicationDirectory)
+        {
+            try
+            {
+                var marker = ManagedExtensionOptOutPath(applicationDirectory);
+                if (File.Exists(marker)) File.Delete(marker);
+            }
+            catch { }
+        }
+
+        private static (BundledExtensionDescriptor? Descriptor, byte[]? Archive) ReadBundledPackage(bool includeArchive)
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var names = assembly.GetManifestResourceNames();
+            var descriptorName = names.FirstOrDefault(name =>
+                name.EndsWith("BundledExtension.bundled-extension.json", StringComparison.OrdinalIgnoreCase));
+            if (descriptorName == null) return (null, null);
+
+            BundledExtensionDescriptor? descriptor;
+            using (var stream = assembly.GetManifestResourceStream(descriptorName))
+            using (var reader = stream == null ? null : new StreamReader(stream, Encoding.UTF8, true))
+                descriptor = reader == null ? null : JsonConvert.DeserializeObject<BundledExtensionDescriptor>(reader.ReadToEnd());
+            if (!includeArchive || descriptor == null) return (descriptor, null);
+
+            var archiveName = names.FirstOrDefault(name =>
+                name.EndsWith("BundledExtension.yakit-browser-agent.zip", StringComparison.OrdinalIgnoreCase));
+            if (archiveName == null) return (descriptor, null);
+            using (var stream = assembly.GetManifestResourceStream(archiveName))
+            using (var memory = new MemoryStream())
+            {
+                if (stream == null) return (descriptor, null);
+                stream.CopyTo(memory);
+                return (descriptor, memory.ToArray());
+            }
+        }
+
+        private static void ValidateBundledPackage(BundledExtensionDescriptor descriptor, byte[] archive)
+        {
+            if (!Regex.IsMatch(descriptor.Version ?? "", @"^[0-9]+(?:\.[0-9]+)*$", RegexOptions.CultureInvariant)
+                || !string.Equals(descriptor.Variant, EnterpriseVariant, StringComparison.OrdinalIgnoreCase))
+                throw new YTrayException(YTrayError.ExtensionInstallFailed, "内置插件元数据无效");
+            if (archive.LongLength != descriptor.Size)
+                throw new YTrayException(YTrayError.ExtensionInstallFailed, "内置插件大小校验失败");
+            using (var sha = SHA256.Create())
+            {
+                var actual = string.Concat(sha.ComputeHash(archive).Select(value => value.ToString("x2")));
+                if (!string.Equals(actual, descriptor.Sha256, StringComparison.OrdinalIgnoreCase))
+                    throw new YTrayException(YTrayError.ExtensionInstallFailed, "内置插件 SHA-256 校验失败");
+            }
+        }
+
+        private static void ExtractArchiveSafely(byte[] archive, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            var destinationRoot = Path.GetFullPath(destination)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            using (var memory = new MemoryStream(archive, writable: false))
+            using (var zip = new ZipArchive(memory, ZipArchiveMode.Read))
+            {
+                foreach (var entry in zip.Entries)
+                {
+                    var relative = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
+                    var output = Path.GetFullPath(Path.Combine(destination, relative));
+                    if (!output.StartsWith(destinationRoot, StringComparison.OrdinalIgnoreCase))
+                        throw new YTrayException(YTrayError.ExtensionInstallFailed, "内置插件包含不安全路径");
+                    if (string.IsNullOrEmpty(entry.Name))
+                    {
+                        Directory.CreateDirectory(output);
+                        continue;
+                    }
+                    Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+                    using (var input = entry.Open())
+                    using (var file = new FileStream(output, FileMode.Create, FileAccess.Write, FileShare.None))
+                        input.CopyTo(file);
+                }
+            }
+        }
 
         public static async Task<ExtensionManifest> FetchManifestAsync()
         {

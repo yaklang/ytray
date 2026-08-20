@@ -20,6 +20,7 @@ namespace YTray.Views.Pages
         {
             public BrowserPlugin Plugin { get; set; } = null!;
             public ImageSource? IconSource { get; set; }
+            public string VersionLabel => $"v{Plugin.Version} · Manifest V{Plugin.ManifestVersion}";
         }
 
         private readonly InstanceStore _store;
@@ -89,18 +90,21 @@ namespace YTray.Views.Pages
             var manifest = _store.ExtensionManifest;
             var latest = manifest?.Versions.FirstOrDefault(v =>
                 ExtensionInstaller.EnterpriseArtifact(v) != null);
+            var hasBundledExtension = ExtensionInstaller.TryGetBundledVersion(out var bundledVersion);
             var busy = _store.IsInstallingExtension || _extensionManifestLoading;
 
-            ExtensionInstallBtn.IsEnabled = !busy && latest != null;
+            ExtensionInstallBtn.IsEnabled = !busy && (latest != null || hasBundledExtension);
             ExtensionRefreshBtn.IsEnabled = !_store.IsInstallingExtension;
             ExtensionUpdateBadge.Visibility = _store.IsExtensionUpdateAvailable && !busy
                 ? Visibility.Visible : Visibility.Collapsed;
 
             string buttonLabel;
             if (_store.IsInstallingExtension) buttonLabel = $"安装中 {_store.ExtensionInstallPercent}%";
-            else if (installed == null) buttonLabel = latest == null ? "下载 Yakit 插件" : $"下载 Yakit 插件 v{latest.Version}";
+            else if (installed == null) buttonLabel = latest != null
+                ? $"下载 Yakit 插件 v{latest.Version}"
+                : hasBundledExtension ? $"安装内置版本 v{bundledVersion}" : "下载 Yakit 插件";
             else if (_store.IsExtensionUpdateAvailable && latest != null) buttonLabel = $"更新到 v{latest.Version}";
-            else buttonLabel = "重新下载";
+            else buttonLabel = latest != null ? "重新下载" : hasBundledExtension ? "重新安装内置版本" : "重新下载";
             ExtensionInstallBtn.Content = buttonLabel;
 
             ExtensionProgressBar.Visibility = _store.IsInstallingExtension ? Visibility.Visible : Visibility.Collapsed;
@@ -117,6 +121,8 @@ namespace YTray.Views.Pages
                     : $"Yakit 插件 v{installed.Version} 已是最新";
             else if (manifest != null)
                 status = $"Yakit 浏览器插件 v{latest?.Version ?? manifest.Latest} 可下载";
+            else if (installed == null && hasBundledExtension)
+                status = $"安装包内置 Yakit 浏览器插件 v{bundledVersion}";
             else
                 status = _store.ExtensionStatusMessage;
             ExtensionStatusText.Text = status;
@@ -177,6 +183,7 @@ namespace YTray.Views.Pages
             DetailName.Text = _selected!.Name;
             DetailVersion.Text = $"v{_selected.Version} · Manifest V{_selected.ManifestVersion}";
             DetailPath.Text = _selected.Path;
+            DetailPath.ToolTip = _selected.Path;
             DetailIcon.Source = PluginIconSource.FromPlugin(_selected);
             DetailState.Text = _selected.Enabled ? "已启用" : "已停用";
             DetailStateDot.Fill = (Brush)FindResource(_selected.Enabled ? "SuccessBrush" : "TextTertiaryBrush");

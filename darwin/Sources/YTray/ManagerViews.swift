@@ -236,18 +236,6 @@ struct SettingsPage: View {
                 Text("每行一个 --flag。实例隔离、调试端口和插件参数由 YTray 管理，不能在这里覆盖。")
                     .font(.caption).foregroundStyle(.secondary)
             } header: { Text("附加参数") }
-            Section {
-                ForEach(store.plugins) { plugin in
-                    Toggle(plugin.name, isOn: Binding(
-                        get: { store.settings.defaultPluginIDs.contains(plugin.id) },
-                        set: { enabled in
-                            if enabled { store.settings.defaultPluginIDs.append(plugin.id) }
-                            else { store.settings.defaultPluginIDs.removeAll { $0 == plugin.id } }
-                        }
-                    ))
-                }
-                if store.plugins.isEmpty { Text("请先在“插件管理”添加已解压插件目录").foregroundStyle(.secondary) }
-            } header: { Text("默认加载插件") }
             Button("保存默认设置") { store.saveSettings() }.buttonStyle(FilledOrangeButtonStyle())
         }.formStyle(.grouped).navigationTitle("启动设置")
     }
@@ -400,7 +388,7 @@ struct PluginsPage: View {
     @ObservedObject var store: InstanceStore
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            PageHeader(title: "插件管理", subtitle: "Chrome 命令行只能加载已解压插件目录；请选择根部包含 manifest.json 的文件夹。")
+            PageHeader(title: "插件管理", subtitle: "启用的本地插件会自动加载到新实例；自定义启动仍可临时调整。")
             yakitExtensionSection
             HStack { Button("添加本地插件目录…") { choosePlugin() }.buttonStyle(FilledOrangeButtonStyle()); Spacer() }
             List {
@@ -413,7 +401,7 @@ struct PluginsPage: View {
                             Text(plugin.path).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                         }
                         Spacer()
-                        Toggle("可用", isOn: Binding(get: { plugin.enabled }, set: { enabled in
+                        Toggle("新实例加载", isOn: Binding(get: { plugin.enabled }, set: { enabled in
                             var changed = plugin; changed.enabled = enabled; store.updatePlugin(changed)
                         })).toggleStyle(.switch)
                         Button(role: .destructive) { store.removePlugin(plugin) } label: { Image(systemName: "trash") }
@@ -429,14 +417,21 @@ struct PluginsPage: View {
         store.extensionManifest?.versions.first { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }
     }
 
+    private var bundledExtensionVersion: String? {
+        ExtensionInstaller.bundledVersion()
+    }
+
     private var yakitExtensionSection: some View {
         let installed = store.managedExtension
         let latest = latestEnterpriseVersion
+        let bundled = bundledExtensionVersion
         let busy = store.isInstallingExtension
         let buttonTitle = busy ? "安装中…"
-            : installed == nil ? (latest.map { "下载 Yakit 插件 v\($0.version)" } ?? "下载 Yakit 插件")
+            : installed == nil ? (latest.map { "下载 Yakit 插件 v\($0.version)" }
+                ?? bundled.map { "安装内置版本 v\($0)" }
+                ?? "下载 Yakit 插件")
             : store.isExtensionUpdateAvailable && latest != nil ? "更新到 v\(latest!.version)"
-            : "重新下载"
+            : latest != nil ? "重新下载" : bundled != nil ? "重新安装内置版本" : "重新下载"
         return HStack(spacing: 12) {
             Image(systemName: "arrow.down.circle.fill").foregroundStyle(Brand.orange).font(.title2)
             VStack(alignment: .leading, spacing: 2) {
@@ -446,6 +441,8 @@ struct PluginsPage: View {
                     Text("当前 v\(installed.version) · 最新 v\(latest?.version ?? store.extensionManifest?.latest ?? "")").font(.callout)
                 } else if let latest {
                     Text("Yakit 浏览器插件 v\(latest.version) 可下载").font(.callout)
+                } else if let bundled {
+                    Text("安装包内置 Yakit 浏览器插件 v\(bundled)").font(.callout)
                 } else {
                     Text("Yakit 浏览器插件").font(.callout)
                 }
@@ -458,7 +455,7 @@ struct PluginsPage: View {
                 .disabled(busy)
             Button(buttonTitle) { Task { await store.installExtension() } }
                 .buttonStyle(FilledOrangeButtonStyle())
-                .disabled(busy || latest == nil)
+                .disabled(busy || latest == nil && bundled == nil)
         }
         .padding(14)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))

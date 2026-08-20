@@ -30,21 +30,12 @@ namespace YTray.Views.Pages
             public string Subtitle { get; set; } = "";
         }
 
-        private sealed class PluginChoice
-        {
-            public BrowserPlugin Plugin { get; set; } = null!;
-            public ImageSource? IconSource { get; set; }
-            public bool IsSelected { get; set; }
-        }
-
         private readonly InstanceStore _store;
         private bool _subscribed;
         private bool _refreshScheduled;
         private string? _runtimeChoicesSignature;
-        private string? _pluginChoicesSignature;
         private readonly List<RuntimeChoice> _runtimeChoices = new List<RuntimeChoice>();
         private readonly List<NetworkChoice> _networkChoices = new List<NetworkChoice>();
-        private readonly List<PluginChoice> _pluginChoices = new List<PluginChoice>();
 
         public QuickLaunchPage(InstanceStore store)
         {
@@ -90,7 +81,6 @@ namespace YTray.Views.Pages
         {
             if (RuntimeCombo == null) return;
             RefreshRuntimeChoices();
-            RefreshPluginChoices();
             if (!HomeUrlBox.IsKeyboardFocusWithin) HomeUrlBox.Text = _store.Settings.HomeURL;
             var proxyAddress = (_store.Settings.PresetProxyServer ?? LaunchSettings.DefaultPresetProxyServer)
                 .Replace("http://", "").Replace("https://", "");
@@ -141,62 +131,6 @@ namespace YTray.Views.Pages
         {
             if (RuntimeCombo.SelectedItem is RuntimeChoice choice && _store.Settings.DefaultRuntimeID != choice.Runtime.Id)
                 _store.SelectDefaultRuntime(choice.Runtime);
-        }
-
-        private void RefreshPluginChoices()
-        {
-            var signature = string.Join("|", _store.Plugins.Select(plugin =>
-                $"{plugin.Id:N}:{plugin.Enabled}:{plugin.Name}:{plugin.Version}:{plugin.IconPath}"))
-                + ":selected=" + string.Join(",", _store.Settings.DefaultPluginIDs.OrderBy(id => id));
-            if (_pluginChoicesSignature != signature)
-            {
-                _pluginChoicesSignature = signature;
-                var selectedIDs = new HashSet<Guid>(_store.Settings.DefaultPluginIDs);
-                _pluginChoices.Clear();
-                foreach (var plugin in _store.Plugins.Where(plugin => plugin.Enabled))
-                {
-                    _pluginChoices.Add(new PluginChoice
-                    {
-                        Plugin = plugin,
-                        IconSource = PluginIconSource.FromPlugin(plugin),
-                        IsSelected = selectedIDs.Contains(plugin.Id),
-                    });
-                }
-                PluginChoiceList.ItemsSource = _pluginChoices;
-            }
-
-            PluginChoiceEmpty.Visibility = _pluginChoices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            PluginChoiceList.Visibility = _pluginChoices.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-            UpdatePluginSelectionLabel();
-        }
-
-        private void UpdatePluginSelectionLabel()
-        {
-            var selected = _pluginChoices.Where(choice => choice.IsSelected).ToList();
-            PluginSelectionLabel.Text = selected.Count switch
-            {
-                0 => "未加载插件",
-                1 => selected[0].Plugin.Name,
-                _ => $"已选择 {selected.Count} 个插件",
-            };
-            PluginSelectorButton.ToolTip = selected.Count == 0
-                ? "为概述页快捷启动选择本地插件"
-                : string.Join(Environment.NewLine, selected.Select(choice => choice.Plugin.Name));
-        }
-
-        private void TogglePluginPopup_Click(object sender, RoutedEventArgs e)
-        {
-            PluginPopup.IsOpen = !PluginPopup.IsOpen;
-        }
-
-        private void PluginChoice_Click(object sender, RoutedEventArgs e)
-        {
-            if (!(sender is CheckBox checkBox) || !(checkBox.Tag is PluginChoice choice)) return;
-            choice.IsSelected = checkBox.IsChecked == true;
-            _store.SetDefaultPlugins(_pluginChoices
-                .Where(choice => choice.IsSelected)
-                .Select(choice => choice.Plugin.Id));
-            UpdatePluginSelectionLabel();
         }
 
         private void ChoiceCombo_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

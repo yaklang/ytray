@@ -56,9 +56,32 @@ namespace YTray.Views
         {
             for (int i = 0; i < 4; i++)
             {
-                var dot = (System.Windows.Shapes.Ellipse)FindName("Step" + i + "Dot");
-                if (dot != null)
-                    dot.SetResourceReference(Shape.FillProperty, i <= _step ? "BrandOrangeBrush" : "HairlineBrush");
+                var reached = i <= _step;
+                var completed = i < _step;
+                if (FindName("Step" + i + "Dot") is Border dot)
+                {
+                    dot.SetResourceReference(Border.BackgroundProperty,
+                        reached ? "BrandOrangeBrush" : "SurfaceMutedBrush");
+                    dot.SetResourceReference(Border.BorderBrushProperty,
+                        reached ? "BrandOrangeBrush" : "HairlineBrush");
+                }
+                if (FindName("Step" + i + "Number") is TextBlock number)
+                {
+                    number.Visibility = completed ? Visibility.Collapsed : Visibility.Visible;
+                    if (reached) number.Foreground = Brushes.White;
+                    else number.SetResourceReference(TextBlock.ForegroundProperty, "TextTertiaryBrush");
+                }
+                if (FindName("Step" + i + "Check") is System.Windows.Shapes.Path check)
+                    check.Visibility = completed ? Visibility.Visible : Visibility.Collapsed;
+                if (FindName("Step" + i + "Title") is TextBlock title)
+                {
+                    title.FontWeight = reached ? FontWeights.SemiBold : FontWeights.Normal;
+                    title.SetResourceReference(TextBlock.ForegroundProperty,
+                        reached ? "TextPrimaryBrush" : "TextSecondaryBrush");
+                }
+                if (i < 3 && FindName("Step" + i + "Connector") is Rectangle connector)
+                    connector.SetResourceReference(Shape.FillProperty,
+                        completed ? "BrandOrangeBrush" : "HairlineBrush");
             }
         }
 
