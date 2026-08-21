@@ -25,6 +25,22 @@ final class BrowserLauncherTests: XCTestCase {
         plugin.enabled = true
         store.updatePlugin(plugin)
         XCTAssertEqual(store.settings.defaultPluginIDs, [plugin.id])
+
+        let managedDirectory = ExtensionInstaller.pluginDirectory(
+            applicationDirectory: directory,
+            version: "1.0"
+        )
+        try FileManager.default.createDirectory(at: managedDirectory, withIntermediateDirectories: true)
+        try Data(#"{"name":"Yakit Browser Agent","version":"1.0","manifest_version":3}"#.utf8)
+            .write(to: managedDirectory.appendingPathComponent("manifest.json"))
+        store.addPlugin(directory: managedDirectory)
+        var managed = try XCTUnwrap(store.managedExtension)
+        store.removePlugin(managed)
+        XCTAssertTrue(store.plugins.contains(where: { $0.id == managed.id }))
+
+        managed.enabled = false
+        store.updatePlugin(managed)
+        XCTAssertFalse(store.settings.defaultPluginIDs.contains(managed.id))
     }
 
     func testDockBadgeSequenceAndValidation() throws {

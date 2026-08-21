@@ -21,6 +21,7 @@ namespace YTray.Views.Pages
             public BrowserPlugin Plugin { get; set; } = null!;
             public ImageSource? IconSource { get; set; }
             public string VersionLabel => $"v{Plugin.Version} · Manifest V{Plugin.ManifestVersion}";
+            public bool IsManaged { get; set; }
         }
 
         private readonly InstanceStore _store;
@@ -67,11 +68,16 @@ namespace YTray.Views.Pages
         private void Refresh()
         {
             var selectedId = _selected?.Id;
-            PluginList.ItemsSource = _store.Plugins.Select(plugin => new PluginRow
-            {
-                Plugin = plugin,
-                IconSource = PluginIconSource.FromPlugin(plugin),
-            }).ToList();
+            var managedId = _store.ManagedExtension?.Id;
+            PluginList.ItemsSource = _store.Plugins
+                .OrderBy(plugin => plugin.Id == managedId ? 0 : 1)
+                .ThenBy(plugin => plugin.CreatedAt)
+                .Select(plugin => new PluginRow
+                {
+                    Plugin = plugin,
+                    IconSource = PluginIconSource.FromPlugin(plugin),
+                    IsManaged = plugin.Id == managedId,
+                }).ToList();
             _selected = _store.Plugins.FirstOrDefault(p => p.Id == selectedId) ?? _store.Plugins.FirstOrDefault();
             PluginList.SelectedItem = PluginList.Items.Cast<PluginRow>()
                 .FirstOrDefault(row => row.Plugin.Id == _selected?.Id);
@@ -187,11 +193,9 @@ namespace YTray.Views.Pages
             DetailIcon.Source = PluginIconSource.FromPlugin(_selected);
             DetailState.Text = _selected.Enabled ? "已启用" : "已停用";
             DetailStateDot.Fill = (Brush)FindResource(_selected.Enabled ? "SuccessBrush" : "TextTertiaryBrush");
-        }
-
-        private void OpenFolder_Click(object sender, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)sender).Tag is BrowserPlugin plugin) OpenFolder(plugin);
+            var isManaged = _store.ManagedExtension?.Id == _selected.Id;
+            DetailRemoveButton.Visibility = isManaged ? Visibility.Collapsed : Visibility.Visible;
+            Grid.SetColumnSpan(DetailOpenFolderButton, isManaged ? 3 : 1);
         }
 
         private void OpenSelectedFolder_Click(object sender, RoutedEventArgs e) { if (_selected != null) OpenFolder(_selected); }

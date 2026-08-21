@@ -261,14 +261,11 @@ namespace YTray.Core
         public void RemovePlugin(BrowserPlugin plugin)
         {
             if (plugin == null) return;
-            var removesManagedExtension = ManagedExtension?.Id == plugin.Id;
+            // The bundled Yakit Browser Agent is a managed part of YTray. Users may
+            // disable its default loading, but it cannot be removed from the plugin list.
+            if (ManagedExtension?.Id == plugin.Id) return;
             var p = Plugins.FirstOrDefault(x => x.Id == plugin.Id);
             if (p != null) Plugins.Remove(p);
-            if (removesManagedExtension)
-            {
-                ExtensionInstaller.MarkManagedExtensionRemoved(ApplicationDirectory);
-                try { if (Directory.Exists(plugin.Path)) Directory.Delete(plugin.Path, true); } catch { }
-            }
             SynchronizeDefaultPluginIDs();
             Save();
         }

@@ -325,12 +325,9 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     func removePlugin(_ plugin: BrowserPlugin) {
-        let removesManagedExtension = managedExtension?.id == plugin.id
+        // The bundled Yakit Browser Agent may be disabled, but remains managed by YTray.
+        guard managedExtension?.id != plugin.id else { return }
         plugins.removeAll { $0.id == plugin.id }
-        if removesManagedExtension {
-            ExtensionInstaller.markManagedExtensionRemoved(applicationDirectory: applicationDirectory)
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: plugin.path))
-        }
         synchronizeDefaultPluginIDs()
         save()
     }

@@ -392,7 +392,11 @@ struct PluginsPage: View {
             yakitExtensionSection
             HStack { Button("添加本地插件目录…") { choosePlugin() }.buttonStyle(FilledOrangeButtonStyle()); Spacer() }
             List {
-                ForEach(store.plugins) { plugin in
+                ForEach(store.plugins.sorted { left, right in
+                    if left.id == store.managedExtension?.id { return true }
+                    if right.id == store.managedExtension?.id { return false }
+                    return left.createdAt < right.createdAt
+                }) { plugin in
                     HStack(spacing: 12) {
                         Image(systemName: "puzzlepiece.extension.fill").foregroundStyle(Brand.orange).font(.title2)
                         VStack(alignment: .leading, spacing: 3) {
@@ -404,7 +408,9 @@ struct PluginsPage: View {
                         Toggle("新实例加载", isOn: Binding(get: { plugin.enabled }, set: { enabled in
                             var changed = plugin; changed.enabled = enabled; store.updatePlugin(changed)
                         })).toggleStyle(.switch)
-                        Button(role: .destructive) { store.removePlugin(plugin) } label: { Image(systemName: "trash") }
+                        if plugin.id != store.managedExtension?.id {
+                            Button(role: .destructive) { store.removePlugin(plugin) } label: { Image(systemName: "trash") }
+                        }
                             .buttonStyle(HistoryDeleteButtonStyle())
                     }.padding(.vertical, 6)
                 }
