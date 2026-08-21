@@ -251,14 +251,16 @@ namespace YTray.Models
 
     public class LaunchSettings
     {
-        public const int CurrentConfigurationVersion = 5;
+        public const int CurrentConfigurationVersion = 6;
         public const int CertificateDefaultMigrationVersion = 2;
+        public const int HomeURLDefaultMigrationVersion = 6;
+        public const string DefaultHomeURL = "https://example.com";
         public const string DefaultPresetProxyServer = "http://127.0.0.1:8083";
 
         public int ConfigurationVersion { get; set; } = CurrentConfigurationVersion;
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public Guid? DefaultRuntimeID { get; set; }
-        public string HomeURL { get; set; } = "chrome://newtab";
+        public string HomeURL { get; set; } = DefaultHomeURL;
         public string ProxyServer { get; set; } = "";
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string ProxyUsername { get; set; } = "";
@@ -311,7 +313,7 @@ namespace YTray.Models
             {
                 ConfigurationVersion = ConfigurationVersion,
                 DefaultRuntimeID = DefaultRuntimeID,
-                HomeURL = HomeURL ?? "chrome://newtab",
+                HomeURL = HomeURL ?? DefaultHomeURL,
                 ProxyServer = ProxyServer ?? "",
                 ProxyUsername = ProxyUsername ?? "",
                 ProxyPassword = ProxyPassword ?? "",

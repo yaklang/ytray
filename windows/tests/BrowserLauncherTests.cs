@@ -155,6 +155,7 @@ namespace YTray.Tests
             Assert.IsFalse(args.Contains("--no-proxy-server"));
             Assert.IsTrue(args.Contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
             Assert.IsTrue(args.Contains("--ignore-certificate-errors"));
+            Assert.AreEqual(LaunchSettings.DefaultHomeURL, args.Last());
         }
 
         [TestMethod]
@@ -455,6 +456,59 @@ namespace YTray.Tests
                 Assert.IsNotNull(loaded.Plugins);
                 Assert.IsNotNull(loaded.Instances);
                 Assert.IsNotNull(loaded.Settings);
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void DefaultHomeURLIsExampleDotComAndLegacyDefaultMigrates()
+        {
+            Assert.AreEqual("https://example.com", new LaunchSettings().HomeURL);
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayHomeURLTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                StatePersistence.Save(directory, new PersistedState
+                {
+                    Settings = new LaunchSettings
+                    {
+                        ConfigurationVersion = LaunchSettings.HomeURLDefaultMigrationVersion - 1,
+                        HomeURL = "chrome://newtab",
+                    },
+                });
+
+                using (var store = new InstanceStore(directory, discoverSystemBrowsers: false))
+                {
+                    Assert.AreEqual(LaunchSettings.DefaultHomeURL, store.Settings.HomeURL);
+                    Assert.AreEqual(LaunchSettings.CurrentConfigurationVersion,
+                        store.Settings.ConfigurationVersion);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void HomeURLMigrationPreservesCustomURL()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayHomeURLTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                StatePersistence.Save(directory, new PersistedState
+                {
+                    Settings = new LaunchSettings
+                    {
+                        ConfigurationVersion = LaunchSettings.HomeURLDefaultMigrationVersion - 1,
+                        HomeURL = "https://yaklang.com",
+                    },
+                });
+
+                using (var store = new InstanceStore(directory, discoverSystemBrowsers: false))
+                    Assert.AreEqual("https://yaklang.com", store.Settings.HomeURL);
             }
             finally
             {

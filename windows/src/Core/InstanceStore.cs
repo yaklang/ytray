@@ -1201,7 +1201,18 @@ namespace YTray.Core
 
         private void NormalizeLoadedState()
         {
-            Settings.HomeURL = Settings.HomeURL ?? "chrome://newtab";
+            var savedConfigurationVersion = Settings.ConfigurationVersion;
+            var savedHomeURL = Settings.HomeURL;
+            if (savedConfigurationVersion < LaunchSettings.HomeURLDefaultMigrationVersion
+                && string.Equals(savedHomeURL?.Trim(), "chrome://newtab", StringComparison.OrdinalIgnoreCase))
+            {
+                Settings.HomeURL = LaunchSettings.DefaultHomeURL;
+            }
+            else
+            {
+                Settings.HomeURL = savedHomeURL ?? LaunchSettings.DefaultHomeURL;
+            }
+            Settings.ConfigurationVersion = LaunchSettings.CurrentConfigurationVersion;
             Settings.ProxyServer = Settings.ProxyServer ?? "";
             Settings.ProxyUsername = Settings.ProxyUsername ?? "";
             Settings.ProxyPassword = Settings.ProxyPassword ?? "";
@@ -1238,7 +1249,7 @@ namespace YTray.Core
                 instance.Name = instance.Name ?? "浏览器实例";
                 instance.RuntimeName = instance.RuntimeName ?? "浏览器";
                 instance.ProfilePath = instance.ProfilePath ?? "";
-                instance.StartURL = instance.StartURL ?? "chrome://newtab";
+                instance.StartURL = instance.StartURL ?? LaunchSettings.DefaultHomeURL;
                 instance.PluginIDs = instance.PluginIDs ?? new List<Guid>();
                 if (instance.Status == InstanceStatus.Running && !IsExpectedInstanceProcess(instance))
                     instance.Status = InstanceStatus.Stopped;

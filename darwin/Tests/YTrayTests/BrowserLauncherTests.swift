@@ -180,8 +180,21 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertNil(state.instances.first?.thumbnailUpdatedAt)
         XCTAssertNil(state.instances.first?.dockBadge)
         XCTAssertEqual(state.settings.dockBadge, "")
+        XCTAssertEqual(state.settings.homeURL, LaunchSettings.defaultHomeURL)
         XCTAssertTrue(state.settings.ignoreCertificateErrors)
         XCTAssertEqual(state.settings.presetProxyServer, "http://127.0.0.1:8083")
+    }
+
+    func testDefaultHomeURLIsExampleDotComAndMigrationPreservesCustomURLs() throws {
+        XCTAssertEqual(LaunchSettings().homeURL, "https://example.com")
+
+        let oldDefault = #"{"configurationVersion":4,"homeURL":"chrome://newtab"}"#
+        let migrated = try JSONDecoder().decode(LaunchSettings.self, from: Data(oldDefault.utf8))
+        XCTAssertEqual(migrated.homeURL, LaunchSettings.defaultHomeURL)
+
+        let custom = #"{"configurationVersion":4,"homeURL":"https://yaklang.com"}"#
+        let preserved = try JSONDecoder().decode(LaunchSettings.self, from: Data(custom.utf8))
+        XCTAssertEqual(preserved.homeURL, "https://yaklang.com")
     }
 
     func testCurrentSettingsRespectUserChoiceAfterCertificateDefaultMigration() throws {
@@ -946,6 +959,7 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertFalse(arguments.contains("--no-proxy-server"))
         XCTAssertTrue(arguments.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"))
         XCTAssertTrue(arguments.contains("--ignore-certificate-errors"))
+        XCTAssertEqual(arguments.last, LaunchSettings.defaultHomeURL)
     }
 
     func testNoProxyAndHTTPProxyLaunchesHaveExclusiveNetworkArguments() throws {

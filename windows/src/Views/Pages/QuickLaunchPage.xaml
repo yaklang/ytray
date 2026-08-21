@@ -114,7 +114,7 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                     </StackPanel>
-                    <StackPanel Grid.Row="6"><TextBlock Text="启动地址" Style="{StaticResource OverviewFieldLabel}"/><TextBox x:Name="HomeUrlBox" Height="42" Text="chrome://newtab" FontSize="13" FontWeight="SemiBold" Padding="12,6"/></StackPanel>
+                    <StackPanel Grid.Row="6"><TextBlock Text="启动地址" Style="{StaticResource OverviewFieldLabel}"/><TextBox x:Name="HomeUrlBox" Height="42" Text="https://example.com" FontSize="13" FontWeight="SemiBold" Padding="12,6"/></StackPanel>
                     <Grid Grid.Row="8">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="1.28*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="1*"/></Grid.ColumnDefinitions>
                         <Button x:Name="LaunchButton" Content="启动实例" Click="Launch_Click" Style="{StaticResource OverviewPrimaryButton}"/>

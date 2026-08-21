@@ -221,13 +221,15 @@ enum LaunchMode: String, Codable, CaseIterable {
 }
 
 struct LaunchSettings: Codable, Equatable {
-    static let currentConfigurationVersion = 4
+    static let currentConfigurationVersion = 5
     static let certificateDefaultMigrationVersion = 2
+    static let homeURLDefaultMigrationVersion = 5
+    static let defaultHomeURL = "https://example.com"
     static let defaultPresetProxyServer = "http://127.0.0.1:8083"
 
     var configurationVersion = Self.currentConfigurationVersion
     var defaultRuntimeID: UUID?
-    var homeURL = "chrome://newtab"
+    var homeURL = Self.defaultHomeURL
     var proxyServer = ""
     var proxyUsername = ""
     var proxyPassword = ""
@@ -272,7 +274,13 @@ extension LaunchSettings {
         let savedVersion = try container.decodeIfPresent(Int.self, forKey: .configurationVersion) ?? 0
         configurationVersion = Self.currentConfigurationVersion
         defaultRuntimeID = try container.decodeIfPresent(UUID.self, forKey: .defaultRuntimeID)
-        homeURL = try container.decodeIfPresent(String.self, forKey: .homeURL) ?? "chrome://newtab"
+        let savedHomeURL = try container.decodeIfPresent(String.self, forKey: .homeURL)
+            ?? Self.defaultHomeURL
+        homeURL = savedVersion < Self.homeURLDefaultMigrationVersion
+            && savedHomeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("chrome://newtab") == .orderedSame
+            ? Self.defaultHomeURL
+            : savedHomeURL
         proxyServer = try container.decodeIfPresent(String.self, forKey: .proxyServer) ?? ""
         proxyUsername = try container.decodeIfPresent(String.self, forKey: .proxyUsername) ?? ""
         proxyPassword = ""
