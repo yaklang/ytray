@@ -393,8 +393,9 @@ struct PluginsPage: View {
             HStack { Button("添加本地插件目录…") { choosePlugin() }.buttonStyle(FilledOrangeButtonStyle()); Spacer() }
             List {
                 ForEach(store.plugins.sorted { left, right in
-                    if left.id == store.managedExtension?.id { return true }
-                    if right.id == store.managedExtension?.id { return false }
+                    let leftIsManaged = left.id == store.managedExtension?.id
+                    let rightIsManaged = right.id == store.managedExtension?.id
+                    if leftIsManaged != rightIsManaged { return leftIsManaged }
                     return left.createdAt < right.createdAt
                 }) { plugin in
                     HStack(spacing: 12) {
@@ -410,8 +411,8 @@ struct PluginsPage: View {
                         })).toggleStyle(.switch)
                         if plugin.id != store.managedExtension?.id {
                             Button(role: .destructive) { store.removePlugin(plugin) } label: { Image(systemName: "trash") }
+                                .buttonStyle(HistoryDeleteButtonStyle())
                         }
-                            .buttonStyle(HistoryDeleteButtonStyle())
                     }.padding(.vertical, 6)
                 }
             }.overlay { if store.plugins.isEmpty { ContentUnavailableView("还没有插件", systemImage: "puzzlepiece.extension", description: Text("添加一个已解压的 Chrome 插件目录")) } }
