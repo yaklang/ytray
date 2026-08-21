@@ -215,11 +215,37 @@ namespace YTray.Views
         {
             var sp = new StackPanel();
             sp.Children.Add(new TextBlock { Text = "选择本次加载的本地插件", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
-            foreach (var p in _store.Plugins.Where(pl => pl.Enabled))
+            var availablePlugins = _store.Plugins.ToList();
+            var actions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 0, 0, 10),
+            };
+            var selectAll = new Button { Content = "全部", MinWidth = 62, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+            selectAll.Style = (Style)FindResource("YTrayButton");
+            selectAll.IsEnabled = availablePlugins.Count > 0;
+            selectAll.Click += (s, e) =>
+            {
+                _pluginIDs = availablePlugins.Select(plugin => plugin.Id).ToList();
+                ShowStep();
+            };
+            var selectNone = new Button { Content = "不加载插件", MinWidth = 92, Height = 30 };
+            selectNone.Style = (Style)FindResource("YTrayButton");
+            selectNone.IsEnabled = _pluginIDs.Count > 0;
+            selectNone.Click += (s, e) =>
+            {
+                _pluginIDs.Clear();
+                ShowStep();
+            };
+            actions.Children.Add(selectAll);
+            actions.Children.Add(selectNone);
+            sp.Children.Add(actions);
+            foreach (var p in availablePlugins)
             {
                 var cb = new CheckBox
                 {
-                    Content = $"{p.Name} v{p.Version} · Manifest V{p.ManifestVersion}",
+                    Content = $"{p.Name} v{p.Version} · Manifest V{p.ManifestVersion}{(p.Enabled ? "" : " · 默认关闭")}",
                     IsChecked = _pluginIDs.Contains(p.Id),
                     Tag = p.Id,
                     Margin = new Thickness(0, 0, 0, 6),
@@ -228,7 +254,7 @@ namespace YTray.Views
                 cb.Unchecked += (s, e) => _pluginIDs.Remove((Guid)((CheckBox)s).Tag);
                 sp.Children.Add(cb);
             }
-            if (_store.Plugins.Count == 0)
+            if (availablePlugins.Count == 0)
             {
                 var empty = new TextBlock { Text = "没有可用的本地插件" };
                 empty.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");

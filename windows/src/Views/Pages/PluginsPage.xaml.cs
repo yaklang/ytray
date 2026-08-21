@@ -27,7 +27,6 @@ namespace YTray.Views.Pages
         private readonly InstanceStore _store;
         private bool _subscribed;
         private bool _refreshScheduled;
-        private bool _extensionManifestLoading;
         private BrowserPlugin? _selected;
 
         public PluginsPage(InstanceStore store)
@@ -37,8 +36,6 @@ namespace YTray.Views.Pages
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
             Refresh();
-            if (_store.ExtensionManifest == null)
-                CrashGuard.Observe(LoadExtensionManifestAsync(), "load-extension-manifest");
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -93,66 +90,24 @@ namespace YTray.Views.Pages
         {
             if (ExtensionInstallBtn == null) return;
             var installed = _store.ManagedExtension;
-            var manifest = _store.ExtensionManifest;
-            var latest = manifest?.Versions.FirstOrDefault(v =>
-                ExtensionInstaller.EnterpriseArtifact(v) != null);
             var hasBundledExtension = ExtensionInstaller.TryGetBundledVersion(out var bundledVersion);
-            var busy = _store.IsInstallingExtension || _extensionManifestLoading;
-
-            ExtensionInstallBtn.IsEnabled = !busy && (latest != null || hasBundledExtension);
-            ExtensionRefreshBtn.IsEnabled = !_store.IsInstallingExtension;
-            ExtensionUpdateBadge.Visibility = _store.IsExtensionUpdateAvailable && !busy
-                ? Visibility.Visible : Visibility.Collapsed;
-
-            string buttonLabel;
-            if (_store.IsInstallingExtension) buttonLabel = $"安装中 {_store.ExtensionInstallPercent}%";
-            else if (installed == null) buttonLabel = latest != null
-                ? $"下载 Yakit 插件 v{latest.Version}"
-                : hasBundledExtension ? $"安装内置版本 v{bundledVersion}" : "下载 Yakit 插件";
-            else if (_store.IsExtensionUpdateAvailable && latest != null) buttonLabel = $"更新到 v{latest.Version}";
-            else buttonLabel = latest != null ? "重新下载" : hasBundledExtension ? "重新安装内置版本" : "重新下载";
-            ExtensionInstallBtn.Content = buttonLabel;
-
-            ExtensionProgressBar.Visibility = _store.IsInstallingExtension ? Visibility.Visible : Visibility.Collapsed;
-            ExtensionProgressBar.Value = _store.ExtensionInstallPercent;
+            ExtensionInstallBtn.IsEnabled = hasBundledExtension;
 
             string status;
-            if (_store.IsInstallingExtension)
+            if (!string.IsNullOrWhiteSpace(_store.ExtensionStatusMessage))
                 status = _store.ExtensionStatusMessage;
-            else if (_extensionManifestLoading)
-                status = "正在检查插件版本…";
-            else if (installed != null && manifest != null)
-                status = _store.IsExtensionUpdateAvailable
-                    ? $"当前 v{installed.Version} · 最新 v{latest?.Version ?? manifest.Latest}"
-                    : $"Yakit 插件 v{installed.Version} 已是最新";
-            else if (manifest != null)
-                status = $"Yakit 浏览器插件 v{latest?.Version ?? manifest.Latest} 可下载";
-            else if (installed == null && hasBundledExtension)
-                status = $"安装包内置 Yakit 浏览器插件 v{bundledVersion}";
+            else if (installed != null)
+                status = $"Yakit 浏览器插件 v{installed.Version} 已随 YTray 内置；运行时不会联网下载";
+            else if (hasBundledExtension)
+                status = $"YTray 内置 Yakit 浏览器插件 v{bundledVersion}";
             else
-                status = _store.ExtensionStatusMessage;
+                status = "当前构建未包含 Yakit 浏览器插件";
             ExtensionStatusText.Text = status;
             ExtensionStatusText.ToolTip = status;
         }
 
-        private async System.Threading.Tasks.Task LoadExtensionManifestAsync()
-        {
-            if (_extensionManifestLoading) return;
-            _extensionManifestLoading = true;
-            RefreshExtensionBar();
-            try { await _store.RefreshExtensionManifestAsync(); }
-            finally
-            {
-                _extensionManifestLoading = false;
-                if (IsLoaded) RefreshExtensionBar();
-            }
-        }
-
-        private void ExtensionRefresh_Click(object sender, RoutedEventArgs e) =>
-            CrashGuard.Observe(LoadExtensionManifestAsync(), "refresh-extension-manifest");
-
         private void ExtensionInstall_Click(object sender, RoutedEventArgs e) =>
-            CrashGuard.Observe(_store.InstallExtensionAsync(), "install-extension");
+            _store.ReinstallBundledExtension();
 
         private void Add_Click(object s, RoutedEventArgs e)
         {

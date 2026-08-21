@@ -136,7 +136,7 @@ namespace YTray.Core
                     arguments.Add($"--proxy-server={proxy}");
 
                 var paths = (internalExtensionPaths ?? new List<string>())
-                    .Concat(plugins.Where(p => p.Enabled).Select(p => p.Path)).ToList();
+                    .Concat(plugins.Select(p => p.Path)).ToList();
                 if (paths.Count > 0)
                 {
                     var joined = string.Join(",", paths);
@@ -203,7 +203,7 @@ namespace YTray.Core
                 throw new YTrayException(YTrayError.InvalidExecutable, runtime.ExecutablePath);
 
             var needsCommandLineExtension = mode != LaunchMode.Isolated && (
-                plugins.Any(p => p.Enabled)
+                plugins.Count > 0
                 || !string.IsNullOrEmpty(settings.ProxyUsername)
                 || !string.IsNullOrEmpty(settings.ProxyPassword));
             if (needsCommandLineExtension && !SupportsCommandLineExtensions(runtime.Kind))

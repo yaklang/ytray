@@ -251,14 +251,16 @@ namespace YTray.Models
 
     public class LaunchSettings
     {
-        public const int CurrentConfigurationVersion = 5;
+        public const int CurrentConfigurationVersion = 6;
         public const int CertificateDefaultMigrationVersion = 2;
+        public const int HomeURLDefaultMigrationVersion = 6;
+        public const string DefaultHomeURL = "https://example.com";
         public const string DefaultPresetProxyServer = "http://127.0.0.1:8083";
 
         public int ConfigurationVersion { get; set; } = CurrentConfigurationVersion;
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public Guid? DefaultRuntimeID { get; set; }
-        public string HomeURL { get; set; } = "chrome://newtab";
+        public string HomeURL { get; set; } = DefaultHomeURL;
         public string ProxyServer { get; set; } = "";
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string ProxyUsername { get; set; } = "";
@@ -311,7 +313,7 @@ namespace YTray.Models
             {
                 ConfigurationVersion = ConfigurationVersion,
                 DefaultRuntimeID = DefaultRuntimeID,
-                HomeURL = HomeURL ?? "chrome://newtab",
+                HomeURL = HomeURL ?? DefaultHomeURL,
                 ProxyServer = ProxyServer ?? "",
                 ProxyUsername = ProxyUsername ?? "",
                 ProxyPassword = ProxyPassword ?? "",
@@ -496,38 +498,6 @@ namespace YTray.Models
         public string Version { get; set; } = "";
         [JsonProperty("manifest_version")]
         public int ManifestVersion { get; set; }
-    }
-
-    public class ExtensionManifest
-    {
-        public string Latest { get; set; } = "";
-        [JsonProperty("updated_at")]
-        public string UpdatedAt { get; set; } = "";
-        public List<ExtensionReleaseVersion> Versions { get; set; } = new List<ExtensionReleaseVersion>();
-    }
-
-    public class ExtensionReleaseVersion
-    {
-        public string Version { get; set; } = "";
-        [JsonProperty("published_at")]
-        public string PublishedAt { get; set; } = "";
-        public string Commit { get; set; } = "";
-        public List<ExtensionArtifact> Artifacts { get; set; } = new List<ExtensionArtifact>();
-
-        public override string ToString() => string.IsNullOrWhiteSpace(Version) ? "未知版本" : Version;
-    }
-
-    public class ExtensionArtifact
-    {
-        public string Variant { get; set; } = "";
-        public string Browser { get; set; } = "";
-        public string Mode { get; set; } = "";
-        public string Filename { get; set; } = "";
-        public string Url { get; set; } = "";
-        public string Sha256 { get; set; } = "";
-        public long? Size { get; set; }
-        [JsonProperty("checksum_url")]
-        public string ChecksumUrl { get; set; } = "";
     }
 
     public enum YTrayError

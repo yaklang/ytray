@@ -39,7 +39,7 @@ namespace YTray.Core
         public string RuntimeVersion => string.IsNullOrWhiteSpace(Instance.RuntimeVersion) ? "版本未知" : Instance.RuntimeVersion!;
         public string PageTitle => string.IsNullOrWhiteSpace(Instance.LastPageTitle) ? "新标签页" : Instance.LastPageTitle!;
         public string PageUrl => string.IsNullOrWhiteSpace(Instance.LastPageURL)
-            ? (string.IsNullOrWhiteSpace(Instance.StartURL) ? "chrome://newtab" : Instance.StartURL)
+            ? (string.IsNullOrWhiteSpace(Instance.StartURL) ? LaunchSettings.DefaultHomeURL : Instance.StartURL)
             : Instance.LastPageURL!;
         public bool UsesProxy => !string.IsNullOrWhiteSpace(Instance.SettingsSnapshot?.ProxyServer);
         public string NetworkMode => UsesProxy ? "HTTP 代理" : "无代理";

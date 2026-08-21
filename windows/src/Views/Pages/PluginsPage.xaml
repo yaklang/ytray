@@ -17,15 +17,10 @@
                 <StackPanel Orientation="Horizontal">
                     <Border Width="20" Height="20" CornerRadius="10" BorderBrush="{DynamicResource TextSecondaryBrush}" BorderThickness="1.2"><TextBlock Text="i" FontFamily="Georgia" FontWeight="Bold" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
                     <TextBlock Text="目录根部必须包含 manifest.json" Margin="14,0,0,0" FontSize="12.5" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                    <Border x:Name="ExtensionUpdateBadge" Margin="14,0,0,0" Padding="8,3" CornerRadius="9" Background="{DynamicResource BrandPaleBrush}" Visibility="Collapsed" VerticalAlignment="Center">
-                        <TextBlock Text="Yakit 插件有新版本" FontSize="10.5" Foreground="{DynamicResource BrandOrangeBrush}"/>
-                    </Border>
+                    <TextBlock x:Name="ExtensionStatusText" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="16,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="410"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock x:Name="ExtensionStatusText" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,10,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="360"/>
-                    <ProgressBar x:Name="ExtensionProgressBar" Width="130" Height="6" Margin="0,0,10,0" VerticalAlignment="Center" Visibility="Collapsed"/>
-                    <Button x:Name="ExtensionRefreshBtn" Content="检查更新" Click="ExtensionRefresh_Click" Height="32" FontSize="11.5" Margin="0,0,8,0" Padding="12,0"/>
-                    <Button x:Name="ExtensionInstallBtn" Click="ExtensionInstall_Click" Height="32" FontSize="11.5" MinWidth="118" Padding="12,0" Style="{StaticResource YTrayPrimaryButton}"/>
+                    <Button x:Name="ExtensionInstallBtn" Content="重新释放内置版本" Click="ExtensionInstall_Click" Height="32" FontSize="11.5" MinWidth="138" Padding="12,0" Style="{StaticResource YTrayPrimaryButton}"/>
                 </StackPanel>
             </Grid>
         </Border>

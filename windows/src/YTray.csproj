@@ -108,11 +108,17 @@
     <Resource Include="Assets\Icons\ytray-app.ico" />
     <Resource Include="Assets\Icons\ytray-tray-on-light.ico" />
     <Resource Include="Assets\Icons\ytray-tray-on-dark.ico" />
-    <EmbeddedResource Include="Assets\BundledExtension\yakit-browser-agent.zip"
-                      Condition="Exists('Assets\BundledExtension\yakit-browser-agent.zip')" />
-    <EmbeddedResource Include="Assets\BundledExtension\bundled-extension.json"
-                      Condition="Exists('Assets\BundledExtension\bundled-extension.json')" />
+    <EmbeddedResource Include="Assets\BundledExtension\yakit-browser-agent.zip" />
+    <EmbeddedResource Include="Assets\BundledExtension\bundled-extension.json" />
   </ItemGroup>
+
+  <!-- Visual Studio and ordinary Debug builds prepare the same cached, validated plugin
+       payload as the release packaging script. Release packaging refreshes it before
+       MSBuild starts, so this target reuses that exact payload. -->
+  <Target Name="PrepareBundledExtension" BeforeTargets="PrepareResources"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\prepare-yakit-browser-agent.ps1&quot; -OutputDirectory &quot;$(MSBuildProjectDirectory)\Assets\BundledExtension&quot; -UseCache" />
+  </Target>
 
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 

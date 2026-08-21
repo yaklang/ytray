@@ -162,13 +162,24 @@ struct CustomLaunchWizard: View {
     }
 
     private var pluginStep: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let availablePlugins = store.plugins
+        return VStack(alignment: .leading, spacing: 12) {
             Text("选择本次加载的本地插件").font(.headline)
-            Text("仅列出已验证 manifest.json 的已解压目录。").font(.caption).foregroundStyle(.secondary)
-            if store.plugins.isEmpty {
+            HStack {
+                Text("默认选中全部已启用插件；本次可以选择任意已安装插件，或完全不加载插件。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("全部") { pluginIDs = Set(availablePlugins.map(\.id)) }
+                    .buttonStyle(SmallSecondaryButtonStyle())
+                    .disabled(availablePlugins.isEmpty)
+                Button("不加载插件") { pluginIDs.removeAll() }
+                    .buttonStyle(SmallSecondaryButtonStyle())
+                    .disabled(pluginIDs.isEmpty)
+            }
+            if availablePlugins.isEmpty {
                 ContentUnavailableView("没有本地插件", systemImage: "puzzlepiece.extension", description: Text("本次实例将不加载扩展"))
             } else {
-                List(store.plugins.filter(\.enabled)) { plugin in
+                List(availablePlugins) { plugin in
                     Toggle(isOn: Binding(
                         get: { pluginIDs.contains(plugin.id) },
                         set: { enabled in
@@ -177,7 +188,8 @@ struct CustomLaunchWizard: View {
                     )) {
                         VStack(alignment: .leading) {
                             Text(plugin.name).font(.headline)
-                            Text("v\(plugin.version) · Manifest V\(plugin.manifestVersion)").font(.caption).foregroundStyle(.secondary)
+                            Text("v\(plugin.version) · Manifest V\(plugin.manifestVersion)\(plugin.enabled ? "" : " · 默认关闭")")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }

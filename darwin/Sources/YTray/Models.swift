@@ -221,13 +221,15 @@ enum LaunchMode: String, Codable, CaseIterable {
 }
 
 struct LaunchSettings: Codable, Equatable {
-    static let currentConfigurationVersion = 4
+    static let currentConfigurationVersion = 5
     static let certificateDefaultMigrationVersion = 2
+    static let homeURLDefaultMigrationVersion = 5
+    static let defaultHomeURL = "https://example.com"
     static let defaultPresetProxyServer = "http://127.0.0.1:8083"
 
     var configurationVersion = Self.currentConfigurationVersion
     var defaultRuntimeID: UUID?
-    var homeURL = "chrome://newtab"
+    var homeURL = Self.defaultHomeURL
     var proxyServer = ""
     var proxyUsername = ""
     var proxyPassword = ""
@@ -272,7 +274,13 @@ extension LaunchSettings {
         let savedVersion = try container.decodeIfPresent(Int.self, forKey: .configurationVersion) ?? 0
         configurationVersion = Self.currentConfigurationVersion
         defaultRuntimeID = try container.decodeIfPresent(UUID.self, forKey: .defaultRuntimeID)
-        homeURL = try container.decodeIfPresent(String.self, forKey: .homeURL) ?? "chrome://newtab"
+        let savedHomeURL = try container.decodeIfPresent(String.self, forKey: .homeURL)
+            ?? Self.defaultHomeURL
+        homeURL = savedVersion < Self.homeURLDefaultMigrationVersion
+            && savedHomeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("chrome://newtab") == .orderedSame
+            ? Self.defaultHomeURL
+            : savedHomeURL
         proxyServer = try container.decodeIfPresent(String.self, forKey: .proxyServer) ?? ""
         proxyUsername = try container.decodeIfPresent(String.self, forKey: .proxyUsername) ?? ""
         proxyPassword = ""
@@ -396,43 +404,6 @@ struct PluginManifest: Decodable {
     enum CodingKeys: String, CodingKey {
         case name, version
         case manifestVersion = "manifest_version"
-    }
-}
-
-struct ExtensionManifest: Decodable {
-    let latest: String
-    let updatedAt: String
-    let versions: [ExtensionReleaseVersion]
-    enum CodingKeys: String, CodingKey {
-        case latest, versions
-        case updatedAt = "updated_at"
-    }
-}
-
-struct ExtensionReleaseVersion: Decodable, Identifiable {
-    let version: String
-    let publishedAt: String
-    let commit: String
-    let artifacts: [ExtensionArtifact]
-    enum CodingKeys: String, CodingKey {
-        case version, commit, artifacts
-        case publishedAt = "published_at"
-    }
-    var id: String { version }
-}
-
-struct ExtensionArtifact: Decodable {
-    let variant: String
-    let browser: String
-    let mode: String
-    let filename: String
-    let url: String
-    let sha256: String
-    let size: Int64?
-    let checksumUrl: String
-    enum CodingKeys: String, CodingKey {
-        case variant, browser, mode, filename, url, sha256, size
-        case checksumUrl = "checksum_url"
     }
 }
 

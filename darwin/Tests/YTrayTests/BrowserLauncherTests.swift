@@ -1,8 +1,52 @@
 import XCTest
 import Network
+import CryptoKit
 @testable import YTray
 
 final class BrowserLauncherTests: XCTestCase {
+    func testBundledPluginCanBeValidatedAndInstalledWithoutNetwork() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-bundled-plugin-test-\(UUID().uuidString)", isDirectory: true)
+        let resources = root.appendingPathComponent("Resources", isDirectory: true)
+        let bundled = resources.appendingPathComponent("BundledExtension", isDirectory: true)
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let applicationDirectory = root.appendingPathComponent("ApplicationData", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: bundled, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data(#"{"name":"Yakit Browser Agent","version":"1.2.3","manifest_version":3}"#.utf8)
+            .write(to: source.appendingPathComponent("manifest.json"))
+        try Data("console.log('bundled');".utf8)
+            .write(to: source.appendingPathComponent("background.js"))
+
+        let archive = bundled.appendingPathComponent("yakit-browser-agent.zip")
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.currentDirectoryURL = source
+        zip.arguments = ["-q", "-r", archive.path, "."]
+        try zip.run()
+        zip.waitUntilExit()
+        XCTAssertEqual(zip.terminationStatus, 0)
+
+        let payload = try Data(contentsOf: archive)
+        let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let descriptor = #"{"version":"1.2.3","sha256":"\#(hash)","size":\#(payload.count),"variant":"chrome-enterprise"}"#
+        try Data(descriptor.utf8).write(to: bundled.appendingPathComponent("bundled-extension.json"))
+
+        XCTAssertEqual(ExtensionInstaller.bundledVersion(resourcesURL: resources), "1.2.3")
+        let installed = try XCTUnwrap(ExtensionInstaller.installBundled(
+            into: applicationDirectory,
+            resourcesURL: resources
+        ))
+        XCTAssertEqual(installed.version, "1.2.3")
+        let manifest = try JSONDecoder().decode(
+            PluginManifest.self,
+            from: Data(contentsOf: installed.directory.appendingPathComponent("manifest.json"))
+        )
+        XCTAssertEqual(manifest.name, ExtensionInstaller.extensionName)
+        XCTAssertEqual(manifest.version, installed.version)
+    }
+
     @MainActor
     func testEnabledPluginsBecomeDefaultsForNewInstances() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -136,8 +180,21 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertNil(state.instances.first?.thumbnailUpdatedAt)
         XCTAssertNil(state.instances.first?.dockBadge)
         XCTAssertEqual(state.settings.dockBadge, "")
+        XCTAssertEqual(state.settings.homeURL, LaunchSettings.defaultHomeURL)
         XCTAssertTrue(state.settings.ignoreCertificateErrors)
         XCTAssertEqual(state.settings.presetProxyServer, "http://127.0.0.1:8083")
+    }
+
+    func testDefaultHomeURLIsExampleDotComAndMigrationPreservesCustomURLs() throws {
+        XCTAssertEqual(LaunchSettings().homeURL, "https://example.com")
+
+        let oldDefault = #"{"configurationVersion":4,"homeURL":"chrome://newtab"}"#
+        let migrated = try JSONDecoder().decode(LaunchSettings.self, from: Data(oldDefault.utf8))
+        XCTAssertEqual(migrated.homeURL, LaunchSettings.defaultHomeURL)
+
+        let custom = #"{"configurationVersion":4,"homeURL":"https://yaklang.com"}"#
+        let preserved = try JSONDecoder().decode(LaunchSettings.self, from: Data(custom.utf8))
+        XCTAssertEqual(preserved.homeURL, "https://yaklang.com")
     }
 
     func testCurrentSettingsRespectUserChoiceAfterCertificateDefaultMigration() throws {
@@ -902,6 +959,7 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertFalse(arguments.contains("--no-proxy-server"))
         XCTAssertTrue(arguments.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"))
         XCTAssertTrue(arguments.contains("--ignore-certificate-errors"))
+        XCTAssertEqual(arguments.last, LaunchSettings.defaultHomeURL)
     }
 
     func testNoProxyAndHTTPProxyLaunchesHaveExclusiveNetworkArguments() throws {
@@ -1058,6 +1116,24 @@ final class BrowserLauncherTests: XCTestCase {
         )
         XCTAssertTrue(arguments.contains("--load-extension=/tmp/local-extension"))
         XCTAssertTrue(arguments.contains("--disable-extensions-except=/tmp/local-extension"))
+    }
+
+    func testExplicitSelectionCanLoadAPluginWhoseQuickLaunchDefaultIsOff() throws {
+        var plugin = BrowserPlugin(
+            name: "Optional",
+            version: "1.0",
+            path: "/tmp/optional-extension",
+            manifestVersion: 3
+        )
+        plugin.enabled = false
+        let arguments = try BrowserLauncher.buildArguments(
+            mode: .custom,
+            settings: LaunchSettings(),
+            profilePath: "/tmp/custom-profile",
+            debugPort: 9667,
+            plugins: [plugin]
+        )
+        XCTAssertTrue(arguments.contains("--load-extension=/tmp/optional-extension"))
     }
 }
 

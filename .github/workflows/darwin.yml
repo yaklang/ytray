@@ -53,6 +53,12 @@ jobs:
           test -s docs/images/ytray-edge-actions.png
           test -s docs/images/ytray-edge-panel.png
           bash -n script/startup.sh
+          bash -n script/prepare-yakit-browser-agent.sh
+          bash -n script/package-macos.sh
+          if git grep -En 'aliyun-oss[.]yaklang[.]com/chrome-extension' -- darwin/Sources windows/src; then
+            echo "Runtime code must not download the bundled Yak plugin"
+            exit 1
+          fi
 
   build-and-test:
     name: macOS build, test, and UI smoke
@@ -64,6 +70,15 @@ jobs:
 
       - name: Show Swift toolchain
         run: swift --version
+
+      - name: Prepare and validate bundled Yak plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./script/prepare-yakit-browser-agent.sh "$RUNNER_TEMP/BundledExtension"
+          ./script/prepare-yakit-browser-agent.sh "$RUNNER_TEMP/BundledExtension" --use-cache
+          test -s "$RUNNER_TEMP/BundledExtension/yakit-browser-agent.zip"
+          test -s "$RUNNER_TEMP/BundledExtension/bundled-extension.json"
 
       - name: Build release executable
         run: swift build --package-path darwin --configuration release
@@ -83,12 +98,12 @@ jobs:
           test -s "$RUNNER_TEMP/ytray-wizard.png"
           test -s "$RUNNER_TEMP/ytray-edge-dock.png"
 
-  # Tag pushes run workflows from the tagged commit; package on tag (and main) so the
-  # DMG pipeline is exercised before any release depends on it.
+  # Pull requests package too, so CI exercises the exact release assembly path before merge.
+  # Tag pushes still run from the tagged commit and produce the release-owned artifact.
   package-dmg:
     name: Package universal YTray.app and DMG
     needs: build-and-test
-    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
     runs-on: macos-14
     timeout-minutes: 20
     steps:
@@ -113,6 +128,9 @@ jobs:
           test -s "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip"
           test -s "$mount_dir/YTray.app/Contents/Resources/BundledExtension/bundled-extension.json"
           unzip -t "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
+          descriptor_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8-sig"))["version"])' "$mount_dir/YTray.app/Contents/Resources/BundledExtension/bundled-extension.json")"
+          manifest_version="$(python3 -c 'import json,sys,zipfile; archive=zipfile.ZipFile(sys.argv[1]); names=[name for name in archive.namelist() if name == "manifest.json" or (name.count("/") == 1 and name.endswith("/manifest.json"))]; assert len(names) == 1; data=json.loads(archive.read(names[0]).decode("utf-8-sig")); assert data["name"] == "Yakit Browser Agent"; print(data["version"])' "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip")"
+          test "$descriptor_version" = "$manifest_version"
           lipo -archs "$mount_dir/YTray.app/Contents/MacOS/YTray"
           hdiutil detach "$mount_dir" >/dev/null
 
