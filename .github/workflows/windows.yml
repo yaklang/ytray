@@ -54,7 +54,10 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Standalone YTray.exe exited with $($process.ExitCode)." }
           if (-not (Test-Path $marker)) { throw 'Standalone YTray.exe did not write its verification marker.' }
           $verification = Get-Content $marker -Raw | ConvertFrom-Json
-          if ($verification.application -ne 'YTray' -or $verification.jsonAssembly -ne 'Newtonsoft.Json') {
+          if ($verification.application -ne 'YTray' -or
+              $verification.jsonAssembly -ne 'Newtonsoft.Json' -or
+              [string]::IsNullOrWhiteSpace($verification.bundledExtensionVersion) -or
+              $verification.bundledExtensionName -ne 'Yakit Browser Agent') {
             throw 'Standalone verification marker is invalid.'
           }
           Get-FileHash $files[0].FullName -Algorithm SHA256

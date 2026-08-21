@@ -11,6 +11,7 @@ DMG_PATH="$OUTPUT_ROOT/YTray.dmg"
 ICON_SOURCE="$RESOURCE_ROOT/YTrayAppIcon.svg"
 INFO_PLIST_SOURCE="$RESOURCE_ROOT/Info.plist"
 ICONSET_DIR="$OUTPUT_ROOT/YTray.iconset"
+BUNDLED_EXTENSION_DIR="$OUTPUT_ROOT/BundledExtension"
 
 BUILD_UNIVERSAL=0
 BUILD_DMG=0
@@ -27,6 +28,8 @@ if ! command -v magick >/dev/null 2>&1; then
     exit 1
 fi
 
+"$SCRIPT_DIR/prepare-yakit-browser-agent.sh" "$BUNDLED_EXTENSION_DIR"
+
 BUILD_ARGS=(--package-path "$PACKAGE_ROOT" -c release)
 if [ "$BUILD_UNIVERSAL" -eq 1 ]; then
     BUILD_ARGS+=(--arch arm64 --arch x86_64)
@@ -37,8 +40,11 @@ swift build "${BUILD_ARGS[@]}"
 BIN_PATH="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 mkdir -p "$OUTPUT_ROOT"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$ICONSET_DIR"
+mkdir -p "$APP_BUNDLE/Contents/Resources/BundledExtension"
 
 cp "$BIN_PATH/YTray" "$APP_BUNDLE/Contents/MacOS/YTray"
+cp "$BUNDLED_EXTENSION_DIR/yakit-browser-agent.zip" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
+cp "$BUNDLED_EXTENSION_DIR/bundled-extension.json" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 
 BASE_PNG="$OUTPUT_ROOT/YTrayAppIcon-1024.png"
 magick -background none "$ICON_SOURCE" -resize 1024x1024 "$BASE_PNG"

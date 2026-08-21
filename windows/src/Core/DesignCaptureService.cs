@@ -175,19 +175,6 @@ namespace YTray.Core
                         });
                         overviewPage.NetworkCombo.IsDropDownOpen = false;
 
-                        if (overviewPage.PluginChoiceList.Items.Count > 0)
-                        {
-                            overviewPage.PluginPopup.IsOpen = true;
-                            await SettleAsync(manager, 260);
-                            relative = $"main/{themeName}-overview-plugin-menu.png";
-                            CaptureScreen(WindowBounds(manager), Path.Combine(root, relative));
-                            captures.Add(new CaptureItem
-                            {
-                                RelativePath = relative,
-                                Caption = $"运行中心 · 插件多选 · {ThemeCaption(theme)}",
-                            });
-                            overviewPage.PluginPopup.IsOpen = false;
-                        }
                     }
 
                     if (page.Slug == "browser-sources" && manager.ContentFrame.Content is RuntimePage runtimePage)

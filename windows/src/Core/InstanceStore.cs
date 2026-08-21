@@ -86,12 +86,14 @@ namespace YTray.Core
 
         public InstanceStore(string? applicationDirectory = null, bool discoverSystemBrowsers = true)
         {
+            var usesDefaultApplicationDirectory = applicationDirectory == null;
             ApplicationDirectory = applicationDirectory ?? StatePersistence.DefaultApplicationDirectory;
             // Best-effort migration from the private pre-rebrand persistence directory to YTray.
             MigrateLegacyDirectoryIfNeeded();
             try { Directory.CreateDirectory(ApplicationDirectory); } catch { }
 
             Load();
+            if (usesDefaultApplicationDirectory) InstallBundledExtensionIfNeeded();
             if (discoverSystemBrowsers) RefreshSystemBrowsers();
             RefreshProcessStates();
 
@@ -129,6 +131,27 @@ namespace YTray.Core
                     Directory.Move(legacy, ApplicationDirectory);
             }
             catch { }
+        }
+
+        private bool InstallBundledExtensionIfNeeded(bool force = false)
+        {
+            if (!force && ManagedExtension != null) return false;
+            try
+            {
+                if (!ExtensionInstaller.TryInstallBundled(ApplicationDirectory, out var directory,
+                        out var version, ignoreOptOut: force, replaceExisting: force)) return false;
+                var previous = ManagedExtension;
+                RegisterManagedExtension(directory, previous?.Id, previous?.Enabled ?? true);
+                ExtensionInstaller.ClearManagedExtensionRemoved(ApplicationDirectory);
+                ExtensionInstaller.CleanupOldVersions(ApplicationDirectory, version);
+                ExtensionStatusMessage = $"已准备内置 Yakit 插件 {version}";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("bundled-extension", ex);
+                return false;
+            }
         }
 
         public void RefreshSystemBrowsers()
@@ -217,6 +240,7 @@ namespace YTray.Core
                 };
                 if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
                 else Plugins.Add(plugin);
+                SynchronizeDefaultPluginIDs();
                 Save();
             }
             catch
@@ -230,27 +254,30 @@ namespace YTray.Core
             if (plugin == null) return;
             var idx = Plugins.ToList().FindIndex(p => p.Id == plugin.Id);
             if (idx >= 0) Plugins[idx] = plugin;
-            if (!plugin.Enabled) Settings.DefaultPluginIDs.RemoveAll(id => id == plugin.Id);
-            Save();
-        }
-
-        public void SetDefaultPlugins(IEnumerable<Guid>? pluginIDs)
-        {
-            var requested = new HashSet<Guid>(pluginIDs ?? Enumerable.Empty<Guid>());
-            Settings.DefaultPluginIDs = Plugins
-                .Where(plugin => plugin.Enabled && requested.Contains(plugin.Id))
-                .Select(plugin => plugin.Id)
-                .ToList();
+            SynchronizeDefaultPluginIDs();
             Save();
         }
 
         public void RemovePlugin(BrowserPlugin plugin)
         {
             if (plugin == null) return;
+            // The bundled Yakit Browser Agent is a managed part of YTray. Users may
+            // disable its default loading, but it cannot be removed from the plugin list.
+            if (ManagedExtension?.Id == plugin.Id) return;
             var p = Plugins.FirstOrDefault(x => x.Id == plugin.Id);
             if (p != null) Plugins.Remove(p);
-            Settings.DefaultPluginIDs.RemoveAll(g => g == plugin.Id);
+            SynchronizeDefaultPluginIDs();
             Save();
+        }
+
+        private void SynchronizeDefaultPluginIDs()
+        {
+            // The plugin-page checkbox is the single persistent source of truth.
+            // Custom launch may still supply a one-off plugin list without changing it.
+            Settings.DefaultPluginIDs = Plugins
+                .Where(plugin => plugin.Enabled)
+                .Select(plugin => plugin.Id)
+                .ToList();
         }
 
         public void SelectDefaultRuntime(BrowserRuntime runtime)
@@ -887,6 +914,12 @@ namespace YTray.Core
             var target = version ?? ExtensionManifest?.Versions.FirstOrDefault();
             if (target == null)
             {
+                if (InstallBundledExtensionIfNeeded(force: true))
+                {
+                    ExtensionInstallPercent = 100;
+                    OnPropertyChanged(string.Empty);
+                    return;
+                }
                 Report(new YTrayException(YTrayError.ExtensionInstallFailed, "没有可安装的插件版本，请先刷新插件清单"));
                 return;
             }
@@ -907,6 +940,7 @@ namespace YTray.Core
                 });
                 var directory = await ExtensionInstaller.InstallAsync(target, ApplicationDirectory, progress);
                 RegisterManagedExtension(directory, previousId, wasEnabled);
+                ExtensionInstaller.ClearManagedExtensionRemoved(ApplicationDirectory);
                 ExtensionInstaller.CleanupOldVersions(ApplicationDirectory, target.Version);
                 ExtensionInstallPercent = 100;
                 ExtensionStatusMessage = $"Yakit 插件 {target.Version} 安装完成";
@@ -951,6 +985,7 @@ namespace YTray.Core
             };
             if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
             else Plugins.Add(plugin);
+            SynchronizeDefaultPluginIDs();
             Save();
         }
 
@@ -1270,11 +1305,7 @@ namespace YTray.Core
                 if (string.IsNullOrWhiteSpace(plugin.IconPath) || !File.Exists(plugin.IconPath))
                     plugin.IconPath = PluginIconSource.ResolveIconPath(plugin.Path);
             }
-            var availablePluginIDs = Plugins.Where(plugin => plugin.Enabled).Select(plugin => plugin.Id).ToHashSet();
-            Settings.DefaultPluginIDs = Settings.DefaultPluginIDs
-                .Where(availablePluginIDs.Contains)
-                .Distinct()
-                .ToList();
+            SynchronizeDefaultPluginIDs();
             foreach (var instance in Instances)
             {
                 instance.Name = instance.Name ?? "浏览器实例";

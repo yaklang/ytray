@@ -42,33 +42,41 @@
             <Grid Grid.Row="1" Margin="24,18,24,14">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <StackPanel>
-                    <TextBlock Text="配置本次浏览器实例" FontSize="20" FontWeight="SemiBold"/>
-                    <TextBlock Text="本次参数独立生效；可在确认页选择是否记住浏览器。" FontSize="10.5"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                    <TextBlock Text="配置本次浏览器实例" FontSize="22" FontWeight="SemiBold"/>
+                    <TextBlock Text="本次参数独立生效；可在确认页选择是否记住浏览器。" FontSize="11.5"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0"/>
                 </StackPanel>
-                <Grid x:Name="StepPanel" Grid.Row="1" Margin="0,17,0,0">
+                <Grid x:Name="StepPanel" Grid.Row="1" Margin="0,19,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1*"/><ColumnDefinition Width="26"/><ColumnDefinition Width="1*"/>
-                        <ColumnDefinition Width="26"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="26"/><ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" x:Name="Step0Panel">
-                        <Ellipse x:Name="Step0Dot" Width="24" Height="24" Fill="{DynamicResource BrandOrangeBrush}"/>
-                        <StackPanel Margin="7,0,0,0"><TextBlock Text="运行时" FontSize="10.5" FontWeight="SemiBold"/><TextBlock Text="选择浏览器" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                        <Border x:Name="Step0Dot" Width="29" Height="29" CornerRadius="14.5" Background="{DynamicResource BrandOrangeBrush}" BorderBrush="{DynamicResource BrandOrangeBrush}" BorderThickness="1.5">
+                            <Grid><TextBlock x:Name="Step0Number" Text="1" FontSize="11" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/><Path x:Name="Step0Check" Data="M 2 6 L 5 9 L 11 2" Width="12" Height="10" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/></Grid>
+                        </Border>
+                        <StackPanel Margin="9,0,0,0"><TextBlock x:Name="Step0Title" Text="运行时" FontSize="12" FontWeight="SemiBold"/><TextBlock Text="选择浏览器" FontSize="9.5" Margin="0,2,0,0" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
                     </StackPanel>
-                    <Rectangle Grid.Column="1" Height="1" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Step0Connector" Grid.Column="1" Height="1" Margin="14,0" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" x:Name="Step1Panel">
-                        <Ellipse x:Name="Step1Dot" Width="24" Height="24" Fill="{DynamicResource HairlineBrush}"/>
-                        <StackPanel Margin="7,0,0,0"><TextBlock Text="参数" FontSize="10.5"/><TextBlock Text="启动与调试" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                        <Border x:Name="Step1Dot" Width="29" Height="29" CornerRadius="14.5" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1.5">
+                            <Grid><TextBlock x:Name="Step1Number" Text="2" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/><Path x:Name="Step1Check" Data="M 2 6 L 5 9 L 11 2" Width="12" Height="10" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/></Grid>
+                        </Border>
+                        <StackPanel Margin="9,0,0,0"><TextBlock x:Name="Step1Title" Text="参数" FontSize="12"/><TextBlock Text="启动与调试" FontSize="9.5" Margin="0,2,0,0" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
                     </StackPanel>
-                    <Rectangle Grid.Column="3" Height="1" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Step1Connector" Grid.Column="3" Height="1" Margin="14,0" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
                     <StackPanel Grid.Column="4" Orientation="Horizontal" x:Name="Step2Panel">
-                        <Ellipse x:Name="Step2Dot" Width="24" Height="24" Fill="{DynamicResource HairlineBrush}"/>
-                        <StackPanel Margin="7,0,0,0"><TextBlock Text="插件" FontSize="10.5"/><TextBlock Text="本地扩展" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                        <Border x:Name="Step2Dot" Width="29" Height="29" CornerRadius="14.5" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1.5">
+                            <Grid><TextBlock x:Name="Step2Number" Text="3" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/><Path x:Name="Step2Check" Data="M 2 6 L 5 9 L 11 2" Width="12" Height="10" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/></Grid>
+                        </Border>
+                        <StackPanel Margin="9,0,0,0"><TextBlock x:Name="Step2Title" Text="插件" FontSize="12"/><TextBlock Text="本地扩展" FontSize="9.5" Margin="0,2,0,0" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
                     </StackPanel>
-                    <Rectangle Grid.Column="5" Height="1" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Step2Connector" Grid.Column="5" Height="1" Margin="14,0" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
                     <StackPanel Grid.Column="6" Orientation="Horizontal" x:Name="Step3Panel">
-                        <Ellipse x:Name="Step3Dot" Width="24" Height="24" Fill="{DynamicResource HairlineBrush}"/>
-                        <StackPanel Margin="7,0,0,0"><TextBlock Text="确认" FontSize="10.5"/><TextBlock Text="启动实例" FontSize="8.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                        <Border x:Name="Step3Dot" Width="29" Height="29" CornerRadius="14.5" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1.5">
+                            <Grid><TextBlock x:Name="Step3Number" Text="4" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/><Path x:Name="Step3Check" Data="M 2 6 L 5 9 L 11 2" Width="12" Height="10" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/></Grid>
+                        </Border>
+                        <StackPanel Margin="9,0,0,0"><TextBlock x:Name="Step3Title" Text="确认" FontSize="12"/><TextBlock Text="启动实例" FontSize="9.5" Margin="0,2,0,0" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
                     </StackPanel>
                 </Grid>
             </Grid>

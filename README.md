@@ -153,7 +153,9 @@ my-extension/
 └── ...
 ```
 
-YTray 会读取 `manifest.json` 中的名称、版本和 Manifest 版本。启用的插件可加入默认设置，也可在自定义启动向导中仅为本次实例选择。
+YTray 会读取 `manifest.json` 中的名称、版本和 Manifest 版本。插件页中启用的插件会自动加载到之后创建的所有非隔离实例；自定义启动向导仍可仅为本次实例临时取消或追加选择。
+
+Release CI 会读取 Yakit Browser Agent OSS 清单中的 `latest`，选择该版本的 `chrome-enterprise` 产物，并在校验清单提供的文件大小和 SHA-256 后内置到安装包。首次启动会把它释放到用户插件目录并默认启用；插件页仍可检查后续更新、更新或重新下载。用户主动移除内置插件后，YTray 会记住该选择，不会在每次启动时反复恢复；需要时可从插件页重新安装。
 
 当前官方 Google Chrome、Chrome Beta 和 Chrome Canary 会忽略命令行加载未打包扩展的能力；因此本地插件和需要用户名/密码的代理认证应选择 Chrome for Testing、Chromium 或 Edge。普通无认证 HTTP 代理、实例隔离和 CDP 调试仍可直接使用系统 Google Chrome。YTray 会在不兼容的浏览器上给出明确提示，不会静默启动一个缺少插件或代理认证的实例。
 
@@ -216,7 +218,7 @@ script/     # 本地启动脚本
 ./script/package-macos.sh
 ```
 
-输出位于 `dist/YTray.app`。打包需要 Xcode Command Line Tools 和 ImageMagick 的 `magick` 命令。
+输出位于 `dist/YTray.app`。打包需要 Xcode Command Line Tools、ImageMagick 的 `magick` 命令、Python 3 以及可访问插件镜像的网络；脚本会解析 OSS 清单、下载并校验最新版本的 Yakit Browser Agent，在签名前放入应用资源目录。
 
 两个可选参数：
 

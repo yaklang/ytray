@@ -50,6 +50,7 @@ final class InstanceStore: NSObject, ObservableObject {
         discoverSystemBrowsers: Bool = true,
         legacyApplicationDirectory: URL? = nil
     ) {
+        let usesDefaultApplicationDirectory = applicationDirectory == nil
         let supportDirectory = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -70,6 +71,7 @@ final class InstanceStore: NSObject, ObservableObject {
         if let legacyBase {
             rewriteManagedPaths(from: legacyBase, to: base)
         }
+        if usesDefaultApplicationDirectory { installBundledExtensionIfNeeded() }
         if discoverSystemBrowsers { refreshSystemBrowsers() }
         refreshProcessStates()
         NotificationCenter.default.addObserver(self, selector: #selector(processDidTerminate(_:)),
@@ -186,6 +188,7 @@ final class InstanceStore: NSObject, ObservableObject {
         guard !isInstallingExtension else { return }
         guard let target = version
             ?? extensionManifest?.versions.first(where: { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }) else {
+            if installBundledExtensionIfNeeded(force: true) { return }
             report(YTrayError.extensionInstallFailed("没有可安装的插件版本，请先刷新插件清单"))
             return
         }
@@ -196,6 +199,7 @@ final class InstanceStore: NSObject, ObservableObject {
         do {
             let directory = try await ExtensionInstaller.install(version: target, into: applicationDirectory)
             registerManagedExtension(directory: directory)
+            ExtensionInstaller.clearManagedExtensionRemoved(applicationDirectory: applicationDirectory)
             ExtensionInstaller.cleanupOldVersions(applicationDirectory: applicationDirectory, installedVersion: target.version)
             extensionStatusMessage = "Yakit 插件 \(target.version) 安装完成"
         } catch {
@@ -229,6 +233,7 @@ final class InstanceStore: NSObject, ObservableObject {
                 plugins.removeAll { $0.path == directory.path }
                 plugins.append(plugin)
             }
+            synchronizeDefaultPluginIDs()
             save()
         } catch {
             report(YTrayError.invalidPlugin(directory.path))
@@ -270,23 +275,68 @@ final class InstanceStore: NSObject, ObservableObject {
         do {
             let data = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
             let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
-            plugins.removeAll { $0.path == directory.path }
-            plugins.append(BrowserPlugin(name: manifest.name, version: manifest.version, path: directory.path,
-                                          manifestVersion: manifest.manifestVersion))
+            let normalizedPath = directory.standardizedFileURL.path
+            let existing = plugins.first { URL(fileURLWithPath: $0.path).standardizedFileURL.path == normalizedPath }
+            var plugin = BrowserPlugin(name: manifest.name, version: manifest.version, path: normalizedPath,
+                                       manifestVersion: manifest.manifestVersion)
+            if let existing {
+                plugin.id = existing.id
+                plugin.enabled = existing.enabled
+                plugin.createdAt = existing.createdAt
+                if let index = plugins.firstIndex(where: { $0.id == existing.id }) {
+                    plugins[index] = plugin
+                }
+            } else {
+                plugins.append(plugin)
+            }
+            synchronizeDefaultPluginIDs()
             save()
         } catch { report(YTrayError.invalidPlugin(directory.path)) }
+    }
+
+    @discardableResult
+    private func installBundledExtensionIfNeeded(force: Bool = false) -> Bool {
+        if !force, managedExtension != nil { return false }
+        do {
+            guard let bundled = try ExtensionInstaller.installBundled(
+                into: applicationDirectory,
+                ignoreOptOut: force,
+                replaceExisting: force
+            ) else { return false }
+            registerManagedExtension(directory: bundled.directory)
+            ExtensionInstaller.clearManagedExtensionRemoved(applicationDirectory: applicationDirectory)
+            ExtensionInstaller.cleanupOldVersions(
+                applicationDirectory: applicationDirectory,
+                installedVersion: bundled.version
+            )
+            extensionStatusMessage = "已准备内置 Yakit 插件 \(bundled.version)"
+            return true
+        } catch {
+            report(error)
+            return false
+        }
     }
 
     func updatePlugin(_ plugin: BrowserPlugin) {
         guard let index = plugins.firstIndex(where: { $0.id == plugin.id }) else { return }
         plugins[index] = plugin
+        synchronizeDefaultPluginIDs()
         save()
     }
 
     func removePlugin(_ plugin: BrowserPlugin) {
+        // The bundled Yakit Browser Agent may be disabled, but remains managed by YTray.
+        guard managedExtension?.id != plugin.id else { return }
         plugins.removeAll { $0.id == plugin.id }
-        settings.defaultPluginIDs.removeAll { $0 == plugin.id }
+        synchronizeDefaultPluginIDs()
         save()
+    }
+
+    private func synchronizeDefaultPluginIDs() {
+        // The plugin-page switch is the single source of truth: an enabled local
+        // extension is loaded by every newly-created non-isolated instance. The
+        // custom wizard may still override this list for one launch only.
+        settings.defaultPluginIDs = plugins.filter(\.enabled).map(\.id)
     }
 
     func launch(mode: LaunchMode, customSettings: LaunchSettings? = nil,
@@ -663,6 +713,7 @@ final class InstanceStore: NSObject, ObservableObject {
         plugins = state.plugins
         instances = state.instances
         settings = state.settings
+        synchronizeDefaultPluginIDs()
         consolidateHistoryBadges()
         save()
     }

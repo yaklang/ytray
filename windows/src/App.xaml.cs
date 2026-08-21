@@ -91,11 +91,32 @@ namespace YTray
             var fullPath = Path.GetFullPath(markerPath);
             var directory = Path.GetDirectoryName(fullPath);
             if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory!);
+            var extractionRoot = Path.Combine(directory ?? Path.GetTempPath(),
+                "bundled-extension-smoke-" + Guid.NewGuid().ToString("N"));
+            string bundledVersion;
+            string bundledName;
+            try
+            {
+                if (!ExtensionInstaller.TryInstallBundled(extractionRoot, out var extensionDirectory,
+                        out bundledVersion, ignoreOptOut: true))
+                    throw new InvalidOperationException("The bundled browser extension is missing.");
+                var manifestPath = Path.Combine(extensionDirectory, "manifest.json");
+                var manifest = JsonConvert.DeserializeObject<PluginManifest>(File.ReadAllText(manifestPath));
+                bundledName = manifest?.Name ?? "";
+                if (!string.Equals(bundledName, ExtensionInstaller.ExtensionName, StringComparison.Ordinal))
+                    throw new InvalidOperationException("The bundled browser extension manifest is invalid.");
+            }
+            finally
+            {
+                try { if (Directory.Exists(extractionRoot)) Directory.Delete(extractionRoot, true); } catch { }
+            }
             var payload = JsonConvert.SerializeObject(new
             {
                 application = "YTray",
                 framework = ".NET Framework 4.8.1",
                 jsonAssembly = typeof(JsonConvert).Assembly.GetName().Name,
+                bundledExtensionVersion = bundledVersion,
+                bundledExtensionName = bundledName,
             });
             File.WriteAllText(fullPath, payload);
         }
