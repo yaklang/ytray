@@ -55,7 +55,7 @@ YTray 不修改系统浏览器应用的名称、签名、Bundle ID 或钥匙链�
 
 ## 从源码运行（开发模式）
 
-`./script/startup.sh` 面向开发调试：它编译 Debug 版本并在当前终端前台运行 YTray，**不会安装应用**，关闭终端或按 Ctrl-C 后即退出，适合修改代码后快速验证。
+`./script/startup.sh` 面向开发调试：它会自动准备并校验 Yakit Browser Agent，把开发资源缓存到 `darwin/.build/ytray-dev/`，再编译 Debug 版本并在当前终端前台运行 YTray。首次准备需要访问插件镜像，后续启动会复用经过大小和 SHA-256 校验的缓存。脚本**不会安装应用**，关闭终端或按 Ctrl-C 后即退出，适合修改代码后快速验证。
 
 需要 macOS 14 或更高版本以及 Xcode Command Line Tools。进入仓库根目录后运行：
 
@@ -107,7 +107,7 @@ YTray 不要求安装额外浏览器运行时。启动时会自动发现标准�
 
 - 无代理启动：使用记住的浏览器创建独立实例，并明确绕过 macOS 系统代理和预设代理。
 - 使用HTTP代理启动：使用小组件上方已经保存的“预设代理”创建独立实例。
-- 自定义启动：通过步骤向导依次选择运行时、调试参数、Dock 角标、插件并确认。本次设置不会覆盖默认配置；自定义启动使用直连，需要代理时请使用小组件的预设代理入口。角标留空时自动分配，也可以填写 1–2 个英文字母。
+- 自定义启动：通过步骤向导依次选择运行时、调试参数、Dock 角标、插件并确认。插件步骤默认选中全部已启用插件，也可以一键选择“全部”“不加载插件”，或逐个选择仅本次需要的插件。本次设置不会覆盖默认配置；自定义启动使用直连，需要代理时请使用小组件的预设代理入口。角标留空时自动分配，也可以填写 1–2 个英文字母。
 
 每个实例的用户目录位于：
 
@@ -153,9 +153,9 @@ my-extension/
 └── ...
 ```
 
-YTray 会读取 `manifest.json` 中的名称、版本和 Manifest 版本。插件页中启用的插件会自动加载到之后创建的所有非隔离实例；自定义启动向导仍可仅为本次实例临时取消或追加选择。
+YTray 会读取 `manifest.json` 中的名称、版本和 Manifest 版本。插件页中启用的插件会自动加载到之后创建的所有普通实例；关闭“默认加载”可以让某个插件不随快速启动加载，自定义启动向导仍可从全部已安装插件中为本次实例选择全部、零个或特定插件。
 
-Release CI 会读取 Yakit Browser Agent OSS 清单中的 `latest`，选择该版本的 `chrome-enterprise` 产物，并在校验清单提供的文件大小和 SHA-256 后内置到安装包。首次启动会把它释放到用户插件目录并默认启用；插件页仍可检查后续更新、更新或重新下载。用户主动移除内置插件后，YTray 会记住该选择，不会在每次启动时反复恢复；需要时可从插件页重新安装。
+Release CI 会读取 Yakit Browser Agent OSS 清单中的 `latest`，选择该版本的 `chrome-enterprise` 产物，并交叉校验文件大小、SHA-256、插件名称和版本后完整内置到 `YTray.app` / `YTray.exe`。首次启动只会从安装包释放到用户插件目录并默认启用，不会联网下载；后续插件更新随新的 YTray 版本发布。内置插件不能从列表移除，但可以关闭默认加载，或在自定义启动时选择不加载。插件页的“重新释放内置版本”可修复本地插件文件。
 
 当前官方 Google Chrome、Chrome Beta 和 Chrome Canary 会忽略命令行加载未打包扩展的能力；因此本地插件和需要用户名/密码的代理认证应选择 Chrome for Testing、Chromium 或 Edge。普通无认证 HTTP 代理、实例隔离和 CDP 调试仍可直接使用系统 Google Chrome。YTray 会在不兼容的浏览器上给出明确提示，不会静默启动一个缺少插件或代理认证的实例。
 
@@ -218,11 +218,11 @@ script/     # 本地启动脚本
 ./script/package-macos.sh
 ```
 
-输出位于 `dist/YTray.app`。打包需要 Xcode Command Line Tools、ImageMagick 的 `magick` 命令、Python 3 以及可访问插件镜像的网络；脚本会解析 OSS 清单、下载并校验最新版本的 Yakit Browser Agent，在签名前放入应用资源目录。
+输出位于 `dist/YTray.app`。打包需要 Xcode Command Line Tools、ImageMagick 的 `magick` 命令、Python 3 以及可访问插件镜像的网络；脚本会解析 OSS 清单、下载并校验最新版本的 Yakit Browser Agent，在签名前放入应用资源目录。应用运行时不会再访问该插件镜像。
 
 两个可选参数：
 
 - `--universal`：构建 arm64 + x86_64 双架构应用（会校验产物确实包含两种架构）；
 - `--dmg`：额外生成 `dist/YTray.dmg`，内含 YTray.app 与 `/Applications` 快捷方式，并输出 SHA-256。
 
-CI 会在 push `v*` tag 时自动执行 `./script/package-macos.sh --universal --dmg`，把 `YTray.dmg` 与 Windows 的 `YTray.exe` 一并附到对应的 GitHub Release。
+CI 会在 Pull Request、`main` 和 push `v*` tag 时执行完整打包与内置插件校验；tag 构建会把 `YTray.dmg` 与 Windows 的 `YTray.exe` 一并附到对应的 GitHub Release。

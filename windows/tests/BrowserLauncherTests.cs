@@ -16,6 +16,27 @@ namespace YTray.Tests
     public class BrowserLauncherTests
     {
         [TestMethod]
+        public void BundledPluginIsEmbeddedInOrdinaryBuildAndInstallsOffline()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayBundledPluginTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                Assert.IsTrue(ExtensionInstaller.TryInstallBundled(
+                    directory, out var extensionDirectory, out var version));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(version));
+                var manifestPath = Path.Combine(extensionDirectory, "manifest.json");
+                Assert.IsTrue(File.Exists(manifestPath));
+                var manifest = File.ReadAllText(manifestPath);
+                StringAssert.Contains(manifest, ExtensionInstaller.ExtensionName);
+                StringAssert.Contains(manifest, version);
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
         public void DockBadgeSequenceAndValidation()
         {
             Assert.AreEqual("A", DockBadgeLabel.DefaultLabel(1));
@@ -194,6 +215,23 @@ namespace YTray.Tests
             var args = BrowserLauncher.BuildArguments(LaunchMode.Quick, settings, "/tmp/profile", 9666, new List<BrowserPlugin> { plugin });
             Assert.IsTrue(args.Contains("--load-extension=/tmp/local-extension"));
             Assert.IsTrue(args.Contains("--disable-extensions-except=/tmp/local-extension"));
+        }
+
+        [TestMethod]
+        public void ExplicitSelectionCanLoadAPluginWhoseQuickLaunchDefaultIsOff()
+        {
+            var plugin = new BrowserPlugin
+            {
+                Name = "Optional", Version = "1.0", Path = "/tmp/optional-extension",
+                ManifestVersion = 3, Enabled = false,
+            };
+            var args = BrowserLauncher.BuildArguments(
+                LaunchMode.Custom,
+                new LaunchSettings(),
+                "/tmp/custom-profile",
+                9667,
+                new List<BrowserPlugin> { plugin });
+            Assert.IsTrue(args.Contains("--load-extension=/tmp/optional-extension"));
         }
 
         [TestMethod]

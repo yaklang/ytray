@@ -1,11 +1,33 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+
+    [switch]$UseCache
 )
 
 $ErrorActionPreference = 'Stop'
 $manifestUrl = 'https://aliyun-oss.yaklang.com/chrome-extension/manifest.json'
+
+$cachedArchive = Join-Path $OutputDirectory 'yakit-browser-agent.zip'
+$cachedDescriptor = Join-Path $OutputDirectory 'bundled-extension.json'
+if ($UseCache -and (Test-Path $cachedArchive -PathType Leaf) -and
+    (Test-Path $cachedDescriptor -PathType Leaf)) {
+    try {
+        $descriptor = Get-Content -LiteralPath $cachedDescriptor -Raw | ConvertFrom-Json
+        $cachedSize = (Get-Item -LiteralPath $cachedArchive).Length
+        $cachedHash = (Get-FileHash -LiteralPath $cachedArchive -Algorithm SHA256).Hash
+        if ($cachedSize -eq [long]$descriptor.size -and
+            [string]::Equals($cachedHash, [string]$descriptor.sha256,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            -not [string]::IsNullOrWhiteSpace([string]$descriptor.version)) {
+            Write-Host "Using cached Yakit Browser Agent: $($descriptor.version)" -ForegroundColor Cyan
+            return
+        }
+    }
+    catch { }
+    Write-Warning 'Cached Yakit Browser Agent is invalid; downloading a fresh copy.'
+}
 
 function Invoke-WithRetry([scriptblock]$Action) {
     for ($attempt = 1; $attempt -le 3; $attempt++) {
@@ -61,6 +83,25 @@ try {
             if ($normalizedPath.StartsWith('/') -or $entry.FullName.Contains('\') -or $segments -contains '..') {
                 throw "Archive contains an unsafe path: $($entry.FullName)"
             }
+        }
+
+        $manifestEntries = @($archive.Entries | Where-Object {
+            $_.FullName -match '^(?:[^/]+/)?manifest[.]json$'
+        })
+        if ($manifestEntries.Count -ne 1) {
+            throw 'Archive must contain exactly one supported manifest.json'
+        }
+        $manifestReader = [System.IO.StreamReader]::new(
+            $manifestEntries[0].Open(),
+            [System.Text.Encoding]::UTF8,
+            $true)
+        try { $extensionManifest = $manifestReader.ReadToEnd() | ConvertFrom-Json }
+        finally { $manifestReader.Dispose() }
+        if ([string]$extensionManifest.name -ne 'Yakit Browser Agent') {
+            throw 'Archive contains an unexpected extension name'
+        }
+        if ([string]$extensionManifest.version -ne $version) {
+            throw "Yakit Browser Agent manifest version mismatch: expected $version, got $($extensionManifest.version)"
         }
     }
     finally { $archive.Dispose() }

@@ -417,11 +417,6 @@ struct PluginsPage: View {
                 }
             }.overlay { if store.plugins.isEmpty { ContentUnavailableView("还没有插件", systemImage: "puzzlepiece.extension", description: Text("添加一个已解压的 Chrome 插件目录")) } }
         }.padding(28)
-        .task { if store.extensionManifest == nil { await store.refreshExtensionManifest() } }
-    }
-
-    private var latestEnterpriseVersion: ExtensionReleaseVersion? {
-        store.extensionManifest?.versions.first { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }
     }
 
     private var bundledExtensionVersion: String? {
@@ -430,39 +425,27 @@ struct PluginsPage: View {
 
     private var yakitExtensionSection: some View {
         let installed = store.managedExtension
-        let latest = latestEnterpriseVersion
         let bundled = bundledExtensionVersion
-        let busy = store.isInstallingExtension
-        let buttonTitle = busy ? "安装中…"
-            : installed == nil ? (latest.map { "下载 Yakit 插件 v\($0.version)" }
-                ?? bundled.map { "安装内置版本 v\($0)" }
-                ?? "下载 Yakit 插件")
-            : store.isExtensionUpdateAvailable && latest != nil ? "更新到 v\(latest!.version)"
-            : latest != nil ? "重新下载" : bundled != nil ? "重新安装内置版本" : "重新下载"
         return HStack(spacing: 12) {
-            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Brand.orange).font(.title2)
+            Image(systemName: "shippingbox.fill").foregroundStyle(Brand.orange).font(.title2)
             VStack(alignment: .leading, spacing: 2) {
-                if let installed, store.extensionManifest != nil, !store.isExtensionUpdateAvailable {
-                    Text("Yakit 浏览器插件 v\(installed.version) 已是最新").font(.callout)
-                } else if let installed, store.isExtensionUpdateAvailable {
-                    Text("当前 v\(installed.version) · 最新 v\(latest?.version ?? store.extensionManifest?.latest ?? "")").font(.callout)
-                } else if let latest {
-                    Text("Yakit 浏览器插件 v\(latest.version) 可下载").font(.callout)
+                if let installed {
+                    Text("Yakit 浏览器插件 v\(installed.version) 已随 YTray 内置").font(.callout)
                 } else if let bundled {
-                    Text("安装包内置 Yakit 浏览器插件 v\(bundled)").font(.callout)
+                    Text("YTray 内置 Yakit 浏览器插件 v\(bundled)").font(.callout)
                 } else {
-                    Text("Yakit 浏览器插件").font(.callout)
+                    Text("当前构建未包含 Yakit 浏览器插件").font(.callout)
                 }
                 if !store.extensionStatusMessage.isEmpty {
                     Text(store.extensionStatusMessage).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("插件更新随 YTray 新版本发布，运行时不会联网下载。").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer()
-            Button("检查更新") { Task { await store.refreshExtensionManifest() } }
-                .disabled(busy)
-            Button(buttonTitle) { Task { await store.installExtension() } }
+            Button("重新释放内置版本") { store.reinstallBundledExtension() }
                 .buttonStyle(FilledOrangeButtonStyle())
-                .disabled(busy || latest == nil && bundled == nil)
+                .disabled(bundled == nil)
         }
         .padding(14)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))

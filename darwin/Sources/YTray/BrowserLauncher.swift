@@ -58,7 +58,7 @@ enum BrowserLauncher {
             } else {
                 arguments.append("--proxy-server=\(proxy)")
             }
-            let paths = internalExtensionPaths + plugins.filter(\.enabled).map(\.path)
+            let paths = internalExtensionPaths + plugins.map(\.path)
             if !paths.isEmpty {
                 let joined = paths.joined(separator: ",")
                 arguments += ["--disable-extensions-except=\(joined)", "--load-extension=\(joined)"]
@@ -93,7 +93,7 @@ enum BrowserLauncher {
             throw YTrayError.invalidExecutable(executable.path)
         }
         let needsCommandLineExtension = mode != .isolated && (
-            plugins.contains(where: \.enabled)
+            !plugins.isEmpty
                 || !settings.proxyUsername.isEmpty
                 || !settings.proxyPassword.isEmpty
         )

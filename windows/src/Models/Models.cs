@@ -498,38 +498,6 @@ namespace YTray.Models
         public int ManifestVersion { get; set; }
     }
 
-    public class ExtensionManifest
-    {
-        public string Latest { get; set; } = "";
-        [JsonProperty("updated_at")]
-        public string UpdatedAt { get; set; } = "";
-        public List<ExtensionReleaseVersion> Versions { get; set; } = new List<ExtensionReleaseVersion>();
-    }
-
-    public class ExtensionReleaseVersion
-    {
-        public string Version { get; set; } = "";
-        [JsonProperty("published_at")]
-        public string PublishedAt { get; set; } = "";
-        public string Commit { get; set; } = "";
-        public List<ExtensionArtifact> Artifacts { get; set; } = new List<ExtensionArtifact>();
-
-        public override string ToString() => string.IsNullOrWhiteSpace(Version) ? "未知版本" : Version;
-    }
-
-    public class ExtensionArtifact
-    {
-        public string Variant { get; set; } = "";
-        public string Browser { get; set; } = "";
-        public string Mode { get; set; } = "";
-        public string Filename { get; set; } = "";
-        public string Url { get; set; } = "";
-        public string Sha256 { get; set; } = "";
-        public long? Size { get; set; }
-        [JsonProperty("checksum_url")]
-        public string ChecksumUrl { get; set; } = "";
-    }
-
     public enum YTrayError
     {
         NoRuntime,

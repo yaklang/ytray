@@ -46,15 +46,12 @@ namespace YTray.Core
 
         // Launch / activity UI state
         public bool IsInstalling { get; private set; }
-        public bool IsInstallingExtension { get; private set; }
         public string ActivityMessage { get; private set; } = "";
         public int InstallProgressPercent { get; private set; }
         public long InstallBytesReceived { get; private set; }
         public long? InstallBytesTotal { get; private set; }
         public string? ErrorMessage { get; private set; }
-        public ExtensionManifest? ExtensionManifest { get; private set; }
         public string ExtensionStatusMessage { get; private set; } = "";
-        public int ExtensionInstallPercent { get; private set; }
         public BrowserPlugin? ManagedExtension => Plugins.FirstOrDefault(p =>
             p.Name == ExtensionInstaller.ExtensionName
             && (p.Path ?? "").StartsWith(ExtensionInstaller.PluginsRoot(ApplicationDirectory),
@@ -135,11 +132,10 @@ namespace YTray.Core
 
         private bool InstallBundledExtensionIfNeeded(bool force = false)
         {
-            if (!force && ManagedExtension != null) return false;
             try
             {
                 if (!ExtensionInstaller.TryInstallBundled(ApplicationDirectory, out var directory,
-                        out var version, ignoreOptOut: force, replaceExisting: force)) return false;
+                        out var version, replaceExisting: force)) return false;
                 var previous = ManagedExtension;
                 RegisterManagedExtension(directory, previous?.Id, previous?.Enabled ?? true);
                 ExtensionInstaller.ClearManagedExtensionRemoved(ApplicationDirectory);
@@ -518,7 +514,7 @@ namespace YTray.Core
             }
             var runtime = Runtimes.First(r => r.Id == runtimeID);
             var selectedIDs = customPluginIDs ?? configuration.DefaultPluginIDs;
-            var selectedPlugins = Plugins.Where(p => selectedIDs.Contains(p.Id) && p.Enabled).ToList();
+            var selectedPlugins = Plugins.Where(p => selectedIDs.Contains(p.Id)).ToList();
 
             try
             {
@@ -873,88 +869,19 @@ namespace YTray.Core
             OnPropertyChanged(string.Empty);
         }
 
-        public async Task RefreshExtensionManifestAsync()
+        public void ReinstallBundledExtension()
         {
-            ExtensionStatusMessage = "正在获取插件版本…";
-            OnPropertyChanged(string.Empty);
-            try
-            {
-                ExtensionManifest = await ExtensionInstaller.FetchManifestAsync();
-                ExtensionStatusMessage = "";
-            }
-            catch (Exception ex)
-            {
-                ExtensionStatusMessage = ex.Message;
-                Report(ex);
-            }
-            OnPropertyChanged(string.Empty);
-        }
-
-        /// <summary>
-        /// True when the remote latest enterprise artifact is newer than the installed
-        /// managed extension. Unknown remote manifest or first install counts as available.
-        /// </summary>
-        public bool IsExtensionUpdateAvailable
-        {
-            get
-            {
-                if (ExtensionManifest == null) return false;
-                var latest = ExtensionManifest.Versions.FirstOrDefault()
-                    ?? new ExtensionReleaseVersion { Version = ExtensionManifest.Latest };
-                if (ExtensionInstaller.EnterpriseArtifact(latest) == null) return false;
-                var installed = ManagedExtension;
-                if (installed == null) return true;
-                return ExtensionInstaller.CompareVersions(latest.Version, installed.Version) > 0;
-            }
-        }
-
-        public async Task InstallExtensionAsync(ExtensionReleaseVersion? version = null)
-        {
-            if (IsInstallingExtension) return;
-            var target = version ?? ExtensionManifest?.Versions.FirstOrDefault();
-            if (target == null)
-            {
-                if (InstallBundledExtensionIfNeeded(force: true))
-                {
-                    ExtensionInstallPercent = 100;
-                    OnPropertyChanged(string.Empty);
-                    return;
-                }
-                Report(new YTrayException(YTrayError.ExtensionInstallFailed, "没有可安装的插件版本，请先刷新插件清单"));
-                return;
-            }
-            IsInstallingExtension = true;
             ErrorMessage = null;
-            ExtensionInstallPercent = 0;
-            ExtensionStatusMessage = $"正在准备 Yakit 插件 {target.Version}…";
-            var previousId = ManagedExtension?.Id;
-            var wasEnabled = ManagedExtension?.Enabled ?? true;
+            ExtensionStatusMessage = "正在校验并释放内置 Yakit 插件…";
+            if (!InstallBundledExtensionIfNeeded(force: true))
+            {
+                var error = new YTrayException(
+                    YTrayError.ExtensionInstallFailed,
+                    "当前构建没有包含 Yakit 浏览器插件");
+                ExtensionStatusMessage = error.Message;
+                Report(error);
+            }
             OnPropertyChanged(string.Empty);
-            try
-            {
-                var progress = new Progress<RuntimeInstaller.InstallProgress>(value =>
-                {
-                    ExtensionInstallPercent = value.Percent;
-                    ExtensionStatusMessage = value.Message ?? "正在安装…";
-                    OnPropertyChanged(string.Empty);
-                });
-                var directory = await ExtensionInstaller.InstallAsync(target, ApplicationDirectory, progress);
-                RegisterManagedExtension(directory, previousId, wasEnabled);
-                ExtensionInstaller.ClearManagedExtensionRemoved(ApplicationDirectory);
-                ExtensionInstaller.CleanupOldVersions(ApplicationDirectory, target.Version);
-                ExtensionInstallPercent = 100;
-                ExtensionStatusMessage = $"Yakit 插件 {target.Version} 安装完成";
-            }
-            catch (Exception ex)
-            {
-                Report(ex);
-                ExtensionStatusMessage = ErrorMessage ?? "插件安装失败";
-            }
-            finally
-            {
-                IsInstallingExtension = false;
-                OnPropertyChanged(string.Empty);
-            }
         }
 
         /// <summary>

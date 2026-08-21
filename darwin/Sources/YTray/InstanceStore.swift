@@ -13,8 +13,6 @@ final class InstanceStore: NSObject, ObservableObject {
     @Published var isInstalling = false
     @Published var activityMessage = ""
     @Published var errorMessage: String?
-    @Published var extensionManifest: ExtensionManifest?
-    @Published var isInstallingExtension = false
     @Published var extensionStatusMessage = ""
     @Published private(set) var launchPhase: BrowserLaunchPhase = .idle
     @Published private(set) var launchMessage = ""
@@ -164,47 +162,13 @@ final class InstanceStore: NSObject, ObservableObject {
         }
     }
 
-    var isExtensionUpdateAvailable: Bool {
-        guard let manifest = extensionManifest else { return false }
-        let latest = manifest.versions.first { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }
-            ?? ExtensionReleaseVersion(version: manifest.latest, publishedAt: "", commit: "", artifacts: [])
-        guard ExtensionInstaller.enterpriseArtifact(of: latest) != nil else { return false }
-        guard let installed = managedExtension else { return true }
-        return ExtensionInstaller.compareVersions(latest.version, installed.version) == .orderedDescending
-    }
-
-    func refreshExtensionManifest() async {
-        extensionStatusMessage = "正在获取插件版本…"
-        do {
-            extensionManifest = try await ExtensionInstaller.fetchManifest()
-            extensionStatusMessage = ""
-        } catch {
-            extensionStatusMessage = error.localizedDescription
-            report(error)
-        }
-    }
-
-    func installExtension(version: ExtensionReleaseVersion? = nil) async {
-        guard !isInstallingExtension else { return }
-        guard let target = version
-            ?? extensionManifest?.versions.first(where: { ExtensionInstaller.enterpriseArtifact(of: $0) != nil }) else {
-            if installBundledExtensionIfNeeded(force: true) { return }
-            report(YTrayError.extensionInstallFailed("没有可安装的插件版本，请先刷新插件清单"))
-            return
-        }
-        isInstallingExtension = true
+    func reinstallBundledExtension() {
         errorMessage = nil
-        extensionStatusMessage = "正在下载并校验 Yakit 插件 \(target.version)…"
-        defer { isInstallingExtension = false }
-        do {
-            let directory = try await ExtensionInstaller.install(version: target, into: applicationDirectory)
-            registerManagedExtension(directory: directory)
-            ExtensionInstaller.clearManagedExtensionRemoved(applicationDirectory: applicationDirectory)
-            ExtensionInstaller.cleanupOldVersions(applicationDirectory: applicationDirectory, installedVersion: target.version)
-            extensionStatusMessage = "Yakit 插件 \(target.version) 安装完成"
-        } catch {
-            report(error)
+        extensionStatusMessage = "正在校验并释放内置 Yakit 插件…"
+        if !installBundledExtensionIfNeeded(force: true) {
+            let error = YTrayError.extensionInstallFailed("当前构建没有包含 Yakit 浏览器插件")
             extensionStatusMessage = error.localizedDescription
+            report(error)
         }
     }
 
@@ -296,11 +260,9 @@ final class InstanceStore: NSObject, ObservableObject {
 
     @discardableResult
     private func installBundledExtensionIfNeeded(force: Bool = false) -> Bool {
-        if !force, managedExtension != nil { return false }
         do {
             guard let bundled = try ExtensionInstaller.installBundled(
                 into: applicationDirectory,
-                ignoreOptOut: force,
                 replaceExisting: force
             ) else { return false }
             registerManagedExtension(directory: bundled.directory)
@@ -366,7 +328,7 @@ final class InstanceStore: NSObject, ObservableObject {
             return
         }
         let selectedIDs = customPluginIDs ?? configuration.defaultPluginIDs
-        let selectedPlugins = plugins.filter { selectedIDs.contains($0.id) && $0.enabled }
+        let selectedPlugins = plugins.filter { selectedIDs.contains($0.id) }
         do {
             let requestedBadge = (history?.dockBadge ?? configuration.dockBadge)
                 .trimmingCharacters(in: .whitespacesAndNewlines)

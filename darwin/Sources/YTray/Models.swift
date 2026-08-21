@@ -399,43 +399,6 @@ struct PluginManifest: Decodable {
     }
 }
 
-struct ExtensionManifest: Decodable {
-    let latest: String
-    let updatedAt: String
-    let versions: [ExtensionReleaseVersion]
-    enum CodingKeys: String, CodingKey {
-        case latest, versions
-        case updatedAt = "updated_at"
-    }
-}
-
-struct ExtensionReleaseVersion: Decodable, Identifiable {
-    let version: String
-    let publishedAt: String
-    let commit: String
-    let artifacts: [ExtensionArtifact]
-    enum CodingKeys: String, CodingKey {
-        case version, commit, artifacts
-        case publishedAt = "published_at"
-    }
-    var id: String { version }
-}
-
-struct ExtensionArtifact: Decodable {
-    let variant: String
-    let browser: String
-    let mode: String
-    let filename: String
-    let url: String
-    let sha256: String
-    let size: Int64?
-    let checksumUrl: String
-    enum CodingKeys: String, CodingKey {
-        case variant, browser, mode, filename, url, sha256, size
-        case checksumUrl = "checksum_url"
-    }
-}
-
 enum YTrayError: LocalizedError {
     case noRuntime
     case invalidExecutable(String)

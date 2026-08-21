@@ -98,7 +98,7 @@ namespace YTray
             try
             {
                 if (!ExtensionInstaller.TryInstallBundled(extractionRoot, out var extensionDirectory,
-                        out bundledVersion, ignoreOptOut: true))
+                        out bundledVersion))
                     throw new InvalidOperationException("The bundled browser extension is missing.");
                 var manifestPath = Path.Combine(extensionDirectory, "manifest.json");
                 var manifest = JsonConvert.DeserializeObject<PluginManifest>(File.ReadAllText(manifestPath));
