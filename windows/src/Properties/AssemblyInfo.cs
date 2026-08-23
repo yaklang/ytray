@@ -9,6 +9,6 @@ using System.Runtime.CompilerServices;
 [assembly: AssemblyCopyright("Copyright © YTray")]
 [assembly: ComVisible(false)]
 [assembly: Guid("8f3a2c91-7d4e-4b1a-9c6f-2e5a8b1d3c77")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("0.1.0.0")]
+[assembly: AssemblyFileVersion("0.1.0.0")]
 [assembly: InternalsVisibleTo("YTray.Tests")]

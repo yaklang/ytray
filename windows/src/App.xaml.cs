@@ -14,6 +14,7 @@ namespace YTray
     {
         private InstanceStore? _store;
         private TrayApp? _tray;
+        private LaunchAtLoginManager? _launchAtLogin;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -22,6 +23,7 @@ namespace YTray
 
             var args = Environment.GetCommandLineArgs();
             string? designCaptureDirectory = null;
+            bool startupLaunch = false;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--verify-standalone" && i + 1 < args.Length)
@@ -33,6 +35,11 @@ namespace YTray
                 if (args[i] == "--capture-design-review" && i + 1 < args.Length)
                 {
                     designCaptureDirectory = args[++i];
+                    continue;
+                }
+                if (args[i] == "--startup")
+                {
+                    startupLaunch = true;
                     continue;
                 }
                 if (args[i] == "--smoke-browser" && i + 1 < args.Length)
@@ -73,9 +80,33 @@ namespace YTray
             else if (string.Equals(previewTheme, "light", StringComparison.OrdinalIgnoreCase))
                 initialTheme = AppThemePreference.Light;
             ThemeManager.Initialize(initialTheme);
-            _tray = new TrayApp(_store);
-            // Show the manager window on launch so the user sees the UI immediately.
-            _tray.ShowManager();
+            _launchAtLogin = new LaunchAtLoginManager();
+            _tray = new TrayApp(_store, _launchAtLogin);
+            var firstLaunchOutcome = _launchAtLogin.EnableOnFirstLaunchIfNeeded(
+                _store.Settings,
+                _store.SaveSettings
+            );
+            if (firstLaunchOutcome == FirstLaunchAtLoginOutcome.Enabled)
+            {
+                MessageBox.Show(
+                    "已默认开启开机启动。以后登录 Windows 时，YTray 会自动进入系统托盘；不会自动打开浏览器。你可以在“开机启动”页面随时管理。",
+                    "YTray 开机启动",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information
+                );
+            }
+            else if (firstLaunchOutcome == FirstLaunchAtLoginOutcome.Failed)
+            {
+                MessageBox.Show(
+                    "暂时无法自动开启开机启动。这个问题不影响其他功能；你可以稍后在 YTray 的“开机启动”页面重试。\n\n" +
+                    (_launchAtLogin.ErrorMessage ?? ""),
+                    "YTray 开机启动",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning
+                );
+            }
+            // A login launch stays in the tray. A normal launch opens the manager immediately.
+            if (!startupLaunch) _tray.ShowManager();
         }
 
         private static void VerifyStandalone(string markerPath)
@@ -146,6 +177,7 @@ namespace YTray
         protected override void OnExit(ExitEventArgs e)
         {
             _tray?.Dispose();
+            _launchAtLogin = null;
             _store?.Dispose();
             ThemeManager.Shutdown();
             base.OnExit(e);

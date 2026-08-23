@@ -7,6 +7,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
     case settings = "启动设置"
     case instances = "运行与历史"
     case plugins = "插件管理"
+    case launchAtLogin = "开机启动"
     var id: String { rawValue }
     var icon: String {
         switch self {
@@ -15,6 +16,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
         case .settings: return "slider.horizontal.3"
         case .instances: return "rectangle.stack"
         case .plugins: return "puzzlepiece.extension"
+        case .launchAtLogin: return "power"
         }
     }
 }
@@ -27,6 +29,7 @@ final class ManagerNavigation: ObservableObject {
 struct ManagerView: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject var navigation: ManagerNavigation
+    @ObservedObject var launchAtLogin: LaunchAtLoginManager
     @State private var showWizard = false
 
     var body: some View {
@@ -44,6 +47,7 @@ struct ManagerView: View {
                 case .settings: SettingsPage(store: store)
                 case .instances: InstancesPage(store: store)
                 case .plugins: PluginsPage(store: store)
+                case .launchAtLogin: LaunchAtLoginPage(manager: launchAtLogin)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -68,6 +72,99 @@ struct ManagerView: View {
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
         )) { Button("知道了") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
+    }
+}
+
+struct LaunchAtLoginPage: View {
+    @ObservedObject var manager: LaunchAtLoginManager
+    @State private var confirmDisable = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                PageHeader(
+                    title: "开机启动",
+                    subtitle: "让 YTray 在你登录系统后自动进入菜单栏，不自动打开浏览器实例。"
+                )
+
+                GroupBox {
+                    HStack(spacing: 18) {
+                        ZStack {
+                            Circle().fill(statusColor.opacity(0.14)).frame(width: 58, height: 58)
+                            Image(systemName: manager.isEnabled ? "power.circle.fill" : "power.circle")
+                                .font(.system(size: 30))
+                                .foregroundStyle(statusColor)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(manager.status.title).font(.title3.bold())
+                            Text(manager.statusDetail).font(.callout).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 18)
+                        Toggle("", isOn: Binding(
+                            get: { manager.isEnabled },
+                            set: { enabled in
+                                if enabled { _ = manager.setEnabled(true) }
+                                else { confirmDisable = true }
+                            }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(Brand.orange)
+                        .disabled(manager.status == .unavailable)
+                    }
+                    .padding(16)
+                } label: {
+                    Label("随登录自动运行", systemImage: "person.crop.circle.badge.clock")
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("默认开启，但始终由你掌控", systemImage: "checkmark.shield")
+                        .font(.headline)
+                    Text("YTray 首次从安装版启动时会尝试开启，并明确告诉你结果。关闭操作需要再次确认，防止误触。")
+                        .foregroundStyle(.secondary)
+                    Label("不会自动启动浏览器", systemImage: "hand.raised")
+                        .font(.headline)
+                    Text("此设置只让 YTray 驻留菜单栏。代理、插件和浏览器实例仍需由你点击启动。")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.035))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                HStack {
+                    Button("刷新状态") { manager.refresh() }
+                        .buttonStyle(SmallSecondaryButtonStyle())
+                    Button("打开系统登录项设置") { manager.openSystemSettings() }
+                        .buttonStyle(SmallSecondaryButtonStyle())
+                    Spacer()
+                }
+            }
+            .padding(28)
+        }
+        .confirmationDialog("确认关闭开机启动？", isPresented: $confirmDisable) {
+            Button("关闭开机启动", role: .destructive) { _ = manager.setEnabled(false) }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("关闭后，登录系统时 YTray 将不会自动进入菜单栏。")
+        }
+        .alert("开机启动设置失败", isPresented: Binding(
+            get: { manager.errorMessage != nil },
+            set: { if !$0 { manager.errorMessage = nil } }
+        )) {
+            Button("知道了") { manager.errorMessage = nil }
+        } message: {
+            Text(manager.errorMessage ?? "")
+        }
+    }
+
+    private var statusColor: Color {
+        switch manager.status {
+        case .enabled: return .green
+        case .requiresApproval: return Brand.orange
+        case .disabled, .unavailable: return .secondary
+        }
     }
 }
 

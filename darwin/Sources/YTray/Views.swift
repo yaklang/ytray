@@ -41,10 +41,12 @@ enum WidgetMetrics {
 struct WidgetView: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject var presentation: WidgetPresentationState
+    @ObservedObject var launchAtLogin: LaunchAtLoginManager
     let openManager: (ManagerSection) -> Void
     let closeWidget: () -> Void
     @State private var newInstanceHovered = false
     @State private var showClearHistoryConfirmation = false
+    @State private var showLaunchAtLoginConfirmation = false
 
     var body: some View {
         ZStack {
@@ -81,21 +83,42 @@ struct WidgetView: View {
                         .disabled(store.isLaunching)
                 }
 
-                Button { openManager(.quick) } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "gearshape")
-                        Text("全部管理").fontWeight(.medium)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption)
+                HStack(spacing: 7) {
+                    Button { openManager(.quick) } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "gearshape")
+                            Text("全部管理").fontWeight(.medium)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption)
+                        }
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 11)
+                        .frame(height: 32)
                     }
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 11)
-                    .frame(height: 32)
+                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 8))
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
+
+                    Button {
+                        if launchAtLogin.isEnabled { showLaunchAtLoginConfirmation = true }
+                        else { _ = launchAtLogin.setEnabled(true) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: launchAtLogin.isEnabled ? "power.circle.fill" : "power.circle")
+                            Text(launchAtLogin.isEnabled ? "开机启动已开" : "开启开机启动")
+                                .fontWeight(.medium)
+                        }
+                        .font(.system(size: 11))
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                    }
+                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 8))
+                    .foregroundStyle(launchAtLogin.isEnabled ? Brand.orange : Color.primary)
+                    .background(Brand.orange.opacity(launchAtLogin.isEnabled ? 0.10 : 0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Brand.orange.opacity(0.20)))
                 }
-                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 8))
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
             }
             .padding(14)
         }
@@ -109,6 +132,12 @@ struct WidgetView: View {
             Button("清理全部", role: .destructive) { store.removeAllHistory() }
         } message: {
             Text("将删除全部历史记录；正在运行的浏览器不会受到影响。")
+        }
+        .confirmationDialog("确认关闭开机启动？", isPresented: $showLaunchAtLoginConfirmation) {
+            Button("关闭开机启动", role: .destructive) { _ = launchAtLogin.setEnabled(false) }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("关闭后，登录系统时 YTray 将不会自动进入菜单栏。")
         }
     }
 

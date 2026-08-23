@@ -16,6 +16,39 @@ namespace YTray.Tests
     public class BrowserLauncherTests
     {
         [TestMethod]
+        public void LaunchAtLoginDefaultsOnOnceAndCanBeDisabled()
+        {
+            var backend = new TestLaunchAtLoginBackend();
+            var manager = new LaunchAtLoginManager(backend);
+            var settings = new LaunchSettings();
+            var saveCount = 0;
+
+            Assert.AreEqual(FirstLaunchAtLoginOutcome.Enabled,
+                manager.EnableOnFirstLaunchIfNeeded(settings, () => saveCount++));
+            Assert.IsTrue(manager.IsEnabled);
+            Assert.AreEqual(1, backend.EnableCount);
+            Assert.AreEqual(1, saveCount);
+            Assert.AreEqual(FirstLaunchAtLoginOutcome.None,
+                manager.EnableOnFirstLaunchIfNeeded(settings, () => saveCount++));
+            Assert.AreEqual(1, backend.EnableCount);
+            Assert.AreEqual(1, saveCount);
+
+            Assert.IsTrue(manager.SetEnabled(false));
+            Assert.IsFalse(manager.IsEnabled);
+            Assert.AreEqual(1, backend.DisableCount);
+        }
+
+        private sealed class TestLaunchAtLoginBackend : ILaunchAtLoginBackend
+        {
+            public bool IsEnabled { get; private set; }
+            public int EnableCount { get; private set; }
+            public int DisableCount { get; private set; }
+
+            public void Enable() { EnableCount++; IsEnabled = true; }
+            public void Disable() { DisableCount++; IsEnabled = false; }
+        }
+
+        [TestMethod]
         public void DockBadgeSequenceAndValidation()
         {
             Assert.AreEqual("A", DockBadgeLabel.DefaultLabel(1));

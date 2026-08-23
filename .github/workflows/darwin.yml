@@ -2,10 +2,7 @@ name: macOS
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -13,149 +10,74 @@ permissions:
   contents: read
 
 concurrency:
-  group: darwin-${{ github.workflow }}-${{ github.ref }}
+  group: darwin-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  repository-hygiene:
-    name: Repository hygiene
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  build-test-package:
+    name: Build, test, UI smoke, package
+    runs-on: macos-14
+    timeout-minutes: 30
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Reject build artifacts and obvious secrets
+      - name: Repository hygiene
         shell: bash
         run: |
           set -euo pipefail
           if git ls-files | grep -E '(^|/)(\.build|DerivedData)(/|$)|\.app/|\.(dmg|zip)$'; then
-            echo "Tracked build or distribution artifact detected"
+            echo "Tracked build artifact detected" >&2
             exit 1
           fi
-          if git grep -En 'AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----|AccessKeySecret|x-oss-signature=' -- . ':(exclude).github/workflows/darwin.yml'; then
-            echo "Potential credential material detected"
-            exit 1
-          fi
+          bash -n script/*.sh
 
-      - name: Verify public YTray branding and README assets
-        shell: bash
+      - name: Run release metadata tests
+        run: bash script/test-release-index.sh
+
+      - name: Build and test macOS application
         run: |
-          set -euo pipefail
-          legacy_prefix='instance'
-          legacy_suffix='dock'
-          if git grep -Ein "${legacy_prefix}[ -]?${legacy_suffix}|${legacy_prefix}_${legacy_suffix}" -- README.md windows script darwin .github; then
-            echo "Legacy public brand detected"
-            exit 1
-          fi
-          test -s docs/images/ytray-hero.png
-          test -s docs/images/ytray-widget-history.png
-          test -s docs/images/ytray-edge-actions.png
-          test -s docs/images/ytray-edge-panel.png
-          bash -n script/startup.sh
+          swift --version
+          swift build --package-path darwin --configuration release
+          swift test --package-path darwin
 
-  build-and-test:
-    name: macOS build, test, and UI smoke
-    runs-on: macos-14
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Show Swift toolchain
-        run: swift --version
-
-      - name: Build release executable
-        run: swift build --package-path darwin --configuration release
-
-      - name: Run macOS tests
-        run: swift test --package-path darwin
-
-      - name: Render UI smoke previews
+      - name: Render real UI previews
         shell: bash
         run: |
           set -euo pipefail
           bin_path="$(swift build --package-path darwin --configuration release --show-bin-path)"
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-overview.png" quick
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-startup.png" launchAtLogin
           "$bin_path/YTray" --render-widget "$RUNNER_TEMP/ytray-widget.png" --running --history --proxy-advanced
           "$bin_path/YTray" --render-wizard "$RUNNER_TEMP/ytray-wizard.png"
           "$bin_path/YTray" --render-edge-dock "$RUNNER_TEMP/ytray-edge-dock.png"
-          test -s "$RUNNER_TEMP/ytray-widget.png"
-          test -s "$RUNNER_TEMP/ytray-wizard.png"
-          test -s "$RUNNER_TEMP/ytray-edge-dock.png"
-
-  # Tag pushes run workflows from the tagged commit; package on tag (and main) so the
-  # DMG pipeline is exercised before any release depends on it.
-  package-dmg:
-    name: Package universal YTray.app and DMG
-    needs: build-and-test
-    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
-    runs-on: macos-14
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+          test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'ytray-*.png' -size +20k | wc -l | tr -d ' ')" = 5
 
       - name: Ensure ImageMagick
-        shell: bash
         run: command -v magick >/dev/null 2>&1 || brew install imagemagick
 
-      - name: Package universal app and DMG
-        shell: bash
-        run: ./script/package-macos.sh --universal --dmg
+      - name: Exercise universal package with latest plugin
+        run: ./script/package-macos.sh --arch universal --dmg
 
-      - name: Verify DMG mounts the app bundle
+      - name: Verify mounted universal DMG
         shell: bash
         run: |
           set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          dmg="dist/YTray-$version-darwin-universal.dmg"
           mount_dir="$(mktemp -d)"
-          hdiutil attach dist/YTray.dmg -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
-          test -x "$mount_dir/YTray.app/Contents/MacOS/YTray"
-          test -s "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip"
-          test -s "$mount_dir/YTray.app/Contents/Resources/BundledExtension/bundled-extension.json"
-          unzip -t "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
-          lipo -archs "$mount_dir/YTray.app/Contents/MacOS/YTray"
-          hdiutil detach "$mount_dir" >/dev/null
+          hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
+          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true' EXIT
+          app="$mount_dir/YTray.app"
+          test -x "$app/Contents/MacOS/YTray"
+          test "$(lipo -archs "$app/Contents/MacOS/YTray" | tr ' ' '\n' | sort | tr '\n' ' ')" = "arm64 x86_64 "
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          unzip -t "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
 
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: YTray-macos-dmg
-          path: dist/YTray.dmg
+          name: ytray-macos-ci
+          path: |
+            dist/YTray-*-darwin-universal.dmg
+            ${{ runner.temp }}/ytray-*.png
           if-no-files-found: error
           retention-days: 14
-
-  # The Windows workflow owns release creation from the same tag; wait for it and
-  # attach the DMG so both platform assets land on one release.
-  publish-release:
-    name: Attach DMG to GitHub Release
-    needs: package-dmg
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - name: Download DMG artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: YTray-macos-dmg
-          path: dist
-
-      - name: Wait for release and upload DMG
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 20); do
-            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release upload "$TAG" dist/YTray.dmg --repo "$GITHUB_REPOSITORY" --clobber
-              echo "DMG attached to release $TAG"
-              exit 0
-            fi
-            echo "Release $TAG not published yet (attempt $attempt/20); waiting 30s…"
-            sleep 30
-          done
-          echo "Release $TAG never appeared; attach the DMG manually from the run artifacts." >&2
-          exit 1

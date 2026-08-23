@@ -1,0 +1,63 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/images/v0.1.0/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy official website
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Assemble immutable Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _site/assets
+          cp -R site/. _site/
+          cp docs/images/v0.1.0/ytray-manager-overview.png _site/assets/
+          cp docs/images/v0.1.0/ytray-launch-at-login.png _site/assets/
+          cp docs/images/v0.1.0/ytray-widget.png _site/assets/
+          cp docs/images/v0.1.0/ytray-custom-launch.png _site/assets/
+          cp docs/images/v0.1.0/ytray-edge-dock.png _site/assets/
+          jq -n --arg commit "$GITHUB_SHA" --arg deployed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{product:"ytray",commit:$commit,deployed_at:$deployed_at}' > _site/deploy-meta.json
+          test "$(find _site/assets -type f -name '*.png' | wc -l | tr -d ' ')" = 5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Verify exact deployed commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          page_url="${{ steps.deployment.outputs.page_url }}"
+          for attempt in $(seq 1 18); do
+            if curl --retry 2 --retry-all-errors -fsSL "${page_url}deploy-meta.json?sha=$GITHUB_SHA" \
+              | jq -e --arg sha "$GITHUB_SHA" '.product == "ytray" and .commit == $sha' >/dev/null; then
+              curl --retry 2 --retry-all-errors -fsSL "$page_url" | grep -F '把浏览器身份' >/dev/null
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1

@@ -99,7 +99,8 @@ namespace YTray.Core
 
         private static async Task CaptureManagerAsync(InstanceStore store, string root, List<CaptureItem> captures)
         {
-            var manager = new ManagerView(store)
+            var launchAtLogin = new LaunchAtLoginManager(new PreviewLaunchAtLoginBackend());
+            var manager = new ManagerView(store, launchAtLogin)
             {
                 WindowStartupLocation = WindowStartupLocation.Manual,
                 Left = 160,
@@ -117,6 +118,7 @@ namespace YTray.Core
                 new MainPageCapture { Slug = "browser-sources", Caption = "浏览器来源", Select = w => w.NavRuntimes },
                 new MainPageCapture { Slug = "proxy-and-launch", Caption = "代理与启动", Select = w => w.NavLaunch },
                 new MainPageCapture { Slug = "plugins", Caption = "本地插件", Select = w => w.NavPlugins },
+                new MainPageCapture { Slug = "startup", Caption = "开机启动", Select = w => w.NavStartup },
                 new MainPageCapture { Slug = "settings", Caption = "设置", Select = w => w.NavSettings },
             };
 
@@ -300,7 +302,7 @@ namespace YTray.Core
             CaptureScreen(Inflate(WindowBounds(edge), 28, 24), Path.Combine(root, edgeRelative));
             captures.Add(new CaptureItem { RelativePath = edgeRelative, Caption = "屏幕右缘吸附条 · 悬停展开" });
 
-            var widget = new WidgetView(store) { Topmost = true };
+            var widget = new WidgetView(store, new LaunchAtLoginManager(new PreviewLaunchAtLoginBackend())) { Topmost = true };
             foreach (var theme in new[] { AppThemePreference.Light, AppThemePreference.Dark })
             {
                 ApplyPreviewTheme(store, theme);

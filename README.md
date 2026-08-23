@@ -1,228 +1,180 @@
 # YTray
 
 <p align="center">
-  <img src="docs/images/ytray-hero.png" width="960" alt="YTray 多身份浏览器实例工作台">
+  <strong>多身份浏览器实例工作台</strong><br>
+  把独立用户目录、HTTP 代理、调试端口、本地插件和历史恢复，放进一个原生桌面应用。
 </p>
-
-YTray 是一个面向 Chrome 独立实例的开源桌面工作台。它把浏览器版本、独立用户目录、代理、调试端口、本地插件和常用启动参数组合成可重复使用的身份环境，并通过菜单栏托盘与桌面贴边小组件快速管理。
-
-macOS 与 Windows 均为各自平台的原生实现（Swift / AppKit 与 C# / WPF），功能对等。项目不包含授权码、许可证校验、订阅或功能解锁逻辑。
-
-## 它解决什么问题
-
-安全测试、开发联调和日常运营经常需要同时保留多个登录身份：管理员、普通用户、访客、不同租户，或审批流程中的不同参与者。反复退出登录不仅慢，还容易把 Cookie、权限和代理状态混在一起。YTray 为每个实例使用独立的用户目录，让 Cookie、Local Storage、缓存、插件数据和登录态天然隔离，同时仍可复用用户选择的本机 Chrome。
-
-在多身份、多权限测试中，YTray 尤其适合：
-
-- 并排保留管理员、普通用户、匿名用户和不同租户，快速验证 RBAC、越权与数据隔离；
-- 用 Dock 角标、名称、页面 Title 和缩略图区分身份，减少在错误账号中执行操作的风险；
-- 一键选择直连或预设 HTTP 代理，配合 Yak MITM 等本地调试链路复现问题；
-- 为每个实例启用独立调试端口和本地插件，便于接入 Yakit、Yak 引擎或其他 CDP 自动化工具；
-- 从历史恢复同一用户目录、角标、插件和上次页面，不需要重新配置测试环境。
-
-YTray 不修改系统浏览器应用的名称、签名、Bundle ID 或钥匙链身份，也不会替换系统默认浏览器。它只负责以隔离参数启动用户明确选择的浏览器进程。
-
-## 产品界面
-
-| 托盘中的实例与历史 | 贴边快捷启动 |
-| --- | --- |
-| <img src="docs/images/ytray-widget-history.png" width="380" alt="YTray 托盘小组件中的代理、运行实例和历史记录"> | <img src="docs/images/ytray-edge-actions.png" width="380" alt="YTray 贴边小组件展开代理启动和无代理启动按钮"> |
-| 运行状态、页面缩略图、历史恢复和身份角标集中在紧凑面板中。 | 面板关闭时，鼠标移入橙色贴边标签即可纵向选择启动方式。 |
 
 <p align="center">
-  <img src="docs/images/ytray-edge-panel.png" width="560" alt="从桌面边缘展开完整 YTray 小组件">
+  <a href="https://github.com/yaklang/ytray/actions/workflows/darwin.yml"><img alt="macOS CI" src="https://github.com/yaklang/ytray/actions/workflows/darwin.yml/badge.svg"></a>
+  <a href="https://github.com/yaklang/ytray/actions/workflows/windows.yml"><img alt="Windows CI" src="https://github.com/yaklang/ytray/actions/workflows/windows.yml/badge.svg"></a>
+  <a href="https://github.com/yaklang/ytray/actions/workflows/pages.yml"><img alt="Pages" src="https://github.com/yaklang/ytray/actions/workflows/pages.yml/badge.svg"></a>
 </p>
 
-<p align="center"><sub>点击贴边标签会展开与菜单栏托盘一致的完整面板；失焦自动隐藏，PIN 后保持显示。</sub></p>
+<p align="center">
+  <a href="https://yaklang.io/ytray/">官方网站</a> ·
+  <a href="https://github.com/yaklang/ytray/releases/latest">下载最新版</a> ·
+  <a href="https://aliyun-oss.yaklang.com/ytray/latest.json">发布清单</a>
+</p>
 
-## 安装 macOS 应用
+![YTray 快速配置与侧栏](/docs/images/v0.1.0/ytray-manager-overview.png)
 
-### 方式一：下载 DMG（推荐）
+YTray 面向安全测试、开发联调和多账号运营：管理员、普通用户、访客或不同租户可以同时保持登录，不需要反复退出，也不会把 Cookie、缓存和插件状态混在一起。
 
-从 [GitHub Releases](https://github.com/yaklang/ytray/releases) 下载最新的 `YTray.dmg`，打开后把 YTray 拖入 Applications 文件夹即完成安装。DMG 由 CI 构建，是 arm64 + x86_64 通用应用，Apple Silicon 与 Intel Mac 均可运行。
+macOS 版本使用 Swift、AppKit 与 SwiftUI；Windows 版本使用 C# 与 WPF。两端都直接使用平台原生窗口、托盘和开机启动机制。
 
-应用仅做本机临时签名（没有 Apple 开发者证书），首次打开如被 Gatekeeper 拦截，请在 Finder 中右键点击 YTray.app 并选择“打开”。
+## 设计重点
 
-### 方式二：本地打包
+- 每个实例使用独立用户目录，隔离 Cookie、Local Storage、缓存、插件数据与登录态。
+- 显式区分“无代理启动”和“使用 HTTP 代理启动”，避免网络路径含糊。
+- 调试服务只绑定 `127.0.0.1`，端口占用时自动向后选择。
+- 运行实例提供页面缩略图、PID、浏览器版本、调试端口、停止和截图入口。
+- 历史记录可以恢复同一个身份环境、用户目录、插件、角标与最近页面。
+- 支持本机 Chrome、Chrome Beta、Chrome Canary、Chrome for Testing、Chromium 与 Edge。
+- 安装包构建时下载并校验最新 Yakit Browser Agent，再作为默认本地插件内置。
 
-需要 macOS 14 或更高版本、Xcode Command Line Tools，以及 ImageMagick（提供 `magick` 命令）。进入仓库根目录后运行：
+YTray 不修改系统浏览器的名称、Bundle ID、签名或默认浏览器设置。它只用隔离参数启动用户明确选择的浏览器。
 
-```bash
-./script/package-macos.sh
+## 开机启动是一级功能
+
+![YTray 开机启动页面](/docs/images/v0.1.0/ytray-launch-at-login.png)
+
+安装版第一次启动时，YTray 会尝试默认开启开机启动，并把结果明确告诉用户：
+
+- macOS 使用系统 Login Items；
+- Windows 使用当前用户的启动项注册表；
+- 登录系统时只启动 YTray 并进入菜单栏或系统托盘，不会自动打开浏览器；
+- 自动开启失败不会阻断其他功能，侧栏页面和小组件都可以重试；
+- 关闭前必须二次确认，避免误触。
+
+从源码直接运行属于开发构建，不会修改 macOS Login Items。这个边界可以避免本地调试意外污染系统启动项。
+
+## 主操作台
+
+<p align="center">
+  <img src="docs/images/v0.1.0/ytray-widget.png" width="420" alt="YTray 小组件中的代理、运行实例、历史和开机启动入口">
+</p>
+
+小组件把高频动作放在一起：
+
+- 编辑、保存和检测 HTTP/HTTPS 代理；
+- 无代理或使用预设代理启动实例；
+- 查看运行状态和最近页面缩略图；
+- 聚焦、截图或停止浏览器；
+- 恢复、重命名或删除历史；
+- 直接查看与控制开机启动状态。
+
+桌面贴边入口提供同一个面板，也可以只展开直连与代理两个启动按钮。面板默认失焦隐藏，PIN 后保持显示。
+
+## 下载与平台支持
+
+最新版本由 [GitHub Releases](https://github.com/yaklang/ytray/releases/latest) 和 [Yaklang OSS](https://aliyun-oss.yaklang.com/ytray/releases.json) 同步提供。
+
+| 平台 | 架构 | 安装包 |
+| --- | --- | --- |
+| macOS 14+ | Apple Silicon / arm64 | `YTray-<version>-darwin-arm64.dmg` |
+| macOS 14+ | Intel / amd64 | `YTray-<version>-darwin-amd64.dmg` |
+| Windows 10/11 | x64 / amd64 | `YTray-<version>-windows-amd64-setup.exe` |
+| Windows 10/11 | x86 / 386 | `YTray-<version>-windows-386-setup.exe` |
+
+Windows on ARM 当前可以通过系统兼容层运行 x64 版；项目暂未发布原生 Windows ARM64 安装包。
+
+Release CI 支持 Developer ID hardened runtime 签名，并在 Apple 账号凭据齐全时分别公证、装订 `.app` 与 DMG；Windows 也支持与 CapTray 相同的 Azure 代码签名凭据。若仓库没有配置相应 secrets，流程会明确降级为临时签名或未签名安装包。此时若 Gatekeeper 阻止首次打开，请在 Finder 中右键 YTray，选择“打开”，并确认只从本仓库 Release 或上述 OSS 路径下载。
+
+## 使用流程
+
+1. 打开“浏览器运行时”，选择系统浏览器、其他本地浏览器，或安装 Chrome for Testing。
+2. 在“快速配置”中选择直连、预设 HTTP 代理，或进入自定义启动向导。
+3. YTray 为新实例分配独立用户目录和本地调试端口，并加载选择的插件。
+4. 在小组件或“运行与历史”中管理实例；停止后可从历史恢复同一个身份。
+
+![YTray 自定义启动向导](/docs/images/v0.1.0/ytray-custom-launch.png)
+
+### 数据位置
+
+macOS：
+
+```text
+~/Library/Application Support/YTray/
+├── Profiles/       # 独立浏览器用户目录
+├── Plugins/        # 本地与内置插件
+├── Runtimes/       # 可选 Chrome for Testing
+├── Screenshots/    # 用户导出的页面截图
+└── state.json      # 配置和历史
 ```
 
-脚本会构建 Release 可执行文件、生成应用图标，并组装临时签名的应用包，输出位于 `dist/YTray.app`。把 `YTray.app` 拖入 `/Applications`（或保留在任意目录）双击运行即完成安装，无需开发者账号。追加 `--universal` 可构建双架构应用，`--dmg` 会额外生成 `dist/YTray.dmg`（含 Applications 快捷方式）。图标源文件与打包细节见下文[打包 macOS 应用](#打包-macos-应用)。
+Windows 使用当前用户的 Local Application Data 下的 YTray 目录，保持相同的数据分区语义。
 
-## 从源码运行（开发模式）
+### 插件与浏览器限制
 
-`./script/startup.sh` 面向开发调试：它编译 Debug 版本并在当前终端前台运行 YTray，**不会安装应用**，关闭终端或按 Ctrl-C 后即退出，适合修改代码后快速验证。
+Chrome 的命令行本地插件参数需要已解压插件目录。官方 Google Chrome 稳定版、Beta 和 Canary 可能忽略命令行加载未打包扩展，因此需要本地插件或代理用户名/密码认证时，推荐 Chrome for Testing、Chromium 或 Edge。普通无认证 HTTP 代理、独立用户目录和 CDP 调试仍可使用系统 Chrome。
 
-需要 macOS 14 或更高版本以及 Xcode Command Line Tools。进入仓库根目录后运行：
+## 本地开发
+
+### macOS
+
+要求 macOS 14+ 和 Xcode Command Line Tools：
 
 ```bash
 ./script/startup.sh
 ```
 
-首次编译完成后，菜单栏会出现 YTray 图标。左键菜单栏图标会在图标下方展开并自动聚焦小组件；点击小组件外部时，小组件会立即隐藏，当前点击会继续交给目标应用，不需要再点击第二次。点击标题栏的 PIN 图标可以让小组件在失焦后继续显示，再次点击即可恢复自动隐藏。右键菜单可启动新实例、显示小组件、打开全部管理或退出。
-
-应用启动后还会在主屏幕右缘显示一个橙色贴边小组件。它默认位于屏幕高度的 58%，比 CapTray 的默认位置更靠上，避免两个挂件重叠。完整面板关闭时，鼠标移入会纵向展开“代理启动”和“无代理启动”两个快捷按钮；点击橙色贴边标签会从屏幕边缘展开与菜单栏托盘相同的完整小组件，面板展开期间不再显示悬停按钮。可上下拖动保存位置，右键可以切换左右侧、恢复默认位置或隐藏。隐藏后可从菜单栏图标的右键菜单重新显示。
-
-如果脚本没有执行权限，可先运行：
+该脚本以前台 Debug 模式运行，按 `Ctrl-C` 结束。完整测试：
 
 ```bash
-chmod +x ./script/startup.sh
-```
-
-## 直接使用本机浏览器
-
-YTray 不要求安装额外浏览器运行时。启动时会自动发现标准目录中的 Google Chrome、Chrome Beta、Chrome Canary、Chrome for Testing、Chromium 和 Microsoft Edge；发现后即可用于新实例。
-
-点击小组件右上角“快速配置”，可以：
-
-- 从已发现的本机浏览器中选择下一次启动使用的浏览器；
-- 选择其他位置的 `.app` 或浏览器可执行文件，并将其设为下一次选择；
-- 自定义本次调试端口、启动地址、Dock 角标和插件；
-- 跳转到“浏览器来源”安装一个新的 Chrome for Testing 版本。
-
-选择浏览器只会保存配置，不会立即启动。配置完成后，使用小组件底部的“无代理启动”或“使用HTTP代理启动”创建实例。直接选择浏览器或在自定义向导中勾选“记住此浏览器”后，后续新实例会默认使用该选择。界面会同时显示浏览器类型、完整版本号和来源：
-
-- `系统环境`：自动发现于 `/Applications` 或 `~/Applications`；
-- `自定义路径`：用户从其他位置选择的浏览器；
-- `YTray 安装`：由镜像下载并管理的 Chrome for Testing。
-
-## 可选：安装 Chrome for Testing
-
-打开“全部管理 → 浏览器来源”，可以重新扫描本机，也可以安装或添加浏览器：
-
-- 安装特定版本：刷新版本列表，选择一个 Chrome for Testing 版本后安装。下载内容是 ZIP，YTray 会校验 SHA-256、解压并直接使用其中的浏览器可执行文件，不运行 PKG、DMG 或任何安装器。
-- 选择其他本地浏览器：选择已有的浏览器 `.app`，或直接选择其可执行文件。
-
-托管运行时保存在：
-
-```text
-~/Library/Application Support/YTray/Runtimes/
-```
-
-## 启动方式
-
-- 无代理启动：使用记住的浏览器创建独立实例，并明确绕过 macOS 系统代理和预设代理。
-- 使用HTTP代理启动：使用小组件上方已经保存的“预设代理”创建独立实例。
-- 自定义启动：通过步骤向导依次选择运行时、调试参数、Dock 角标、插件并确认。本次设置不会覆盖默认配置；自定义启动使用直连，需要代理时请使用小组件的预设代理入口。角标留空时自动分配，也可以填写 1–2 个英文字母。
-
-每个实例的用户目录位于：
-
-```text
-~/Library/Application Support/YTray/Profiles/<实例 UUID>/
-```
-
-因此不同实例的 Cookie、缓存、Local Storage、登录态和插件数据不会混在一起。
-
-## 代理、调试与浏览器精简
-
-小组件中“运行中”列表上方的“预设代理”用于高频代理配置：
-
-- 协议、Host 和端口分别填写；当前支持 HTTP 与 HTTPS 代理，默认值为 `http://127.0.0.1:8083`
-- 可以填写备注，最近保存的 5 个代理会出现在历史下拉菜单中
-- “高级”默认收起；点击后可以填写代理用户名与密码
-- “检测”会在 10 秒内并发检查 `example.com`、`baidu.com` 和 `google.com`；只要任意目标通过即判定检测成功，点击结果可查看各目标耗时与错误
-- “高级”中可以追加一个特定 URL 或域名；只填写域名时会自动补为 `https://` URL，并与三个默认目标一起检测
-- 检测期间小组件会临时固定，失焦不会消失；检测结束后恢复原来的 PIN 设置
-- “保存”会将协议、Host、端口、用户名、密码与备注一起保存到最近历史；选择历史代理时会完整回填
-
-代理历史保存在本机 YTray 应用数据的 `state.json` 中，该文件强制使用 `0600` 权限，仅当前 macOS 用户可读写；密码不会进入浏览器命令行，也不会调用 macOS 钥匙链。需要认证时，YTray 会为本次浏览器进程生成一个临时内部扩展响应代理认证。临时文件同样仅当前用户可读写，并在浏览器退出或启动失败后删除。
-
-“全部管理 → 启动设置”可以配置：
-
-- 调试端口的起始值；端口占用时会向后自动选择可用端口
-- 启动地址，例如 `chrome://newtab` 或完整的 `https://` URL
-- 跳过首次欢迎、关闭默认浏览器检测、后台网络、同步、翻译与通知
-- 限制 WebRTC 使用非代理 UDP 和暴露本地 IP
-- 忽略证书错误；该选项默认开启，适合本地网络调试
-- 自定义附加 Chrome 参数（每行一个）
-
-调试服务始终绑定到 `127.0.0.1`。用户目录、调试地址/端口和插件加载参数由 YTray 维护，附加参数不能覆盖这些隔离边界。
-
-## 本地插件
-
-Chrome 的 `--load-extension` 需要一个已解压插件目录，而不是 `.crx` 安装包。打开“插件管理”，选择根目录包含以下文件的文件夹：
-
-```text
-my-extension/
-├── manifest.json
-├── background.js       # 具体文件取决于插件
-└── ...
-```
-
-YTray 会读取 `manifest.json` 中的名称、版本和 Manifest 版本。插件页中启用的插件会自动加载到之后创建的所有非隔离实例；自定义启动向导仍可仅为本次实例临时取消或追加选择。
-
-Release CI 会读取 Yakit Browser Agent OSS 清单中的 `latest`，选择该版本的 `chrome-enterprise` 产物，并在校验清单提供的文件大小和 SHA-256 后内置到安装包。首次启动会把它释放到用户插件目录并默认启用；插件页仍可检查后续更新、更新或重新下载。用户主动移除内置插件后，YTray 会记住该选择，不会在每次启动时反复恢复；需要时可从插件页重新安装。
-
-当前官方 Google Chrome、Chrome Beta 和 Chrome Canary 会忽略命令行加载未打包扩展的能力；因此本地插件和需要用户名/密码的代理认证应选择 Chrome for Testing、Chromium 或 Edge。普通无认证 HTTP 代理、实例隔离和 CDP 调试仍可直接使用系统 Google Chrome。YTray 会在不兼容的浏览器上给出明确提示，不会静默启动一个缺少插件或代理认证的实例。
-
-## 运行与历史
-
-托盘和“全部管理 → 运行与历史”会分别显示全部运行中的浏览器和已经停止的历史记录。运行中的浏览器会显示 PID、浏览器版本、独立用户目录、启动模式和调试端口，并支持：
-
-- 使用 A、B、C、D 依次区分每个浏览器进程的 Dock 图标
-- 在自定义启动向导中把本次角标设置为任意 1–2 个英文字母
-- 停止实例
-- 在 Finder 中打开用户目录
-- 通过 Chrome DevTools Protocol 对当前页面快速截图
-
-YTray 会在运行期间记录当前活动标签页的 Title 和 URL，并在浏览器停止时保留为历史标题。同一 Dock 角标只保留最新一条历史，避免出现多个 A、B 等重复记录。历史名称可以修改，历史记录可以单独删除，也可以通过“清理全部”在二次确认后一次清空；这些操作不会终止正在运行的浏览器。
-
-历史记录右侧的“打开”会恢复同一实例，而不是创建一个新编号：它会继承原实例名称、UUID、A/B/C Dock 角标、独立用户目录、启动参数与插件，并恢复上次活动标签页。若原角标正在被另一个运行中实例占用，会提示用户先释放该角标。升级前已经保存且没有活动页 URL 的旧历史，只能由浏览器尽力恢复上次会话。
-
-Dock 角标只设置在本次启动的进程上。YTray 先让启动进程显示带角标的浏览器图标，再由同一个 PID 直接执行用户选择的原始浏览器可执行文件。它不会复制浏览器 `.app`，不会修改应用名称、Bundle ID、`Info.plist`、磁盘图标或签名，也不会替换浏览器的钥匙链身份。浏览器启动后仍然是原来的 Chrome、Edge 或 Chromium。
-
-运行中的角标必须唯一，默认从 `A` 排到 `Z`，随后使用 `AA` 到 `ZZ`。macOS 的公开接口不能在 `exec` 完成后从另一个进程即时替换该 Dock tile 的图标，因此自定义角标需要在启动前填写；要更换运行中实例的角标，请停止后用新角标重新启动。
-
-截图保存在：
-
-```text
-~/Pictures/YTray/
-```
-
-YTray 运行期间会约每 12 秒自动更新一次活动标签页截图。缩略图会显示在运行卡片中，并在实例退出后继续保留于历史；鼠标悬停可查看较大的预览，从而快速辨认实例用途。
-
-点击运行卡片中的截图按钮还可以立即保存一张完整截图。手动截图完成后会在 Finder 中定位文件。
-
-## 开发验证
-
-```bash
-swift build --package-path darwin
 swift test --package-path darwin
 ```
 
-如需同时运行真实 Chrome for Testing 的代理认证集成测试，可指定其可执行文件：
+构建带最新版插件的本机架构 DMG：
 
 ```bash
-YTRAY_CFT_PATH="/path/to/Google Chrome for Testing" swift test --package-path darwin
+./script/package-macos.sh --dmg
 ```
 
-该测试会在本机启动临时 HTTP 代理和浏览器实例，验证 `407` 认证、临时扩展注入以及最终页面加载；测试结束后会清理临时进程和文件。
+也可以显式指定 `--arch arm64`、`--arch amd64` 或 `--arch universal`。
 
-项目结构按平台分开：
+### Windows
+
+要求 Visual Studio 2022 Build Tools、.NET Framework 4.8.1 Developer Pack、PowerShell 7；生成安装包还需要 Inno Setup 6：
+
+```powershell
+./windows/build.ps1 -Release -Test -Package -Installer -Architecture amd64
+```
+
+将 `-Architecture` 改为 `386` 可构建 32 位版本。`-Package` 会先从官方 OSS 清单解析并下载最新 Yakit Browser Agent，校验 SHA-256、大小和 ZIP 路径安全后才开始编译。
+
+## CI、Pages 与发版
+
+- `macOS`：Swift Release 构建、测试、真实 UI 渲染、最新版插件打包、通用 DMG 挂载验证。
+- `Windows`：WPF 构建、测试、独立 EXE 冒烟、真实设计截图和 Inno Setup 安装包。
+- `Pages`：从 `site/` 和版本化真实截图组装官网，发布后用 `deploy-meta.json` 验证线上 commit。
+- `Release`：仅由 `v*` tag 触发；分别构建 macOS arm64/amd64 与 Windows amd64/386，确认四个安装包使用同一最新插件版本，再发布到 GitHub 与 OSS。
+
+OSS 版本产物使用不可变路径：
 
 ```text
-darwin/     # Swift / AppKit / SwiftUI 原生实现
-windows/    # Windows 原生（C# / WPF）实现
-script/     # 本地启动脚本
+https://aliyun-oss.yaklang.com/ytray/<version>/<filename>
 ```
 
-## 打包 macOS 应用
+发布流程先上传并公开校验所有版本化文件，再更新 `latest.json`、`latest.txt` 与 `releases.json`。若相同版本路径已经存在不同内容，CI 会拒绝覆盖。每个安装包同时提供 SHA-256 文件，完整信息记录在版本 `manifest.json` 中。
 
-应用图标的可编辑矢量源位于 `darwin/Resources/YTrayAppIcon.svg`。运行以下命令会构建 Release 可执行文件、生成完整的 macOS `.iconset` 和 `.icns`，并创建临时签名的应用包：
+## 项目结构
 
-```bash
-./script/package-macos.sh
+```text
+darwin/                 Swift / AppKit / SwiftUI 应用与测试
+windows/                C# / WPF 应用、测试与 Inno Setup
+script/                 macOS 打包、插件准备和发布索引
+site/                   GitHub Pages 官方网站
+docs/images/v0.1.0/     由应用真实渲染的版本化截图
+.github/workflows/      macOS、Windows、Pages 与 Release 流程
 ```
 
-输出位于 `dist/YTray.app`。打包需要 Xcode Command Line Tools、ImageMagick 的 `magick` 命令、Python 3 以及可访问插件镜像的网络；脚本会解析 OSS 清单、下载并校验最新版本的 Yakit Browser Agent，在签名前放入应用资源目录。
+## 安全与隐私边界
 
-两个可选参数：
+- YTray 不上传浏览器配置、Cookie、历史或代理凭据。
+- macOS 状态文件限制为当前用户读写；代理认证临时扩展在浏览器退出或启动失败后清理。
+- Windows 开机启动只写当前用户范围，不修改系统级启动服务。
+- 浏览器调试端口只监听回环地址。
+- 下载的 Chrome for Testing 和内置插件在使用前校验清单与 SHA-256。
 
-- `--universal`：构建 arm64 + x86_64 双架构应用（会校验产物确实包含两种架构）；
-- `--dmg`：额外生成 `dist/YTray.dmg`，内含 YTray.app 与 `/Applications` 快捷方式，并输出 SHA-256。
-
-CI 会在 push `v*` tag 时自动执行 `./script/package-macos.sh --universal --dmg`，把 `YTray.dmg` 与 Windows 的 `YTray.exe` 一并附到对应的 GitHub Release。
+源码公开于本仓库。仓库当前未包含单独的 LICENSE 文件；复用或分发前请先确认适用授权。

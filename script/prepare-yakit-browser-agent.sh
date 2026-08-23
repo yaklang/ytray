@@ -70,7 +70,9 @@ NORMALIZED_ACTUAL_SHA256="$(printf '%s' "$ACTUAL_SHA256" | tr '[:upper:]' '[:low
     echo "Yakit Browser Agent SHA-256 mismatch" >&2
     exit 1
 }
-unzip -Z1 "$ARCHIVE" | grep -Eq '^(manifest[.]json|[^/]+/manifest[.]json)$' || {
+# Do not use grep -q here: with pipefail enabled it closes the pipe after the
+# first match, causing unzip to receive SIGPIPE and a valid archive to fail.
+unzip -Z1 "$ARCHIVE" | grep -E '^(manifest[.]json|[^/]+/manifest[.]json)$' >/dev/null || {
     echo "Yakit Browser Agent archive does not contain a supported manifest.json root" >&2
     exit 1
 }

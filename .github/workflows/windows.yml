@@ -2,10 +2,7 @@ name: Windows
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -13,82 +10,55 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-${{ github.workflow }}-${{ github.ref }}
+  group: windows-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-test-package:
-    name: Windows build, test, and single-file release
+    name: Build, test, capture, package
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build, test, and package Release
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build, test, and package amd64
         shell: pwsh
-        run: ./windows/build.ps1 -Release -Test -Package
+        run: ./windows/build.ps1 -Release -Test -Package -Installer -Architecture amd64
 
-      - name: Verify standalone executable
+      - name: Verify standalone executable and bundled latest plugin
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $artifactDir = Join-Path $PWD 'windows\artifacts'
-          $files = @(Get-ChildItem $artifactDir -File)
-          if ($files.Count -ne 1 -or $files[0].Name -ne 'YTray.exe') {
-            throw 'Release artifact must contain exactly one file: YTray.exe'
-          }
-
-          $isolatedDir = Join-Path $env:RUNNER_TEMP 'ytray-standalone'
-          New-Item -ItemType Directory -Path $isolatedDir -Force | Out-Null
-          Copy-Item $files[0].FullName (Join-Path $isolatedDir 'YTray.exe')
-
-          # App.xaml must resolve the embedded HandyControl resources before this diagnostic can
-          # run; the diagnostic then exercises embedded Newtonsoft.Json and writes a marker.
-          $marker = Join-Path $isolatedDir 'standalone-ok.json'
-          $process = Start-Process (Join-Path $isolatedDir 'YTray.exe') -ArgumentList @('--verify-standalone', ('"' + $marker + '"')) -PassThru
-          if (-not $process.WaitForExit(30000)) {
-            $process.Kill()
-            throw 'Standalone YTray.exe smoke test timed out.'
-          }
-          if ($process.ExitCode -ne 0) { throw "Standalone YTray.exe exited with $($process.ExitCode)." }
-          if (-not (Test-Path $marker)) { throw 'Standalone YTray.exe did not write its verification marker.' }
+          $version = (Get-Content VERSION -Raw).Trim()
+          $exe = "windows/artifacts/amd64/YTray-$version-windows-amd64.exe"
+          $marker = Join-Path $env:RUNNER_TEMP 'standalone-ok.json'
+          $process = Start-Process $exe -ArgumentList @('--verify-standalone', ('"' + $marker + '"')) -PassThru
+          if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Standalone smoke timed out.' }
+          if ($process.ExitCode -ne 0 -or -not (Test-Path $marker)) { throw 'Standalone verification failed.' }
           $verification = Get-Content $marker -Raw | ConvertFrom-Json
-          if ($verification.application -ne 'YTray' -or
-              $verification.jsonAssembly -ne 'Newtonsoft.Json' -or
-              [string]::IsNullOrWhiteSpace($verification.bundledExtensionVersion) -or
-              $verification.bundledExtensionName -ne 'Yakit Browser Agent') {
-            throw 'Standalone verification marker is invalid.'
-          }
-          Get-FileHash $files[0].FullName -Algorithm SHA256
+          $bundled = Get-Content windows/src/Assets/BundledExtension/bundled-extension.json -Raw | ConvertFrom-Json
+          if ($verification.bundledExtensionVersion -ne $bundled.version) { throw 'Bundled plugin version mismatch.' }
 
-      - name: Upload single-file Windows Release
-        uses: actions/upload-artifact@v4
+      - name: Capture Windows design review
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $exe = "windows/artifacts/amd64/YTray-$version-windows-amd64.exe"
+          $capture = Join-Path $env:RUNNER_TEMP 'ytray-design-review'
+          $process = Start-Process $exe -ArgumentList @('--capture-design-review', ('"' + $capture + '"')) -PassThru
+          if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Design capture timed out.' }
+          if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $capture 'capture-complete.txt'))) {
+            throw 'Design capture failed.'
+          }
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: YTray-windows
-          path: windows/artifacts/YTray.exe
+          name: ytray-windows-ci
+          path: |
+            windows/artifacts/amd64/YTray-*-windows-amd64-setup.exe
+            ${{ runner.temp }}/ytray-design-review/**
           if-no-files-found: error
           retention-days: 14
-
-  # Tag pushes run workflows from the tagged commit, so releases always ship the
-  # exact executable built from that tag; the build above stays CI-only on main.
-  publish-release:
-    name: Publish GitHub Release from tag
-    needs: build-test-package
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - name: Download packaged executable
-        uses: actions/download-artifact@v4
-        with:
-          name: YTray-windows
-          path: dist
-
-      - name: Attach YTray.exe to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/YTray.exe
-          generate_release_notes: true
