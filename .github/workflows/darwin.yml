@@ -50,9 +50,10 @@ jobs:
           "$bin_path/YTray" --render-widget "$RUNNER_TEMP/ytray-widget.png" --running --history --proxy-advanced
           "$bin_path/YTray" --render-wizard "$RUNNER_TEMP/ytray-wizard.png"
           "$bin_path/YTray" --render-edge-dock "$RUNNER_TEMP/ytray-edge-dock.png"
-          # The compact edge-dock capture is intentionally much smaller than a
-          # full manager window, so use a corruption guard that fits both.
-          test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'ytray-*.png' -size +10k | wc -l | tr -d ' ')" = 5
+          for image in "$RUNNER_TEMP"/ytray-{overview,startup,widget,wizard,edge-dock}.png; do
+            test -s "$image"
+            sips -g pixelWidth -g pixelHeight "$image" >/dev/null
+          done
 
       - name: Ensure ImageMagick
         run: command -v magick >/dev/null 2>&1 || brew install imagemagick
