@@ -61,6 +61,9 @@ namespace YTray.Core
         [DllImport("user32.dll")]
         private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
 
+        [DllImport("user32.dll")]
+        private static extern bool EndMenu();
+
         public static async Task<IReadOnlyList<CaptureItem>> CaptureAsync(InstanceStore store, string outputDirectory)
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
@@ -355,6 +358,7 @@ namespace YTray.Core
                 menu.MenuItems.Add("使用 HTTP 代理启动", (s, e) => { });
                 menu.MenuItems.Add("显示小组件", (s, e) => { });
                 menu.MenuItems.Add("全部管理", (s, e) => { });
+                menu.MenuItems.Add("关闭开机启动…", (s, e) => { });
                 menu.MenuItems.Add("-");
                 menu.MenuItems.Add("显示边缘小组件", (s, e) => { });
                 menu.MenuItems.Add("-");
@@ -375,7 +379,10 @@ namespace YTray.Core
                         }
                     }
                     timer.Stop();
-                    Forms.SendKeys.SendWait("{ESC}");
+                    // ContextMenu.Show owns a native modal menu loop. EndMenu is
+                    // deterministic on headless runners; simulated Escape can be
+                    // delivered to another foreground window and leave CI hung.
+                    EndMenu();
                 };
 
                 anchor.Show();
