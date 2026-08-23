@@ -284,6 +284,7 @@ namespace YTray.Models
         public bool EdgeDockOnLeft { get; set; }
         public int EdgeDockYPercent { get; set; } = 58;
         public AppThemePreference ThemePreference { get; set; } = AppThemePreference.System;
+        public bool LaunchAtLoginSetupCompleted { get; set; }
 
         public static readonly string[] BlockedCustomPrefixes =
         {
@@ -342,6 +343,7 @@ namespace YTray.Models
                 EdgeDockOnLeft = EdgeDockOnLeft,
                 EdgeDockYPercent = EdgeDockYPercent,
                 ThemePreference = ThemePreference,
+                LaunchAtLoginSetupCompleted = LaunchAtLoginSetupCompleted,
             };
         }
 

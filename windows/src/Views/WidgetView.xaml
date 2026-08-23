@@ -543,15 +543,24 @@
                     </Button>
                 </Grid>
 
-                <Button Height="35" Click="OpenManager_Click" Style="{StaticResource WidgetButton}"
-                        HorizontalContentAlignment="Stretch" Padding="11,0">
-                    <DockPanel>
-                        <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="全部管理" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="9" DockPanel.Dock="Right"
-                                   HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource WidgetTextTertiaryBrush}"/>
-                    </DockPanel>
-                </Button>
+                <Grid Height="35">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="1*"/><ColumnDefinition Width="7"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Click="OpenManager_Click" Style="{StaticResource WidgetButton}"
+                            HorizontalContentAlignment="Stretch" Padding="11,0">
+                        <DockPanel>
+                            <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="全部管理" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="9" DockPanel.Dock="Right"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource WidgetTextTertiaryBrush}"/>
+                        </DockPanel>
+                    </Button>
+                    <Button x:Name="StartupButton" Grid.Column="2" MinWidth="126" Click="Startup_Click" Style="{StaticResource WidgetButton}" Padding="10,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="StartupIcon" Text="&#xE7E8;" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="StartupLabel" Text="开机启动已开" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </StackPanel>
         </Grid>
     </Border>

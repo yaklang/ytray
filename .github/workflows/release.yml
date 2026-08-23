@@ -1,0 +1,292 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          repository_version="$(tr -d '[:space:]' < VERSION)"
+          test "$version" = "$repository_version"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
+          bash script/test-release-index.sh
+          test -n "$(bash script/release-notes.sh "$version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS ${{ matrix.arch }} DMG
+    needs: version
+    runs-on: macos-14
+    timeout-minutes: 35
+    env:
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ACCOUNT_EMAIL }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure ImageMagick
+        run: command -v magick >/dev/null 2>&1 || brew install imagemagick
+      - name: Test and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path darwin
+          ./script/package-macos.sh --arch "${{ matrix.arch }}" --version "${{ needs.version.outputs.version }}"
+          cp "dist/darwin-${{ matrix.arch }}/BundledExtension/bundled-extension.json" \
+            "dist/plugin-darwin-${{ matrix.arch }}.json"
+      - name: Developer ID sign app
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' }}
+        run: ./script/macos-codesign.sh "dist/darwin-${{ matrix.arch }}/YTray.app"
+      - name: Notarize and staple app
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' }}
+        run: ./script/macos-notarize.sh "dist/darwin-${{ matrix.arch }}/YTray.app"
+      - name: Create DMG
+        shell: bash
+        run: |
+          ./script/create-macos-dmg.sh "dist/darwin-${{ matrix.arch }}/YTray.app" \
+            "${{ needs.version.outputs.version }}" "${{ matrix.arch }}"
+      - name: Notarize and staple DMG
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' }}
+        run: ./script/macos-notarize.sh "dist/YTray-${{ needs.version.outputs.version }}-darwin-${{ matrix.arch }}.dmg"
+      - name: Verify mounted image
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.version.outputs.version }}"
+          dmg="dist/YTray-$version-darwin-${{ matrix.arch }}.dmg"
+          mount_dir="$(mktemp -d)"
+          hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
+          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true' EXIT
+          app="$mount_dir/YTray.app"
+          test -x "$app/Contents/MacOS/YTray"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          unzip -t "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
+          expected="${{ matrix.arch }}"
+          test "$expected:$(lipo -archs "$app/Contents/MacOS/YTray")" = \
+            "$([[ "$expected" == amd64 ]] && echo amd64:x86_64 || echo arm64:arm64)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: |
+            dist/YTray-*-darwin-${{ matrix.arch }}.dmg
+            dist/plugin-darwin-${{ matrix.arch }}.json
+          if-no-files-found: error
+
+  windows:
+    name: Windows ${{ matrix.arch }} setup
+    needs: version
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      WINDOWS_CODE_SIGN_KEY_VAULT_URI: ${{ secrets.WINDOWS_CODE_SIGN_KEY_VAULT_URI }}
+      WINDOWS_CODE_SIGN_CLIENT_ID: ${{ secrets.WINDOWS_CODE_SIGN_CLIENT_ID }}
+      WINDOWS_CODE_SIGN_CLIENT_SECRET: ${{ secrets.WINDOWS_CODE_SIGN_CLIENT_SECRET }}
+      WINDOWS_CODE_SIGN_CERT_NAME: ${{ secrets.WINDOWS_CODE_SIGN_CERT_NAME }}
+      WINDOWS_CODE_SIGN_TENANT_ID: ${{ secrets.WINDOWS_CODE_SIGN_TENANT_ID }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, "386"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build, test, and package
+        shell: pwsh
+        run: |
+          ./windows/build.ps1 -Release -Test -Package -Installer `
+            -Architecture '${{ matrix.arch }}' -Version '${{ needs.version.outputs.version }}'
+          Copy-Item windows/src/Assets/BundledExtension/bundled-extension.json `
+            "windows/artifacts/${{ matrix.arch }}/plugin-windows-${{ matrix.arch }}.json"
+      - name: Verify portable build before publishing installer
+        shell: pwsh
+        run: |
+          $version = '${{ needs.version.outputs.version }}'
+          $arch = '${{ matrix.arch }}'
+          $exe = "windows/artifacts/$arch/YTray-$version-windows-$arch.exe"
+          $marker = Join-Path $env:RUNNER_TEMP "standalone-$arch.json"
+          $process = Start-Process $exe -ArgumentList @('--verify-standalone', ('"' + $marker + '"')) -PassThru
+          if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Standalone smoke timed out.' }
+          if ($process.ExitCode -ne 0 -or -not (Test-Path $marker)) { throw 'Standalone smoke failed.' }
+          $result = Get-Content $marker -Raw | ConvertFrom-Json
+          $bundled = Get-Content "windows/artifacts/$arch/plugin-windows-$arch.json" -Raw | ConvertFrom-Json
+          if ($result.bundledExtensionVersion -ne $bundled.version) { throw 'Bundled plugin version mismatch.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: |
+            windows/artifacts/${{ matrix.arch }}/YTray-*-windows-${{ matrix.arch }}-setup.exe
+            windows/artifacts/${{ matrix.arch }}/plugin-windows-${{ matrix.arch }}.json
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release and OSS
+    needs: [version, macos, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OSS_BUCKET: yaklang
+      OSS_ENDPOINT: oss-accelerate.aliyuncs.com
+      PUBLIC_BASE_URL: https://aliyun-oss.yaklang.com/ytray
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate latest bundled plugin and create manifest
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t plugin_versions < <(jq -r '.version' dist/plugin-*.json | sort -u)
+          test "${#plugin_versions[@]}" = 1
+          plugin_version="${plugin_versions[0]}"
+          latest_plugin="$(curl --compressed --retry 4 --retry-all-errors -fsSL \
+            https://aliyun-oss.yaklang.com/chrome-extension/manifest.json | jq -r '.latest')"
+          test "$plugin_version" = "$latest_plugin"
+          rm dist/plugin-*.json
+
+          test -s "dist/YTray-$VERSION-darwin-arm64.dmg"
+          test -s "dist/YTray-$VERSION-darwin-amd64.dmg"
+          test -s "dist/YTray-$VERSION-windows-amd64-setup.exe"
+          test -s "dist/YTray-$VERSION-windows-386-setup.exe"
+
+          cd dist
+          : > SHA256SUMS
+          for file in YTray-*; do
+            sha256sum "$file" | tee "$file.sha256.txt" >> SHA256SUMS
+          done
+          released_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          asset() {
+            local platform="$1" architecture="$2" kind="$3" filename="$4"
+            jq -n --arg platform "$platform" --arg architecture "$architecture" --arg kind "$kind" \
+              --arg filename "$filename" --arg url "$PUBLIC_BASE_URL/$VERSION/$filename" \
+              --arg sha256 "$(sha256sum "$filename" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$filename")" \
+              '{platform:$platform,architecture:$architecture,kind:$kind,filename:$filename,url:$url,sha256:$sha256,size:$size}'
+          }
+          jq -n --arg version "$VERSION" --arg released_at "$released_at" --arg plugin_version "$plugin_version" \
+            --argjson a1 "$(asset darwin arm64 dmg "YTray-$VERSION-darwin-arm64.dmg")" \
+            --argjson a2 "$(asset darwin amd64 dmg "YTray-$VERSION-darwin-amd64.dmg")" \
+            --argjson a3 "$(asset windows amd64 setup "YTray-$VERSION-windows-amd64-setup.exe")" \
+            --argjson a4 "$(asset windows 386 setup "YTray-$VERSION-windows-386-setup.exe")" \
+            '{schema_version:1,product:"ytray",version:$version,released_at:$released_at,
+              plugin:{name:"Yakit Browser Agent",version:$plugin_version},assets:[$a1,$a2,$a3,$a4]}' \
+            > manifest.json
+          jq -e '.assets | length == 4' manifest.json >/dev/null
+
+      - name: Install official ossutil
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          mkdir -p "$GOBIN"
+          go install github.com/aliyun/ossutil@v1.7.19
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
+      - name: Upload immutable version files to OSS
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_KEY_SECRET }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OSS_ACCESS_KEY_ID"
+          test -n "$OSS_ACCESS_KEY_SECRET"
+          for file in dist/*; do
+            base="$(basename "$file")"
+            url="$PUBLIC_BASE_URL/$VERSION/$base"
+            status="$(curl -sS -L -o "$RUNNER_TEMP/existing" -w '%{http_code}' "$url")"
+            if [[ "$status" == 200 ]]; then
+              test "$(sha256sum "$file" | cut -d' ' -f1)" = "$(sha256sum "$RUNNER_TEMP/existing" | cut -d' ' -f1)" || {
+                echo "Refusing to overwrite different immutable object: $url" >&2
+                exit 1
+              }
+              continue
+            fi
+            [[ "$status" == 403 || "$status" == 404 ]] || { echo "Unexpected HTTP $status for $url" >&2; exit 1; }
+            ossutil cp "$file" "oss://$OSS_BUCKET/ytray/$VERSION/$base" \
+              -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
+          done
+
+      - name: Verify public artifact hashes
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for checksum in dist/YTray-*.sha256.txt; do
+            filename="$(basename "$checksum" .sha256.txt)"
+            curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/$VERSION/$filename" -o "$RUNNER_TEMP/$filename"
+            test "$(cut -d' ' -f1 "$checksum")" = "$(sha256sum "$RUNNER_TEMP/$filename" | cut -d' ' -f1)"
+          done
+
+      - name: Publish release indexes last
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_KEY_SECRET }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash script/prepare-release-index.sh "$VERSION" dist/manifest.json release-index
+          ossutil cp -f release-index/releases.json "oss://$OSS_BUCKET/ytray/releases.json" \
+            -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
+          ossutil cp -f release-index/latest.json "oss://$OSS_BUCKET/ytray/latest.json" \
+            -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
+          ossutil cp -f release-index/latest.txt "oss://$OSS_BUCKET/ytray/latest.txt" \
+            -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
+
+      - name: Verify public indexes
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/latest.txt" | tr -d '\r\n')" = "$VERSION"
+          curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/latest.json" \
+            | jq -e --arg version "$VERSION" '.version == $version and (.assets | length == 4)' >/dev/null
+          curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/releases.json" \
+            | jq -e --arg version "$VERSION" '.latest == $version and .versions[0].version == $version' >/dev/null
+
+      - name: Create GitHub Release
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: bash script/release-notes.sh "$VERSION" > release-notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: YTray v${{ needs.version.outputs.version }}
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+          body_path: release-notes.md
+          files: dist/*

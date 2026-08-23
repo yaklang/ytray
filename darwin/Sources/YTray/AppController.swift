@@ -11,6 +11,7 @@ enum Brand {
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let store = InstanceStore()
+    private let launchAtLogin = LaunchAtLoginManager()
     private lazy var edgeDock = YTrayEdgeDockController(store: store) { [weak self] anchor, onLeft in
         self?.showWidgetFromEdge(anchor: anchor, onLeft: onLeft)
     }
@@ -32,6 +33,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         EdgeDockPreferences.migrateLegacyIfNeeded()
         configureStatusItem()
         edgeDock.update()
+        presentFirstLaunchAtLoginNoticeIfNeeded()
         UserDefaults.standard.removeObject(forKey: "ytray.widget-position.v1")
         if edgeWidgetSmoke {
             runEdgeWidgetSmoke()
@@ -181,6 +183,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.contentViewController = NSHostingController(rootView: WidgetView(
             store: store,
             presentation: widgetPresentation,
+            launchAtLogin: launchAtLogin,
             openManager: { [weak self] section in self?.showManager(section: section) },
             closeWidget: { [weak self] in self?.hideWidget() }
         ))
@@ -377,7 +380,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.sharingType = .readOnly
             window.contentViewController = NSHostingController(rootView: ManagerView(
                 store: store,
-                navigation: managerNavigation
+                navigation: managerNavigation,
+                launchAtLogin: launchAtLogin
             ))
             window.delegate = self
             window.center()
@@ -441,6 +445,33 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func trayImage() -> NSImage {
         TrayIconRenderer.makeImage()
+    }
+
+    private func presentFirstLaunchAtLoginNoticeIfNeeded() {
+        guard let result = launchAtLogin.enableOnFirstLaunchIfNeeded() else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            self.showManager(section: .launchAtLogin)
+            let alert = NSAlert()
+            alert.messageText = "YTray 开机启动"
+            switch result {
+            case .enabled:
+                alert.informativeText = "已默认开启开机启动。以后登录 macOS 时，YTray 会自动进入菜单栏；不会自动打开浏览器。你可以在“开机启动”页面随时管理。"
+                alert.alertStyle = .informational
+            case .requiresApproval:
+                alert.informativeText = "YTray 已请求开机启动。请在“系统设置 → 通用 → 登录项”中允许；也可以稍后在 YTray 的“开机启动”页面处理。"
+                alert.alertStyle = .informational
+            case .failed(let message):
+                alert.informativeText = "暂时无法自动开启（\(message)）。这不影响其他功能；你可以稍后在 YTray 的“开机启动”页面重试。"
+                alert.alertStyle = .warning
+            }
+            alert.addButton(withTitle: "知道了")
+            if let window = self.managerWindow {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
+        }
     }
 }
 

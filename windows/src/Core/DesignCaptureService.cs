@@ -61,6 +61,9 @@ namespace YTray.Core
         [DllImport("user32.dll")]
         private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
 
+        [DllImport("user32.dll")]
+        private static extern bool EndMenu();
+
         public static async Task<IReadOnlyList<CaptureItem>> CaptureAsync(InstanceStore store, string outputDirectory)
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
@@ -99,7 +102,8 @@ namespace YTray.Core
 
         private static async Task CaptureManagerAsync(InstanceStore store, string root, List<CaptureItem> captures)
         {
-            var manager = new ManagerView(store)
+            var launchAtLogin = new LaunchAtLoginManager(new PreviewLaunchAtLoginBackend());
+            var manager = new ManagerView(store, launchAtLogin)
             {
                 WindowStartupLocation = WindowStartupLocation.Manual,
                 Left = 160,
@@ -117,6 +121,7 @@ namespace YTray.Core
                 new MainPageCapture { Slug = "browser-sources", Caption = "浏览器来源", Select = w => w.NavRuntimes },
                 new MainPageCapture { Slug = "proxy-and-launch", Caption = "代理与启动", Select = w => w.NavLaunch },
                 new MainPageCapture { Slug = "plugins", Caption = "本地插件", Select = w => w.NavPlugins },
+                new MainPageCapture { Slug = "startup", Caption = "开机启动", Select = w => w.NavStartup },
                 new MainPageCapture { Slug = "settings", Caption = "设置", Select = w => w.NavSettings },
             };
 
@@ -300,7 +305,7 @@ namespace YTray.Core
             CaptureScreen(Inflate(WindowBounds(edge), 28, 24), Path.Combine(root, edgeRelative));
             captures.Add(new CaptureItem { RelativePath = edgeRelative, Caption = "屏幕右缘吸附条 · 悬停展开" });
 
-            var widget = new WidgetView(store) { Topmost = true };
+            var widget = new WidgetView(store, new LaunchAtLoginManager(new PreviewLaunchAtLoginBackend())) { Topmost = true };
             foreach (var theme in new[] { AppThemePreference.Light, AppThemePreference.Dark })
             {
                 ApplyPreviewTheme(store, theme);
@@ -353,6 +358,7 @@ namespace YTray.Core
                 menu.MenuItems.Add("使用 HTTP 代理启动", (s, e) => { });
                 menu.MenuItems.Add("显示小组件", (s, e) => { });
                 menu.MenuItems.Add("全部管理", (s, e) => { });
+                menu.MenuItems.Add("关闭开机启动…", (s, e) => { });
                 menu.MenuItems.Add("-");
                 menu.MenuItems.Add("显示边缘小组件", (s, e) => { });
                 menu.MenuItems.Add("-");
@@ -373,7 +379,10 @@ namespace YTray.Core
                         }
                     }
                     timer.Stop();
-                    Forms.SendKeys.SendWait("{ESC}");
+                    // ContextMenu.Show owns a native modal menu loop. EndMenu is
+                    // deterministic on headless runners; simulated Escape can be
+                    // delivered to another foreground window and leave CI hung.
+                    EndMenu();
                 };
 
                 anchor.Show();

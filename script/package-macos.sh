@@ -6,52 +6,71 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKAGE_ROOT="$PROJECT_ROOT/darwin"
 RESOURCE_ROOT="$PACKAGE_ROOT/Resources"
 OUTPUT_ROOT="$PROJECT_ROOT/dist"
-APP_BUNDLE="$OUTPUT_ROOT/YTray.app"
-DMG_PATH="$OUTPUT_ROOT/YTray.dmg"
 ICON_SOURCE="$RESOURCE_ROOT/YTrayAppIcon.svg"
 INFO_PLIST_SOURCE="$RESOURCE_ROOT/Info.plist"
-ICONSET_DIR="$OUTPUT_ROOT/YTray.iconset"
-BUNDLED_EXTENSION_DIR="$OUTPUT_ROOT/BundledExtension"
 
-BUILD_UNIVERSAL=0
+VERSION="$(tr -d '[:space:]' < "$PROJECT_ROOT/VERSION")"
+REQUESTED_ARCH="native"
 BUILD_DMG=0
-for arg in "$@"; do
-    case "$arg" in
-        --universal) BUILD_UNIVERSAL=1 ;;
-        --dmg) BUILD_DMG=1 ;;
-        *) echo "Unknown option: $arg (supported: --universal, --dmg)" >&2; exit 1 ;;
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --arch) REQUESTED_ARCH="${2:?--arch requires arm64, amd64, or universal}"; shift 2 ;;
+        --universal) REQUESTED_ARCH="universal"; shift ;;
+        --version) VERSION="${2:?--version requires a version}"; shift 2 ;;
+        --dmg) BUILD_DMG=1; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
 
-if ! command -v magick >/dev/null 2>&1; then
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] || {
+    echo "Invalid version: $VERSION" >&2
+    exit 1
+}
+
+case "$REQUESTED_ARCH" in
+    native)
+        case "$(uname -m)" in
+            arm64) ARCH_LABEL="arm64"; SWIFT_ARCHS=(--arch arm64) ;;
+            x86_64) ARCH_LABEL="amd64"; SWIFT_ARCHS=(--arch x86_64) ;;
+            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+        esac
+        ;;
+    arm64) ARCH_LABEL="arm64"; SWIFT_ARCHS=(--arch arm64) ;;
+    amd64|x86_64) ARCH_LABEL="amd64"; SWIFT_ARCHS=(--arch x86_64) ;;
+    universal) ARCH_LABEL="universal"; SWIFT_ARCHS=(--arch arm64 --arch x86_64) ;;
+    *) echo "Unsupported --arch value: $REQUESTED_ARCH" >&2; exit 1 ;;
+esac
+
+APP_OUTPUT_ROOT="$OUTPUT_ROOT/darwin-$ARCH_LABEL"
+APP_BUNDLE="$APP_OUTPUT_ROOT/YTray.app"
+DMG_PATH="$OUTPUT_ROOT/YTray-$VERSION-darwin-$ARCH_LABEL.dmg"
+ICONSET_DIR="$APP_OUTPUT_ROOT/YTray.iconset"
+BUNDLED_EXTENSION_DIR="$APP_OUTPUT_ROOT/BundledExtension"
+
+command -v magick >/dev/null 2>&1 || {
     echo "ImageMagick is required to render the SVG app icon (missing: magick)." >&2
     exit 1
-fi
+}
 
+rm -rf "$APP_OUTPUT_ROOT"
+mkdir -p "$APP_OUTPUT_ROOT"
 "$SCRIPT_DIR/prepare-yakit-browser-agent.sh" "$BUNDLED_EXTENSION_DIR"
 
-BUILD_ARGS=(--package-path "$PACKAGE_ROOT" -c release)
-if [ "$BUILD_UNIVERSAL" -eq 1 ]; then
-    BUILD_ARGS+=(--arch arm64 --arch x86_64)
-fi
+BUILD_ARGS=(--package-path "$PACKAGE_ROOT" -c release "${SWIFT_ARCHS[@]}")
 swift build "${BUILD_ARGS[@]}"
-# Universal builds land outside .build/release, so always resolve the binary path
-# from SwiftPM itself instead of hard-coding the native layout.
 BIN_PATH="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
-mkdir -p "$OUTPUT_ROOT"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$ICONSET_DIR"
-mkdir -p "$APP_BUNDLE/Contents/Resources/BundledExtension"
 
+mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/BundledExtension" "$ICONSET_DIR"
 cp "$BIN_PATH/YTray" "$APP_BUNDLE/Contents/MacOS/YTray"
 cp "$BUNDLED_EXTENSION_DIR/yakit-browser-agent.zip" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 cp "$BUNDLED_EXTENSION_DIR/bundled-extension.json" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 
-BASE_PNG="$OUTPUT_ROOT/YTrayAppIcon-1024.png"
+BASE_PNG="$APP_OUTPUT_ROOT/YTrayAppIcon-1024.png"
 magick -background none "$ICON_SOURCE" -resize 1024x1024 "$BASE_PNG"
 
 render_icon() {
-    local size="$1"
-    local output="$2"
+    local size="$1" output="$2"
     magick "$BASE_PNG" -filter Lanczos -resize "${size}x${size}" "$ICONSET_DIR/$output"
 }
 
@@ -67,29 +86,30 @@ render_icon 512 icon_512x512.png
 cp "$BASE_PNG" "$ICONSET_DIR/icon_512x512@2x.png"
 
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/YTray.icns"
-# Info.plist belongs in Contents/; a copy at the bundle root makes codesign
-# fail with "unsealed contents present in the bundle root".
 cp "$INFO_PLIST_SOURCE" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-$(git -C "$PROJECT_ROOT" rev-list --count HEAD)}" "$APP_BUNDLE/Contents/Info.plist"
 
+# Local packages are ad-hoc signed. The release workflow replaces this with a
+# stable Developer ID signature and notarization when the repository secrets exist.
 codesign --force --deep --sign - "$APP_BUNDLE"
-echo "$APP_BUNDLE"
+codesign --verify --deep --strict "$APP_BUNDLE"
 
-if [ "$BUILD_UNIVERSAL" -eq 1 ]; then
-    ARCHS="$(lipo -archs "$APP_BUNDLE/Contents/MacOS/YTray")"
-    case "$ARCHS" in
-        *arm64*x86_64*|*x86_64*arm64*) ;;
-        *) echo "Universal build expected arm64 + x86_64 but got: $ARCHS" >&2; exit 1 ;;
-    esac
-    echo "universal archs: $ARCHS"
-fi
+ARCHS="$(lipo -archs "$APP_BUNDLE/Contents/MacOS/YTray")"
+case "$ARCH_LABEL:$ARCHS" in
+    arm64:arm64|amd64:x86_64) ;;
+    universal:*arm64*x86_64*|universal:*x86_64*arm64*) ;;
+    *) echo "Packaged architecture mismatch: label=$ARCH_LABEL binary=$ARCHS" >&2; exit 1 ;;
+esac
 
-if [ "$BUILD_DMG" -eq 1 ]; then
-    STAGING_DIR="$(mktemp -d)"
-    trap 'rm -rf "$STAGING_DIR"' EXIT
-    cp -R "$APP_BUNDLE" "$STAGING_DIR/YTray.app"
-    ln -s /Applications "$STAGING_DIR/Applications"
-    rm -f "$DMG_PATH"
-    hdiutil create -volname "YTray" -srcfolder "$STAGING_DIR" -format UDZO -ov "$DMG_PATH" >/dev/null
-    echo "$DMG_PATH"
+echo "app=$APP_BUNDLE"
+echo "version=$VERSION"
+echo "architecture=$ARCH_LABEL"
+echo "binary_archs=$ARCHS"
+echo "bundled_extension=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$BUNDLED_EXTENSION_DIR/bundled-extension.json")"
+
+if [[ "$BUILD_DMG" -eq 1 ]]; then
+    "$SCRIPT_DIR/create-macos-dmg.sh" "$APP_BUNDLE" "$VERSION" "$ARCH_LABEL" "$DMG_PATH" >/dev/null
+    echo "dmg=$DMG_PATH"
     shasum -a 256 "$DMG_PATH"
 fi

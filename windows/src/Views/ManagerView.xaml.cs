@@ -15,15 +15,17 @@ namespace YTray.Views
     public partial class ManagerView : Window
     {
         private readonly InstanceStore _store;
+        private readonly LaunchAtLoginManager _launchAtLogin;
         private readonly Dictionary<string, Page> _pageCache = new Dictionary<string, Page>();
         private bool _loaded;
         private bool _sidebarRefreshScheduled;
         private string? _currentPageTag;
 
-        public ManagerView(InstanceStore store)
+        public ManagerView(InstanceStore store, LaunchAtLoginManager launchAtLogin)
         {
             InitializeComponent();
             _store = store;
+            _launchAtLogin = launchAtLogin;
             Loaded += OnLoaded;
             Closed += OnClosed;
             StateChanged += (s, e) =>
@@ -145,6 +147,7 @@ namespace YTray.Views
                     case "instances": page = new InstancesPage(_store); break;
                     case "launch": page = new ProxyLaunchPage(_store); break;
                     case "plugins": page = new PluginsPage(_store); break;
+                    case "startup": page = new StartupPage(_launchAtLogin); break;
                     default: page = new QuickLaunchPage(_store); tag = "overview"; break;
                 }
                 _pageCache[tag] = page;

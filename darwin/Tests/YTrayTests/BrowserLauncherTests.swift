@@ -4,6 +4,66 @@ import Network
 
 final class BrowserLauncherTests: XCTestCase {
     @MainActor
+    func testLaunchAtLoginDefaultsOnOnceAndCanBeDisabled() throws {
+        let suite = "io.yaklang.ytray.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let backend = TestLaunchAtLoginBackend()
+        let manager = LaunchAtLoginManager(
+            backend: backend,
+            defaults: defaults,
+            packagedApplication: true
+        )
+
+        XCTAssertEqual(manager.enableOnFirstLaunchIfNeeded(), .enabled)
+        XCTAssertTrue(manager.isEnabled)
+        XCTAssertEqual(backend.registerCount, 1)
+        XCTAssertNil(manager.enableOnFirstLaunchIfNeeded())
+        XCTAssertEqual(backend.registerCount, 1)
+
+        XCTAssertTrue(manager.setEnabled(false))
+        XCTAssertFalse(manager.isEnabled)
+        XCTAssertEqual(backend.unregisterCount, 1)
+    }
+
+    @MainActor
+    func testDevelopmentBuildNeverWritesLoginItems() throws {
+        let suite = "io.yaklang.ytray.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let backend = TestLaunchAtLoginBackend()
+        let manager = LaunchAtLoginManager(
+            backend: backend,
+            defaults: defaults,
+            packagedApplication: false
+        )
+
+        XCTAssertNil(manager.enableOnFirstLaunchIfNeeded())
+        XCTAssertFalse(manager.setEnabled(true))
+        XCTAssertEqual(backend.registerCount, 0)
+        XCTAssertEqual(manager.status, .unavailable)
+    }
+
+    @MainActor
+    func testFirstLaunchPreservesAnExistingLoginItemWithoutRegisteringAgain() throws {
+        let suite = "io.yaklang.ytray.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let backend = TestLaunchAtLoginBackend()
+        backend.status = .enabled
+        let manager = LaunchAtLoginManager(
+            backend: backend,
+            defaults: defaults,
+            packagedApplication: true
+        )
+
+        XCTAssertEqual(manager.enableOnFirstLaunchIfNeeded(), .enabled)
+        XCTAssertTrue(manager.isEnabled)
+        XCTAssertEqual(backend.registerCount, 0)
+        XCTAssertTrue(defaults.bool(forKey: LaunchAtLoginManager.firstLaunchKey))
+    }
+
+    @MainActor
     func testEnabledPluginsBecomeDefaultsForNewInstances() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ytray-plugin-default-test-\(UUID().uuidString)", isDirectory: true)
@@ -1059,6 +1119,24 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertTrue(arguments.contains("--load-extension=/tmp/local-extension"))
         XCTAssertTrue(arguments.contains("--disable-extensions-except=/tmp/local-extension"))
     }
+}
+
+private final class TestLaunchAtLoginBackend: LaunchAtLoginBackend {
+    var status: LaunchAtLoginStatus = .disabled
+    var registerCount = 0
+    var unregisterCount = 0
+
+    func register() throws {
+        registerCount += 1
+        status = .enabled
+    }
+
+    func unregister() throws {
+        unregisterCount += 1
+        status = .disabled
+    }
+
+    func openSystemSettings() {}
 }
 
 private final class TestOnce: @unchecked Sendable {

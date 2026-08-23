@@ -15,6 +15,7 @@ namespace YTray
     public class TrayApp : IDisposable
     {
         private readonly InstanceStore _store;
+        private readonly LaunchAtLoginManager _launchAtLogin;
         private readonly System.Windows.Forms.NotifyIcon _notify;
         private Icon? _trayIcon;
         private WidgetView? _widget;
@@ -22,11 +23,14 @@ namespace YTray
         private readonly EdgeDock _edgeDock;
         private System.Windows.Forms.ContextMenu? _menu;
         private bool _statusRefreshScheduled;
+        private bool _launchAtLoginRefreshScheduled;
 
-        public TrayApp(InstanceStore store)
+        public TrayApp(InstanceStore store, LaunchAtLoginManager launchAtLogin)
         {
             _store = store;
+            _launchAtLogin = launchAtLogin;
             _store.PropertyChanged += OnStorePropertyChanged;
+            _launchAtLogin.PropertyChanged += OnLaunchAtLoginChanged;
 
             _trayIcon = LoadTrayIcon();
             _notify = new System.Windows.Forms.NotifyIcon
@@ -66,13 +70,28 @@ namespace YTray
             }), DispatcherPriority.Background);
         }
 
+        private void OnLaunchAtLoginChanged(object sender, PropertyChangedEventArgs e)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted || _launchAtLoginRefreshScheduled) return;
+            _launchAtLoginRefreshScheduled = true;
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                _launchAtLoginRefreshScheduled = false;
+                BuildMenu();
+            }), DispatcherPriority.Background);
+        }
+
         private void BuildMenu()
         {
+            _notify.ContextMenu = null;
+            _menu?.Dispose();
             _menu = new System.Windows.Forms.ContextMenu();
             _menu.MenuItems.Add("无代理启动", (s, e) => _store.LaunchConfigured(false));
             _menu.MenuItems.Add("使用 HTTP 代理启动", (s, e) => _store.LaunchConfigured(true));
             _menu.MenuItems.Add("显示小组件", (s, e) => ShowWidget());
             _menu.MenuItems.Add("全部管理", (s, e) => ShowManager());
+            _menu.MenuItems.Add(_launchAtLogin.IsEnabled ? "关闭开机启动…" : "开启开机启动", (s, e) => ToggleLaunchAtLogin());
             _menu.MenuItems.Add("-");
             _menu.MenuItems.Add("显示边缘小组件", (s, e) => _edgeDock.ShowDock());
             _menu.MenuItems.Add("-");
@@ -89,7 +108,7 @@ namespace YTray
         private WidgetView EnsureWidget()
         {
             if (_widget != null) return _widget;
-            _widget = new WidgetView(_store);
+            _widget = new WidgetView(_store, _launchAtLogin);
             _widget.OpenManagerRequested += (s, e) => ShowManager();
             return _widget;
         }
@@ -122,12 +141,29 @@ namespace YTray
             _widget?.HideWidget();
             if (_manager == null)
             {
-                _manager = new ManagerView(_store);
+                _manager = new ManagerView(_store, _launchAtLogin);
                 _manager.Closed += OnManagerClosed;
             }
             _manager.Show();
             if (_manager.WindowState == WindowState.Minimized) _manager.WindowState = WindowState.Normal;
             _manager.Activate();
+        }
+
+        private void ToggleLaunchAtLogin()
+        {
+            if (_launchAtLogin.IsEnabled)
+            {
+                var choice = MessageBox.Show(
+                    "关闭后，登录 Windows 时 YTray 将不会自动进入系统托盘。",
+                    "确认关闭开机启动？",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning,
+                    MessageBoxResult.No
+                );
+                if (choice != MessageBoxResult.Yes) return;
+            }
+            if (!_launchAtLogin.SetEnabled(!_launchAtLogin.IsEnabled))
+                MessageBox.Show(_launchAtLogin.ErrorMessage ?? "设置失败。", "YTray", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         private void OnManagerClosed(object sender, EventArgs e)
@@ -157,6 +193,7 @@ namespace YTray
         public void Dispose()
         {
             _store.PropertyChanged -= OnStorePropertyChanged;
+            _launchAtLogin.PropertyChanged -= OnLaunchAtLoginChanged;
             ThemeManager.ThemeChanged -= OnThemeChanged;
             _widget?.Close();
             _manager?.Close();

@@ -24,6 +24,14 @@ enum YTrayMain {
             renderWizard(application: application, output: output)
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--render-manager") {
+            let output = index + 1 < CommandLine.arguments.count
+                ? CommandLine.arguments[index + 1] : "/tmp/ytray-manager.png"
+            let section = index + 2 < CommandLine.arguments.count
+                ? CommandLine.arguments[index + 2] : "quick"
+            renderManager(application: application, output: output, section: section)
+            return
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--render-dock-icon") {
             let output = index + 1 < CommandLine.arguments.count
                 ? CommandLine.arguments[index + 1] : "/tmp/ytray-icon.png"
@@ -220,6 +228,10 @@ enum YTrayMain {
         let hosting = NSHostingView(rootView: WidgetView(
             store: store,
             presentation: WidgetPresentationState(),
+            launchAtLogin: LaunchAtLoginManager(
+                backend: PreviewLaunchAtLoginBackend(),
+                packagedApplication: true
+            ),
             openManager: { _ in },
             closeWidget: {}
         ))
@@ -269,6 +281,56 @@ enum YTrayMain {
             hosting.layoutSubtreeIfNeeded()
             guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
                 fputs("cannot allocate wizard bitmap\n", stderr)
+                application.terminate(nil)
+                return
+            }
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            if let data = bitmap.representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: output), options: .atomic)
+            }
+            try? FileManager.default.removeItem(at: scratch)
+            application.terminate(nil)
+        }
+        application.run()
+        withExtendedLifetime(window) {}
+    }
+
+    @MainActor
+    private static func renderManager(application: NSApplication, output: String, section: String) {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-manager-render-\(UUID().uuidString)", isDirectory: true)
+        let store = InstanceStore(applicationDirectory: scratch)
+        let navigation = ManagerNavigation()
+        navigation.selection = ManagerSection.allCases.first(where: {
+            $0.rawValue == section || String(describing: $0) == section
+        }) ?? .quick
+        let launchAtLogin = LaunchAtLoginManager(
+            backend: PreviewLaunchAtLoginBackend(),
+            packagedApplication: true
+        )
+        let size = NSSize(width: 1080, height: 720)
+        let hosting = NSHostingView(rootView: ManagerView(
+            store: store,
+            navigation: navigation,
+            launchAtLogin: launchAtLogin
+        ))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        hosting.appearance = NSAppearance(named: .darkAqua)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "YTray"
+        window.contentView = hosting
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.orderFrontRegardless()
+        application.setActivationPolicy(.prohibited)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            hosting.layoutSubtreeIfNeeded()
+            guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+                fputs("cannot allocate manager bitmap\n", stderr)
                 application.terminate(nil)
                 return
             }

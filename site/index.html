@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YTray — 多身份浏览器实例工作台</title>
+  <meta name="description" content="YTray 是适用于 macOS 与 Windows 的原生浏览器实例工作台：独立身份、HTTP 代理、调试端口、插件、历史恢复与开机启动。">
+  <meta name="theme-color" content="#f4ecdc">
+  <meta property="og:title" content="YTray — 多身份浏览器实例工作台">
+  <meta property="og:description" content="让每个浏览器身份保持隔离，同时保留代理、插件与调试工作流。">
+  <meta property="og:type" content="website">
+  <link rel="canonical" href="https://yaklang.io/ytray/">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="YTray 首页">
+      <span class="brand-mark" aria-hidden="true">Y</span>
+      <span>YTray</span>
+    </a>
+    <nav aria-label="主导航">
+      <a href="#design">设计</a>
+      <a href="#platforms">平台</a>
+      <a href="#release">发布</a>
+      <a href="https://github.com/yaklang/ytray">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero section-shell">
+      <div class="hero-copy">
+        <p class="eyebrow">原生 macOS · 原生 Windows</p>
+        <h1>把浏览器身份，<br>放回你的掌控。</h1>
+        <p class="hero-lead">YTray 把独立用户目录、HTTP 代理、调试端口与本地插件组织成清晰、可恢复的浏览器实例。适合安全测试、开发联调与多账号运营。</p>
+        <div class="hero-actions">
+          <a class="button primary" data-download href="https://github.com/yaklang/ytray/releases/latest">下载最新版</a>
+          <a class="button secondary" href="https://github.com/yaklang/ytray">查看源代码</a>
+        </div>
+        <p class="release-note" data-release-note>macOS 14+ · Windows 10/11 · 源码公开</p>
+      </div>
+      <figure class="hero-figure">
+        <img src="assets/ytray-manager-overview.png" width="1080" height="748" alt="YTray 管理器快速配置页面，左侧包含浏览器、启动设置、历史、插件与开机启动导航">
+        <figcaption>一次选择浏览器、代理或自定义参数；每个实例仍使用独立用户目录。</figcaption>
+      </figure>
+    </section>
+
+    <section class="principles section-shell" aria-label="核心能力">
+      <article><span>01</span><h2>身份真的隔离</h2><p>Cookie、缓存、Local Storage、插件数据与登录态分别存放，不靠反复退出登录维持边界。</p></article>
+      <article><span>02</span><h2>网络路径可见</h2><p>直连和预设 HTTP 代理拥有不同入口；调试服务只绑定到 127.0.0.1。</p></article>
+      <article><span>03</span><h2>历史可以恢复</h2><p>停止后保留实例身份、用户目录、角标和最近页面，下一次继续同一个环境。</p></article>
+    </section>
+
+    <section id="design" class="feature section-shell">
+      <div class="feature-copy">
+        <p class="eyebrow">重要设置，不藏起来</p>
+        <h2>登录系统后，YTray 已经在托盘等你。</h2>
+        <p>安装版第一次启动会尝试默认开启开机启动，并明确告诉你结果。它只启动 YTray，不自动打开任何浏览器。侧栏和小组件都能控制；关闭前必须再次确认。</p>
+        <ul class="check-list">
+          <li>macOS 使用系统 Login Items</li>
+          <li>Windows 使用当前用户启动项</li>
+          <li>失败不阻断其他功能，可随时重试</li>
+        </ul>
+      </div>
+      <figure class="feature-figure wide">
+        <img src="assets/ytray-launch-at-login.png" width="1080" height="748" alt="YTray 开机启动页面，显示已开启状态、系统说明与开关">
+      </figure>
+    </section>
+
+    <section class="feature reverse section-shell">
+      <div class="feature-copy">
+        <p class="eyebrow">主操作台</p>
+        <h2>高频动作，留在一块紧凑面板里。</h2>
+        <p>从菜单栏或桌面边缘展开：编辑代理、检查连通性、查看缩略图、停止或恢复实例。开机启动状态就在右下角，不需要穿过多层设置。</p>
+      </div>
+      <figure class="feature-figure widget-shot">
+        <img src="assets/ytray-widget.png" width="390" height="746" alt="YTray 小组件，包含预设代理、运行实例、历史记录、启动按钮和开机启动状态">
+      </figure>
+    </section>
+
+    <section class="workflow section-shell">
+      <div>
+        <p class="eyebrow">同一个流程，保留明确边界</p>
+        <h2>选择 → 启动 → 调试 → 恢复</h2>
+      </div>
+      <ol>
+        <li><strong>选择浏览器</strong><span>使用本机 Chrome、Edge、Chromium，或安装 Chrome for Testing。</span></li>
+        <li><strong>确定网络路径</strong><span>显式选择直连或已保存的 HTTP/HTTPS 代理。</span></li>
+        <li><strong>创建独立实例</strong><span>分配用户目录、调试端口、插件与可辨认角标。</span></li>
+        <li><strong>从历史继续</strong><span>恢复同一个身份环境，而不是重新创建一份配置。</span></li>
+      </ol>
+    </section>
+
+    <section id="platforms" class="platforms section-shell">
+      <div class="section-heading">
+        <p class="eyebrow">跨平台，不混淆架构</p>
+        <h2>为实际运行环境提供明确安装包。</h2>
+      </div>
+      <div class="platform-grid">
+        <article>
+          <p class="platform-label">macOS 14+</p>
+          <h3>Apple Silicon</h3>
+          <p>原生 arm64 DMG</p>
+          <a data-asset="darwin:arm64" href="https://github.com/yaklang/ytray/releases/latest">下载 arm64</a>
+        </article>
+        <article>
+          <p class="platform-label">macOS 14+</p>
+          <h3>Intel Mac</h3>
+          <p>原生 amd64 DMG</p>
+          <a data-asset="darwin:amd64" href="https://github.com/yaklang/ytray/releases/latest">下载 amd64</a>
+        </article>
+        <article>
+          <p class="platform-label">Windows 10/11</p>
+          <h3>64 位 Windows</h3>
+          <p>x64 安装程序</p>
+          <a data-asset="windows:amd64" href="https://github.com/yaklang/ytray/releases/latest">下载 amd64</a>
+        </article>
+        <article>
+          <p class="platform-label">Windows 10/11</p>
+          <h3>32 位 Windows</h3>
+          <p>x86 安装程序</p>
+          <a data-asset="windows:386" href="https://github.com/yaklang/ytray/releases/latest">下载 386</a>
+        </article>
+      </div>
+      <p class="compat-note">Windows on ARM 当前可使用系统兼容层运行 x64 版；YTray 暂未提供原生 Windows ARM64 安装包。</p>
+    </section>
+
+    <section id="release" class="release section-shell">
+      <div>
+        <p class="eyebrow">可追溯发布</p>
+        <h2>安装包、插件版本与校验值一起发布。</h2>
+      </div>
+      <div class="release-card">
+        <p>每个 tag 都由 CI 分别构建四个架构安装包。构建时从官方 OSS 清单解析最新 Yakit Browser Agent，校验大小与 SHA-256 后再内置。</p>
+        <div class="release-links">
+          <a href="https://aliyun-oss.yaklang.com/ytray/latest.json">latest.json</a>
+          <a href="https://aliyun-oss.yaklang.com/ytray/releases.json">releases.json</a>
+          <a href="https://github.com/yaklang/ytray/releases">GitHub Releases</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer section-shell">
+    <div><span class="brand-mark small" aria-hidden="true">Y</span><strong>YTray</strong></div>
+    <p>Yaklang 公开源码项目 · 为清晰、可重复的浏览器工作流而设计。</p>
+  </footer>
+</body>
+</html>
