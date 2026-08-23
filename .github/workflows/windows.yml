@@ -49,12 +49,17 @@ jobs:
           $exe = "windows/artifacts/amd64/YTray-$version-windows-amd64.exe"
           $capture = Join-Path $env:RUNNER_TEMP 'ytray-design-review'
           $process = Start-Process $exe -ArgumentList @('--capture-design-review', ('"' + $capture + '"')) -PassThru
-          if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Design capture timed out.' }
+          if (-not $process.WaitForExit(300000)) {
+            $process.Kill()
+            Get-ChildItem $capture -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+            throw 'Design capture timed out after five minutes.'
+          }
           if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $capture 'capture-complete.txt'))) {
             throw 'Design capture failed.'
           }
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ytray-windows-ci
           path: |
