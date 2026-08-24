@@ -37,13 +37,11 @@ jobs:
     name: macOS ${{ matrix.arch }} DMG
     needs: version
     runs-on: macos-14
-    timeout-minutes: 35
+    timeout-minutes: 60
     env:
       APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ACCOUNT_EMAIL }}
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     strategy:
@@ -63,10 +61,10 @@ jobs:
           cp "dist/darwin-${{ matrix.arch }}/BundledExtension/bundled-extension.json" \
             "dist/plugin-darwin-${{ matrix.arch }}.json"
       - name: Developer ID sign app
-        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' }}
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_CERTIFICATE_PASSWORD != '' }}
         run: ./script/macos-codesign.sh "dist/darwin-${{ matrix.arch }}/YTray.app"
       - name: Notarize and staple app
-        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' }}
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_CERTIFICATE_PASSWORD != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' }}
         run: ./script/macos-notarize.sh "dist/darwin-${{ matrix.arch }}/YTray.app"
       - name: Create DMG
         shell: bash
@@ -74,9 +72,9 @@ jobs:
           ./script/create-macos-dmg.sh "dist/darwin-${{ matrix.arch }}/YTray.app" \
             "${{ needs.version.outputs.version }}" "${{ matrix.arch }}"
       - name: Notarize and staple DMG
-        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' }}
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_CERTIFICATE_PASSWORD != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' }}
         run: ./script/macos-notarize.sh "dist/YTray-${{ needs.version.outputs.version }}-darwin-${{ matrix.arch }}.dmg"
-      - name: Verify mounted image
+      - name: Verify mounted image and signing when configured
         shell: bash
         run: |
           set -euo pipefail
@@ -88,6 +86,21 @@ jobs:
           app="$mount_dir/YTray.app"
           test -x "$app/Contents/MacOS/YTray"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          if [[ -n "${APPLE_CERTIFICATE_BASE64:-}" && -n "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
+            codesign --verify --deep --strict --verbose=2 "$app"
+            echo "Developer ID signature verified: $app"
+          else
+            echo "::warning::macOS signing secrets are incomplete; publishing an unsigned build"
+          fi
+          if [[ -n "${APPLE_CERTIFICATE_BASE64:-}" && -n "${APPLE_CERTIFICATE_PASSWORD:-}" && \
+                -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
+            xcrun stapler validate "$dmg"
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=4 "$app"
+            echo "Apple notarization, stapling, and Gatekeeper checks passed"
+          else
+            echo "::warning::macOS notarization secrets are incomplete; publishing without notarization"
+          fi
           unzip -t "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
           expected="${{ matrix.arch }}"
           test "$expected:$(lipo -archs "$app/Contents/MacOS/YTray")" = \
@@ -106,11 +119,11 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 40
     env:
-      WINDOWS_CODE_SIGN_KEY_VAULT_URI: ${{ secrets.WINDOWS_CODE_SIGN_KEY_VAULT_URI }}
-      WINDOWS_CODE_SIGN_CLIENT_ID: ${{ secrets.WINDOWS_CODE_SIGN_CLIENT_ID }}
-      WINDOWS_CODE_SIGN_CLIENT_SECRET: ${{ secrets.WINDOWS_CODE_SIGN_CLIENT_SECRET }}
-      WINDOWS_CODE_SIGN_CERT_NAME: ${{ secrets.WINDOWS_CODE_SIGN_CERT_NAME }}
-      WINDOWS_CODE_SIGN_TENANT_ID: ${{ secrets.WINDOWS_CODE_SIGN_TENANT_ID }}
+      WINDOWS_CODE_SIGN_KEY_VAULT_URI: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_URI }}
+      WINDOWS_CODE_SIGN_CLIENT_ID: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_APPLICATION_ID }}
+      WINDOWS_CODE_SIGN_CLIENT_SECRET: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_CLIENT_SECRET }}
+      WINDOWS_CODE_SIGN_CERT_NAME: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_CERT_NAME }}
+      WINDOWS_CODE_SIGN_TENANT_ID: ${{ secrets.AZURE_YAK_CODE_SIGN_KEY_VAULT_DIRECTORY_ID }}
     strategy:
       fail-fast: false
       matrix:
@@ -126,12 +139,34 @@ jobs:
             -Architecture '${{ matrix.arch }}' -Version '${{ needs.version.outputs.version }}'
           Copy-Item windows/src/Assets/BundledExtension/bundled-extension.json `
             "windows/artifacts/${{ matrix.arch }}/plugin-windows-${{ matrix.arch }}.json"
-      - name: Verify portable build before publishing installer
+      - name: Verify portable build, installer, and signing when configured
         shell: pwsh
         run: |
           $version = '${{ needs.version.outputs.version }}'
           $arch = '${{ matrix.arch }}'
           $exe = "windows/artifacts/$arch/YTray-$version-windows-$arch.exe"
+          $setup = "windows/artifacts/$arch/YTray-$version-windows-$arch-setup.exe"
+          $missingSigningVariables = @(
+            'WINDOWS_CODE_SIGN_KEY_VAULT_URI',
+            'WINDOWS_CODE_SIGN_CLIENT_ID',
+            'WINDOWS_CODE_SIGN_CLIENT_SECRET',
+            'WINDOWS_CODE_SIGN_CERT_NAME',
+            'WINDOWS_CODE_SIGN_TENANT_ID'
+          ) | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          $signingEnabled = $missingSigningVariables.Count -eq 0
+          if (-not $signingEnabled) {
+            Write-Warning "Windows signing secrets are incomplete; publishing unsigned files"
+          }
+          foreach ($signedFile in @($exe, $setup)) {
+            if (-not (Test-Path $signedFile -PathType Leaf)) { throw "Release file is missing: $signedFile" }
+            if ($signingEnabled) {
+              $signature = Get-AuthenticodeSignature -FilePath $signedFile
+              if (-not $signature.SignerCertificate -or $signature.Status -in @('NotSigned', 'HashMismatch')) {
+                throw "Authenticode verification failed for ${signedFile}: $($signature.Status)"
+              }
+              Write-Host "Authenticode verified: $signedFile; status=$($signature.Status); signer=$($signature.SignerCertificate.Subject)"
+            }
+          }
           $marker = Join-Path $env:RUNNER_TEMP "standalone-$arch.json"
           $process = Start-Process $exe -ArgumentList @('--verify-standalone', ('"' + $marker + '"')) -PassThru
           if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Standalone smoke timed out.' }
@@ -151,7 +186,7 @@ jobs:
     name: Publish GitHub Release and OSS
     needs: [version, macos, windows]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       OSS_BUCKET: yaklang
       OSS_ENDPOINT: oss-accelerate.aliyuncs.com
@@ -188,7 +223,7 @@ jobs:
           for file in YTray-*; do
             sha256sum "$file" | tee "$file.sha256.txt" >> SHA256SUMS
           done
-          released_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          released_at="$(date -u -d "$(git show -s --format=%cI "$GITHUB_SHA")" +%Y-%m-%dT%H:%M:%SZ)"
           asset() {
             local platform="$1" architecture="$2" kind="$3" filename="$4"
             jq -n --arg platform "$platform" --arg architecture "$architecture" --arg kind "$kind" \
@@ -227,7 +262,8 @@ jobs:
           for file in dist/*; do
             base="$(basename "$file")"
             url="$PUBLIC_BASE_URL/$VERSION/$base"
-            status="$(curl -sS -L -o "$RUNNER_TEMP/existing" -w '%{http_code}' "$url")"
+            request_url="$url?immutable_check=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            status="$(curl -H 'Cache-Control: no-cache' -sS -L -o "$RUNNER_TEMP/existing" -w '%{http_code}' "$request_url")"
             if [[ "$status" == 200 ]]; then
               test "$(sha256sum "$file" | cut -d' ' -f1)" = "$(sha256sum "$RUNNER_TEMP/existing" | cut -d' ' -f1)" || {
                 echo "Refusing to overwrite different immutable object: $url" >&2
@@ -238,18 +274,6 @@ jobs:
             [[ "$status" == 403 || "$status" == 404 ]] || { echo "Unexpected HTTP $status for $url" >&2; exit 1; }
             ossutil cp "$file" "oss://$OSS_BUCKET/ytray/$VERSION/$base" \
               -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
-          done
-
-      - name: Verify public artifact hashes
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for checksum in dist/YTray-*.sha256.txt; do
-            filename="$(basename "$checksum" .sha256.txt)"
-            curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/$VERSION/$filename" -o "$RUNNER_TEMP/$filename"
-            test "$(cut -d' ' -f1 "$checksum")" = "$(sha256sum "$RUNNER_TEMP/$filename" | cut -d' ' -f1)"
           done
 
       - name: Publish release indexes last
@@ -267,17 +291,16 @@ jobs:
             -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
           ossutil cp -f release-index/latest.txt "oss://$OSS_BUCKET/ytray/latest.txt" \
             -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
+          ossutil cp -f release-index/latest-version.txt "oss://$OSS_BUCKET/ytray/latest-version.txt" \
+            -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
 
-      - name: Verify public indexes
+      - name: Verify Aliyun CDN release downloads
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          test "$(curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/latest.txt" | tr -d '\r\n')" = "$VERSION"
-          curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/latest.json" \
-            | jq -e --arg version "$VERSION" '.version == $version and (.assets | length == 4)' >/dev/null
-          curl --retry 8 --retry-all-errors -fsSL "$PUBLIC_BASE_URL/releases.json" \
-            | jq -e --arg version "$VERSION" '.latest == $version and .versions[0].version == $version' >/dev/null
+          CDN_VERIFY_ATTEMPTS: 24
+          CDN_VERIFY_DELAY_SECONDS: 10
+        shell: bash
+        run: bash script/verify-release-cdn.sh "$VERSION" dist release-index
 
       - name: Create GitHub Release
         env:

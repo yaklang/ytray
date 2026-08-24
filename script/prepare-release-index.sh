@@ -50,6 +50,7 @@ jq --slurpfile release "$MANIFEST" --arg version "$VERSION" '
 
 cp "$MANIFEST" "$OUT_DIR/latest.json"
 printf '%s\n' "$VERSION" > "$OUT_DIR/latest.txt"
+printf '%s\n' "$VERSION" > "$OUT_DIR/latest-version.txt"
 jq -e --arg version "$VERSION" '.latest == $version and .versions[0].version == $version' \
   "$OUT_DIR/releases.json" >/dev/null
 

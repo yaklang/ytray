@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 — 2026-08-24
+
+- 发布流程接入现有 Yakit Apple 与 Azure 签名配置，并在配置存在时验证 macOS Developer ID、公证装订、Gatekeeper 与 Windows Authenticode。
+- OSS 新增 `latest-version.txt` 版本入口，同时保留 `latest.txt` 兼容入口。
+- GitHub Release 创建前，从阿里云 CDN 实际下载双平台、双架构产物及索引并逐项校验大小与 SHA-256。
+- 固定版本清单时间戳并增强 CDN 缓存重试，使同一标签的发布任务可以安全重跑。
+
 ## 0.1.1 — 2026-08-24
 
 - macOS 小组件的“运行中”空状态改为仅显示“当前没有运行中实例”。
