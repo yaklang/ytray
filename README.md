@@ -143,11 +143,31 @@ swift test --package-path darwin
 
 将 `-Architecture` 改为 `386` 可构建 32 位版本。`-Package` 会先从官方 OSS 清单解析并下载最新 Yakit Browser Agent，校验 SHA-256、大小和 ZIP 路径安全后才开始编译。
 
+### 官方网站
+
+官网位于 `site/`，使用 Next.js、React、Tailwind CSS v4 与 shadcn/ui，构建时静态导出到 `site/out/`：
+
+```bash
+cd site
+npm install
+mkdir -p public/assets
+cp ../docs/images/v0.1.0/*.png public/assets/
+npm run dev
+```
+
+生产构建使用 `/ytray` 作为 GitHub Pages 基础路径：
+
+```bash
+YTRAY_BASE_PATH=/ytray NEXT_PUBLIC_BASE_PATH=/ytray npm run build
+```
+
+React Bits Pro 授权只保存在本机的 `site/.env.local`；其授权信息、Skill 与设计配方均已被 Git 忽略，不能提交到仓库。
+
 ## CI、Pages 与发版
 
 - `macOS`：Swift Release 构建、测试、真实 UI 渲染、最新版插件打包、通用 DMG 挂载验证。
 - `Windows`：WPF 构建、测试、独立 EXE 冒烟、真实设计截图和 Inno Setup 安装包。
-- `Pages`：从 `site/` 和版本化真实截图组装官网，发布后用 `deploy-meta.json` 验证线上 commit。
+- `Pages`：安装锁定依赖、装配版本化真实截图、静态导出 Next.js 官网，发布后用 `deploy-meta.json` 验证线上 commit。
 - `Release`：仅由 `v*` tag 触发；分别构建 macOS arm64/amd64 与 Windows amd64/386，确认四个安装包使用同一最新插件版本，再发布到 GitHub 与 OSS。
 
 OSS 版本产物使用不可变路径：
@@ -164,7 +184,7 @@ https://aliyun-oss.yaklang.com/ytray/<version>/<filename>
 darwin/                 Swift / AppKit / SwiftUI 应用与测试
 windows/                C# / WPF 应用、测试与 Inno Setup
 script/                 macOS 打包、插件准备和发布索引
-site/                   GitHub Pages 官方网站
+site/                   Next.js / React / shadcn 官方网站（静态导出）
 docs/images/v0.1.0/     由应用真实渲染的版本化截图
 .github/workflows/      macOS、Windows、Pages 与 Release 流程
 ```

@@ -275,6 +275,8 @@ enum YTrayMain {
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = hosting
         window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = .windowBackgroundColor
+        window.isOpaque = true
         window.orderFrontRegardless()
         application.setActivationPolicy(.prohibited)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

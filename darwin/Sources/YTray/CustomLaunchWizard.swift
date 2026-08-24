@@ -69,6 +69,11 @@ struct CustomLaunchWizard: View {
             }.padding(20)
         }
         .frame(width: 720, height: 570)
+        // The wizard is normally hosted by a SwiftUI sheet, whose presentation
+        // surface supplies the background. It is also rendered directly for the
+        // website and design-review artifacts, so the root view must own an
+        // opaque surface instead of inheriting transparency from its host.
+        .background(Color(nsColor: .windowBackgroundColor))
         .tint(Brand.orange)
         .onChange(of: store.launchPhase) { _, phase in
             if phase == .succeeded { isPresented = false }

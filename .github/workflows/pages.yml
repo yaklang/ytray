@@ -28,23 +28,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-      - name: Assemble immutable Pages artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Install website dependencies
+        working-directory: site
+        run: npm ci
+      - name: Assemble product assets
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p _site/assets
-          cp -R site/. _site/
-          cp docs/images/v0.1.0/ytray-manager-overview.png _site/assets/
-          cp docs/images/v0.1.0/ytray-launch-at-login.png _site/assets/
-          cp docs/images/v0.1.0/ytray-widget.png _site/assets/
-          cp docs/images/v0.1.0/ytray-custom-launch.png _site/assets/
-          cp docs/images/v0.1.0/ytray-edge-dock.png _site/assets/
+          mkdir -p site/public/assets
+          cp docs/images/v0.1.0/*.png site/public/assets/
+          asset_count="$(find site/public/assets -type f -name '*.png' | wc -l | tr -d ' ')"
+          test "$asset_count" -ge 12
+      - name: Build static Next.js website
+        working-directory: site
+        env:
+          YTRAY_BASE_PATH: /ytray
+          NEXT_PUBLIC_BASE_PATH: /ytray
+        run: npm run build
+      - name: Stamp immutable Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
           jq -n --arg commit "$GITHUB_SHA" --arg deployed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{product:"ytray",commit:$commit,deployed_at:$deployed_at}' > _site/deploy-meta.json
-          test "$(find _site/assets -type f -name '*.png' | wc -l | tr -d ' ')" = 5
+            '{product:"ytray",commit:$commit,deployed_at:$deployed_at}' > site/out/deploy-meta.json
+          test -f site/out/index.html
+          grep -F '为测试与研发而生的' site/out/index.html >/dev/null
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: site/out
       - id: deployment
         uses: actions/deploy-pages@v4
       - name: Verify exact deployed commit
@@ -55,7 +71,7 @@ jobs:
           for attempt in $(seq 1 18); do
             if curl --retry 2 --retry-all-errors -fsSL "${page_url}deploy-meta.json?sha=$GITHUB_SHA" \
               | jq -e --arg sha "$GITHUB_SHA" '.product == "ytray" and .commit == $sha' >/dev/null; then
-              curl --retry 2 --retry-all-errors -fsSL "$page_url" | grep -F '把浏览器身份' >/dev/null
+              curl --retry 2 --retry-all-errors -fsSL "$page_url" | grep -F '为测试与研发而生的' >/dev/null
               exit 0
             fi
             sleep 5

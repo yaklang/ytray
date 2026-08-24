@@ -45,12 +45,16 @@ jobs:
         run: |
           set -euo pipefail
           bin_path="$(swift build --package-path darwin --configuration release --show-bin-path)"
-          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-overview.png" quick
-          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-startup.png" launchAtLogin
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-tab-quick.png" quick
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-tab-runtimes.png" runtimes
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-tab-settings.png" settings
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-tab-instances.png" instances
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-tab-plugins.png" plugins
+          "$bin_path/YTray" --render-manager "$RUNNER_TEMP/ytray-tab-launch-at-login.png" launchAtLogin
           "$bin_path/YTray" --render-widget "$RUNNER_TEMP/ytray-widget.png" --running --history --proxy-advanced
-          "$bin_path/YTray" --render-wizard "$RUNNER_TEMP/ytray-wizard.png"
+          "$bin_path/YTray" --render-wizard "$RUNNER_TEMP/ytray-custom-launch.png"
           "$bin_path/YTray" --render-edge-dock "$RUNNER_TEMP/ytray-edge-dock.png"
-          for image in "$RUNNER_TEMP"/ytray-{overview,startup,widget,wizard,edge-dock}.png; do
+          for image in "$RUNNER_TEMP"/ytray-*.png; do
             test -s "$image"
             sips -g pixelWidth -g pixelHeight "$image" >/dev/null
           done

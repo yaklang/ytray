@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+.env.local
+public/assets/
+*.tsbuildinfo
+
+# React Bits Pro reference material is licensed for local use only.
+# Keep the installed skill and design recipes available to contributors without
+# republishing the vendor's instruction files in this public repository.
+src/SKILL.md
+src/.agents/
+src/prompts/
+src/recipes/
