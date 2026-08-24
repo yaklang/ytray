@@ -254,10 +254,7 @@ struct WidgetView: View {
 
     @ViewBuilder private var runningSection: some View {
         if store.runningInstances.isEmpty {
-            CompactEmptyState(
-                runtime: store.defaultRuntime,
-                chooseBrowser: { chooseLocalBrowser() }
-            )
+            CompactEmptyState()
         } else {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
@@ -687,33 +684,15 @@ struct RunningInstanceRow: View {
 }
 
 struct CompactEmptyState: View {
-    let runtime: BrowserRuntime?
-    let chooseBrowser: () -> Void
-
     var body: some View {
-        HStack(spacing: 10) {
-            BrowserGlyph(kind: runtime?.kind ?? .chrome, size: 32)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("暂无运行中实例").font(.system(size: 13, weight: .semibold))
-                if let runtime {
-                    Text("下一次使用 \(runtime.displayTitle) \(runtime.versionLabel) · \(runtime.source.title)")
-                        .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-                } else {
-                    Text("请先选择下一次启动使用的浏览器")
-                        .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 4)
-            Button(action: chooseBrowser) {
-                Label(runtime == nil ? "选择浏览器" : "更换", systemImage: "folder")
-            }
-                .buttonStyle(SmallOrangeButtonStyle())
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 62)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.1)))
+        Text("当前没有运行中实例")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 62)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.1)))
     }
 }
 

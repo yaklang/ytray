@@ -299,7 +299,9 @@ final class YTrayEdgeDockController: NSObject {
         panel.level = .statusBar
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        // AppKit renders a borderless panel's native shadow from the rectangular
+        // window surface, leaving square hairlines outside the rounded material.
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = true
