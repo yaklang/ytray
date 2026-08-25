@@ -207,21 +207,21 @@
                 <Grid Margin="21,0,18,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Ellipse x:Name="RunningDot" Width="8" Height="8" Fill="{DynamicResource SuccessBrush}" Margin="0,0,9,0"/>
-                        <TextBlock x:Name="StatusEnvironment" Text="运行环境正常" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0"/>
-                        <TextBlock x:Name="StatusRuntime" Text="暂无浏览器" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0"/>
-                        <TextBlock x:Name="StatusBrowserCount" Text="可用浏览器: 0" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0"/>
-                        <TextBlock x:Name="StatusPluginCount" Text="插件: 0 个" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        <Ellipse x:Name="RunningDot" Width="8" Height="8" Fill="{DynamicResource SuccessBrush}" Margin="0,0,9,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StatusEnvironment" Text="运行环境正常" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StatusRuntime" Text="暂无浏览器" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StatusBrowserCount" Text="可用浏览器: 0" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StatusPluginCount" Text="插件: 0 个" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock x:Name="StatusProxy" Text="HTTP 代理 127.0.0.1:8083" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0"/>
-                        <TextBlock x:Name="StatusDebug" Text="调试基址 127.0.0.1" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0"/>
-                        <Button Style="{StaticResource YTrayIconButton}" Click="StatusSettings_Click" ToolTip="打开设置">
+                        <TextBlock x:Name="StatusProxy" Text="HTTP 代理 127.0.0.1:8083" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StatusDebug" Text="调试基址 127.0.0.1" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="15,0" VerticalAlignment="Center"/>
+                        <Button Style="{StaticResource YTrayIconButton}" Click="StatusSettings_Click" ToolTip="打开设置" VerticalAlignment="Center">
                             <Path Data="M 8 5 A 3 3 0 1 1 7.99 5 M 6.5 1 L 9.5 1 L 10 3 L 11.7 4 L 13.6 3.4 L 15 6 L 13.5 7.3 L 13.5 8.7 L 15 10 L 13.6 12.6 L 11.7 12 L 10 13 L 9.5 15 L 6.5 15 L 6 13 L 4.3 12 L 2.4 12.6 L 1 10 L 2.5 8.7 L 2.5 7.3 L 1 6 L 2.4 3.4 L 4.3 4 L 6 3 Z"
                                   Width="17" Height="17" Stretch="Uniform" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3" Fill="Transparent"/>
                         </Button>

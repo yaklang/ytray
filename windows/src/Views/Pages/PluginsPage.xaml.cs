@@ -21,7 +21,6 @@ namespace YTray.Views.Pages
             public BrowserPlugin Plugin { get; set; } = null!;
             public ImageSource? IconSource { get; set; }
             public string VersionLabel => $"v{Plugin.Version} · Manifest V{Plugin.ManifestVersion}";
-            public bool IsManaged { get; set; }
         }
 
         private readonly InstanceStore _store;
@@ -76,7 +75,6 @@ namespace YTray.Views.Pages
                 {
                     Plugin = plugin,
                     IconSource = PluginIconSource.FromPlugin(plugin),
-                    IsManaged = plugin.Id == managedId,
                 }).ToList();
             _selected = _store.Plugins.FirstOrDefault(p => p.Id == selectedId) ?? _store.Plugins.FirstOrDefault();
             PluginList.SelectedItem = PluginList.Items.Cast<PluginRow>()
@@ -160,12 +158,6 @@ namespace YTray.Views.Pages
             {
                 if (dlg.ShowDialog() == WinForms.DialogResult.OK) _store.AddPlugin(dlg.SelectedPath);
             }
-        }
-
-        private void Remove_Click(object s, RoutedEventArgs e)
-        {
-            if (((FrameworkElement)s).Tag is BrowserPlugin p) _store.RemovePlugin(p);
-            Refresh();
         }
 
         private void Enabled_Click(object sender, RoutedEventArgs e)

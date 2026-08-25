@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { siteConfig } from "@/lib/site";
 
 type AssetKey = "darwin:arm64" | "darwin:amd64" | "windows:amd64" | "windows:386";
+export type ProductPlatform = "macos" | "windows";
 
 interface ReleaseAsset {
   platform?: string;
@@ -22,31 +23,51 @@ interface DownloadState {
   version: string;
   assets: Partial<Record<AssetKey, string>>;
   recommended: AssetKey | null;
+  productPlatform: ProductPlatform | null;
 }
 
 const DownloadContext = React.createContext<DownloadState>({
   version: "最新版",
   assets: {},
   recommended: null,
+  productPlatform: null,
 });
 
-function detectPlatform(): AssetKey | null {
-  if (typeof navigator === "undefined") return null;
+type DetectedPlatform = AssetKey | "other";
+
+function detectPlatform(): DetectedPlatform {
   const platform = `${navigator.userAgent} ${navigator.platform}`.toLowerCase();
   if (platform.includes("win")) return "windows:amd64";
   if (platform.includes("mac")) return "darwin:arm64";
-  return null;
+  return "other";
 }
 
+function productPlatformFor(asset: AssetKey | null): ProductPlatform {
+  return asset?.startsWith("windows:") ? "windows" : "macos";
+}
+
+function subscribePlatform(onStoreChange: () => void) {
+  // Hydration starts from the platform-neutral server snapshot. Notify once after mounting so
+  // useSyncExternalStore reads the real browser platform without rendering both products first.
+  const timer = window.setTimeout(onStoreChange, 0);
+  return () => window.clearTimeout(timer);
+}
+const serverPlatformSnapshot = () => null;
+
 export function DownloadProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = React.useState<DownloadState>({
+  const detectedPlatform = React.useSyncExternalStore<DetectedPlatform | null>(
+    subscribePlatform,
+    detectPlatform,
+    serverPlatformSnapshot,
+  );
+  const recommended = detectedPlatform === "other" ? null : detectedPlatform;
+  const productPlatform = detectedPlatform === null ? null : productPlatformFor(recommended);
+  const [releaseState, setReleaseState] = React.useState<Pick<DownloadState, "version" | "assets">>({
     version: "最新版",
     assets: {},
-    recommended: null,
   });
 
   React.useEffect(() => {
-    const recommended = detectPlatform();
     const controller = new AbortController();
     fetch(siteConfig.releaseManifest, {
       headers: { Accept: "application/json" },
@@ -67,21 +88,28 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
             assets[key] = asset.url;
           }
         });
-        setState({
+        setReleaseState((current) => ({
+          ...current,
           version: release.version ? `v${release.version}` : "最新版",
           assets,
-          recommended,
-        });
+        }));
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        setState((current) => ({ ...current, recommended }));
       });
 
     return () => controller.abort();
   }, []);
 
-  return <DownloadContext.Provider value={state}>{children}</DownloadContext.Provider>;
+  return (
+    <DownloadContext.Provider value={{ ...releaseState, recommended, productPlatform }}>
+      {children}
+    </DownloadContext.Provider>
+  );
+}
+
+export function useProductPlatform() {
+  return React.useContext(DownloadContext).productPlatform;
 }
 
 const labels: Record<AssetKey, string> = {

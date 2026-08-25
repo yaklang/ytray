@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using YTray.Core;
 using YTray.Views;
@@ -37,8 +38,9 @@ namespace YTray
             {
                 Icon = _trayIcon,
                 Visible = true,
-                Text = "YTray · 右键打开菜单",
+                Text = "YTray · 左键打开主界面 · 右键打开菜单",
             };
+            _notify.MouseClick += OnNotifyMouseClick;
             // Subscribe only after NotifyIcon is fully constructed. A Windows theme event can
             // arrive at any time; the handler must never observe a partially initialized owner.
             ThemeManager.ThemeChanged += OnThemeChanged;
@@ -102,13 +104,27 @@ namespace YTray
         private void UpdateStatusTitle()
         {
             var count = _store.RunningInstances.Count;
-            _notify.Text = $"YTray · {count} 个运行中实例";
+            _notify.Text = $"YTray · {count} 个运行中实例 · 左键打开主界面";
+        }
+
+        private void OnNotifyMouseClick(object sender, System.Windows.Forms.MouseEventArgs e)
+        {
+            // Keep right-click exclusively for the native tray menu. A regular left-click is
+            // the shortest path back to the manager after its window has been closed.
+            if (e.Button != System.Windows.Forms.MouseButtons.Left) return;
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted) return;
+            if (dispatcher.CheckAccess())
+                ShowManager();
+            else
+                dispatcher.BeginInvoke(new Action(ShowManager), DispatcherPriority.Send);
         }
 
         private WidgetView EnsureWidget()
         {
             if (_widget != null) return _widget;
-            _widget = new WidgetView(_store, _launchAtLogin);
+            _widget = new WidgetView(_store);
             _widget.OpenManagerRequested += (s, e) => ShowManager();
             return _widget;
         }
@@ -144,9 +160,15 @@ namespace YTray
                 _manager = new ManagerView(_store, _launchAtLogin);
                 _manager.Closed += OnManagerClosed;
             }
-            _manager.Show();
+            if (!_manager.IsVisible) _manager.Show();
             if (_manager.WindowState == WindowState.Minimized) _manager.WindowState = WindowState.Normal;
             _manager.Activate();
+            _manager.Focus();
+
+            // Activate() alone is not reliable when the window is restored from a tray event.
+            // The tray click is foreground user input, so Windows permits this foreground handoff.
+            var handle = new WindowInteropHelper(_manager).Handle;
+            if (handle != IntPtr.Zero) Win32.SetForegroundWindow(handle);
         }
 
         private void ToggleLaunchAtLogin()
@@ -198,6 +220,7 @@ namespace YTray
             _widget?.Close();
             _manager?.Close();
             _edgeDock?.Close();
+            _notify.MouseClick -= OnNotifyMouseClick;
             _notify.Visible = false;
             _notify.ContextMenu = null;
             _notify.Dispose();

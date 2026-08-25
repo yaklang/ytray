@@ -23,6 +23,7 @@ namespace YTray
 
             var args = Environment.GetCommandLineArgs();
             string? designCaptureDirectory = null;
+            bool captureSitePreviewOnly = false;
             bool startupLaunch = false;
             for (int i = 0; i < args.Length; i++)
             {
@@ -35,6 +36,12 @@ namespace YTray
                 if (args[i] == "--capture-design-review" && i + 1 < args.Length)
                 {
                     designCaptureDirectory = args[++i];
+                    continue;
+                }
+                if (args[i] == "--capture-site-preview" && i + 1 < args.Length)
+                {
+                    designCaptureDirectory = args[++i];
+                    captureSitePreviewOnly = true;
                     continue;
                 }
                 if (args[i] == "--startup")
@@ -62,7 +69,7 @@ namespace YTray
             if (!string.IsNullOrWhiteSpace(designCaptureDirectory))
             {
                 ThemeManager.Initialize(AppThemePreference.Light);
-                CrashGuard.Observe(RunDesignCaptureAsync(designCaptureDirectory!), "design-capture");
+                CrashGuard.Observe(RunDesignCaptureAsync(designCaptureDirectory!, captureSitePreviewOnly), "design-capture");
                 return;
             }
             var initialTheme = _store.Settings.ThemePreference;
@@ -152,12 +159,12 @@ namespace YTray
             File.WriteAllText(fullPath, payload);
         }
 
-        private async Task RunDesignCaptureAsync(string outputDirectory)
+        private async Task RunDesignCaptureAsync(string outputDirectory, bool sitePreviewOnly)
         {
             try
             {
                 var store = _store ?? throw new InvalidOperationException("Instance store is not initialized.");
-                await DesignCaptureService.CaptureAsync(store, outputDirectory);
+                await DesignCaptureService.CaptureAsync(store, outputDirectory, sitePreviewOnly);
             }
             catch (Exception ex)
             {

@@ -3,32 +3,33 @@
 import Image from "next/image";
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { type ProductPlatform, useProductPlatform } from "@/components/site/downloads";
 import { assetPath } from "@/lib/site";
 
 const capabilities = [
   {
     id: "identity",
     eyebrow: "身份隔离",
-    title: "一个角标，就是一个测试现场",
-    description: "独立目录、Cookie、缓存与历史；A / B / C 在 Dock 里一眼可辨。",
+    title: "每个实例都有独立身份",
+    description: "用户目录、Cookie、缓存和访问记录互不影响；A / B / C 角标让任务栏或 Dock 中的窗口一眼可辨。",
   },
   {
     id: "runtime",
     eyebrow: "本机浏览器 + CFT",
-    title: "日常环境直接用，复现版本按需固定",
-    description: "自动识别系统浏览器，也可以安装指定 Chrome for Testing。",
+    title: "使用本机浏览器，或固定测试版本",
+    description: "自动识别系统浏览器，也可以安装指定版本的 Chrome for Testing。",
   },
   {
     id: "proxy",
     eyebrow: "免浏览器配置代理",
-    title: "代理留在托盘，不打断调试",
-    description: "直连与 HTTP 代理分开启动，认证和检测目标一次保存。",
+    title: "启动时直接选择网络路径",
+    description: "直连与 HTTP 代理分开启动，地址、认证和检测目标只需保存一次。",
   },
   {
     id: "plugin",
     eyebrow: "插件与 Yak 生态",
-    title: "工具跟着身份进入现场",
-    description: "本地插件与 Yakit Browser Agent 随实例加载，继续衔接 Yaklang 生态。",
+    title: "插件随新实例自动加载",
+    description: "启用本地插件或 Yakit Browser Agent 后，新建实例会自动带上它们。",
   },
 ] as const;
 
@@ -38,6 +39,7 @@ export function CapabilityStage() {
   const [activeIndex, setActiveIndex] = React.useState(0);
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const reduceMotion = useReducedMotion();
+  const platform = useProductPlatform();
   const active = capabilities[activeIndex];
 
   function select(index: number) {
@@ -47,7 +49,7 @@ export function CapabilityStage() {
   }
 
   return (
-    <div className="capability-stage">
+    <div className="capability-stage" data-platform={platform ?? undefined}>
       <div className="capability-tabs" role="tablist" aria-label="YTray 核心能力">
         {capabilities.map((item, index) => (
           <button
@@ -93,7 +95,7 @@ export function CapabilityStage() {
             exit={reduceMotion ? { opacity: 1 } : { opacity: 0, scale: 0.99, y: -10 }}
             transition={{ duration: reduceMotion ? 0 : 0.42, ease: [0.16, 1, 0.3, 1] }}
           >
-            <CapabilityVisual type={active.id} />
+            {platform ? <CapabilityVisual type={active.id} platform={platform} /> : null}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -101,12 +103,14 @@ export function CapabilityStage() {
   );
 }
 
-function CapabilityVisual({ type }: { type: CapabilityId }) {
+function CapabilityVisual({ type, platform }: { type: CapabilityId; platform: ProductPlatform }) {
+  const windows = platform === "windows";
+
   if (type === "identity") {
     return (
       <>
-        <Image className="capability-shot-main" src={assetPath("/assets/ytray-tab-instances.png")} width={1080} height={748} alt="YTray 运行与历史身份页面" />
-        <Image className="capability-shot-dock" src={assetPath("/assets/ytray-dock-identities.png")} width={372} height={124} alt="Dock 中带 A、B、C 角标的三个独立浏览器身份" />
+        <Image className="capability-shot-main" src={assetPath(windows ? "/assets/ytray-windows-instances.png" : "/assets/ytray-tab-instances.png")} width={windows ? 1268 : 1080} height={windows ? 794 : 748} alt={`YTray ${windows ? "Windows" : "macOS"} 实例页面`} />
+        <Image className="capability-shot-dock" src={assetPath(windows ? "/assets/ytray-windows-widget.png" : "/assets/ytray-dock-identities.png")} width={windows ? 414 : 372} height={windows ? 538 : 124} alt={windows ? "YTray Windows 悬浮面板中的浏览器实例" : "macOS Dock 中带 A、B、C 角标的浏览器身份"} />
       </>
     );
   }
@@ -114,15 +118,15 @@ function CapabilityVisual({ type }: { type: CapabilityId }) {
   if (type === "runtime") {
     return (
       <>
-        <Image className="capability-shot-main" src={assetPath("/assets/ytray-tab-runtimes.png")} width={1080} height={748} alt="YTray 系统浏览器与 Chrome for Testing 页面" />
-        <Image className="capability-shot-wizard" src={assetPath("/assets/ytray-custom-launch.png")} width={1440} height={1140} alt="背景不透明的 YTray 自定义启动向导" />
+        <Image className="capability-shot-main" src={assetPath(windows ? "/assets/ytray-windows-runtimes.png" : "/assets/ytray-tab-runtimes.png")} width={windows ? 1268 : 1080} height={windows ? 794 : 748} alt={`YTray ${windows ? "Windows" : "macOS"} 浏览器来源页面`} />
+        {!windows ? <Image className="capability-shot-wizard" src={assetPath("/assets/ytray-custom-launch.png")} width={1440} height={1140} alt="YTray macOS 自定义启动向导" /> : null}
       </>
     );
   }
 
   if (type === "proxy") {
-    return <Image className="capability-shot-widget" src={assetPath("/assets/ytray-widget.png")} width={780} height={1492} alt="YTray 代理、实例和历史托盘面板" />;
+    return <Image className="capability-shot-widget" src={assetPath(windows ? "/assets/ytray-windows-widget.png" : "/assets/ytray-widget.png")} width={windows ? 414 : 780} height={windows ? 538 : 1492} alt={`YTray ${windows ? "Windows 悬浮" : "macOS 菜单栏"}面板`} />;
   }
 
-  return <Image className="capability-shot-main" src={assetPath("/assets/ytray-tab-plugins.png")} width={1080} height={748} alt="YTray 本地插件与 Yakit Browser Agent 页面" />;
+  return <Image className="capability-shot-main" src={assetPath(windows ? "/assets/ytray-windows-plugins.png" : "/assets/ytray-tab-plugins.png")} width={windows ? 1268 : 1080} height={windows ? 794 : 748} alt={`YTray ${windows ? "Windows" : "macOS"} 本地插件与 Yakit Browser Agent 页面`} />;
 }

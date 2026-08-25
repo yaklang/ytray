@@ -288,11 +288,17 @@
                         <TextBlock x:Name="DefaultRuntimeLabel" FontSize="10" Foreground="{StaticResource WidgetTextSecondaryBrush}"
                                    Text="正在读取默认浏览器…" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                     </StackPanel>
-                    <Button Grid.Column="2" Style="{StaticResource WidgetIconButton}"
-                            Click="Close_Click" ToolTip="关闭">
-                        <TextBlock Text="×" FontFamily="Segoe UI" FontSize="16"
-                                   Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
-                    </Button>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource WidgetIconButton}" Click="OpenManager_Click"
+                                ToolTip="打开全部管理" Margin="0,0,2,0">
+                            <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                       Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                        </Button>
+                        <Button Style="{StaticResource WidgetIconButton}" Click="Close_Click" ToolTip="关闭">
+                            <TextBlock Text="×" FontFamily="Segoe UI" FontSize="16"
+                                       Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
                 <!-- Proxy is the primary work surface, not a generic form card. -->
@@ -543,24 +549,6 @@
                     </Button>
                 </Grid>
 
-                <Grid Height="35">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="1*"/><ColumnDefinition Width="7"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Click="OpenManager_Click" Style="{StaticResource WidgetButton}"
-                            HorizontalContentAlignment="Stretch" Padding="11,0">
-                        <DockPanel>
-                            <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="全部管理" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="9" DockPanel.Dock="Right"
-                                       HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource WidgetTextTertiaryBrush}"/>
-                        </DockPanel>
-                    </Button>
-                    <Button x:Name="StartupButton" Grid.Column="2" MinWidth="126" Click="Startup_Click" Style="{StaticResource WidgetButton}" Padding="10,0">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock x:Name="StartupIcon" Text="&#xE7E8;" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="StartupLabel" Text="开机启动已开" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                </Grid>
             </StackPanel>
         </Grid>
     </Border>

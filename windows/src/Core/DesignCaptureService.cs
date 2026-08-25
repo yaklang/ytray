@@ -64,7 +64,8 @@ namespace YTray.Core
         [DllImport("user32.dll")]
         private static extern bool EndMenu();
 
-        public static async Task<IReadOnlyList<CaptureItem>> CaptureAsync(InstanceStore store, string outputDirectory)
+        public static async Task<IReadOnlyList<CaptureItem>> CaptureAsync(InstanceStore store, string outputDirectory,
+            bool sitePreviewOnly = false)
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
             if (string.IsNullOrWhiteSpace(outputDirectory)) throw new ArgumentException("截图目录不能为空", nameof(outputDirectory));
@@ -79,10 +80,17 @@ namespace YTray.Core
             var originalDockSide = store.Settings.EdgeDockOnLeft;
             try
             {
-                await CaptureManagerAsync(store, outputDirectory, captures);
-                await CaptureWizardAsync(store, outputDirectory, captures);
-                await CaptureFloatingAsync(store, outputDirectory, captures);
-                CaptureTrayContextMenu(outputDirectory, captures);
+                if (sitePreviewOnly)
+                {
+                    await CaptureSitePreviewAsync(store, outputDirectory, captures);
+                }
+                else
+                {
+                    await CaptureManagerAsync(store, outputDirectory, captures);
+                    await CaptureWizardAsync(store, outputDirectory, captures);
+                    await CaptureFloatingAsync(store, outputDirectory, captures);
+                    CaptureTrayContextMenu(outputDirectory, captures);
+                }
                 CreateContactSheet(outputDirectory, captures);
                 WriteManifest(outputDirectory, captures);
                 File.WriteAllText(Path.Combine(outputDirectory, "capture-complete.txt"),
@@ -98,6 +106,68 @@ namespace YTray.Core
                 // theme or dock side into the user's state.json.
                 store.SetThemePreference(originalTheme);
             }
+        }
+
+        private static async Task CaptureSitePreviewAsync(InstanceStore store, string root,
+            List<CaptureItem> captures)
+        {
+            ApplyPreviewTheme(store, AppThemePreference.Dark);
+            var launchAtLogin = new LaunchAtLoginManager(new PreviewLaunchAtLoginBackend());
+            var manager = new ManagerView(store, launchAtLogin)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 160,
+                Top = 90,
+                Topmost = true,
+            };
+            manager.Show();
+            manager.Activate();
+            await SettleAsync(manager, 480);
+
+            manager.NavQuick.IsSelected = true;
+            await SettleAsync(manager, 360);
+            const string overviewRelative = "main/dark-overview-runtime-center.png";
+            CaptureWindow(manager, Path.Combine(root, overviewRelative));
+            captures.Add(new CaptureItem { RelativePath = overviewRelative, Caption = "运行中心 · 深色" });
+
+            manager.NavInstances.IsSelected = true;
+            await SettleAsync(manager, 420);
+            if (manager.ContentFrame.Content is InstancesPage instancesPage)
+            {
+                var candidate = instancesPage.RunningList.Items.Count > 0
+                    ? instancesPage.RunningList.Items[0]
+                    : (instancesPage.HistoryList.Items.Count > 0 ? instancesPage.HistoryList.Items[0] : null);
+                if (candidate != null)
+                {
+                    if (instancesPage.RunningList.Items.Contains(candidate))
+                        instancesPage.RunningList.SelectedItem = candidate;
+                    else
+                        instancesPage.HistoryList.SelectedItem = candidate;
+                    await SettleAsync(manager, 720);
+                }
+            }
+            const string detailRelative = "main/dark-instances-detail.png";
+            CaptureWindow(manager, Path.Combine(root, detailRelative));
+            captures.Add(new CaptureItem { RelativePath = detailRelative, Caption = "浏览器实例 · 详情 · 深色" });
+            manager.Close();
+            await Task.Delay(180);
+
+            var widget = new WidgetView(store) { Topmost = true };
+            widget.Show();
+            widget.Opacity = 1;
+            widget.EntranceTransform.Y = 0;
+            widget.RefreshAndMeasure();
+            PositionWidgetForReview(widget);
+            widget.CancelPendingDismiss();
+            await SettleAsync(widget, 520);
+            const string widgetRelative = "floating/dark-floating-panel.png";
+            // Render the transparent WPF surface itself. A desktop screen copy bakes whatever is
+            // behind the rounded window into its transparent corners, which creates stray text
+            // when the widget is composited over the website hero.
+            CaptureWindow(widget, Path.Combine(root, widgetRelative));
+            captures.Add(new CaptureItem { RelativePath = widgetRelative, Caption = "普通悬浮面板 · 深色" });
+            widget.Close();
+            await Task.Delay(120);
         }
 
         private static async Task CaptureManagerAsync(InstanceStore store, string root, List<CaptureItem> captures)
@@ -305,7 +375,7 @@ namespace YTray.Core
             CaptureScreen(Inflate(WindowBounds(edge), 28, 24), Path.Combine(root, edgeRelative));
             captures.Add(new CaptureItem { RelativePath = edgeRelative, Caption = "屏幕右缘吸附条 · 悬停展开" });
 
-            var widget = new WidgetView(store, new LaunchAtLoginManager(new PreviewLaunchAtLoginBackend())) { Topmost = true };
+            var widget = new WidgetView(store) { Topmost = true };
             foreach (var theme in new[] { AppThemePreference.Light, AppThemePreference.Dark })
             {
                 ApplyPreviewTheme(store, theme);

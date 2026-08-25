@@ -15,7 +15,6 @@ namespace YTray.Views
     public partial class WidgetView : Window
     {
         private readonly InstanceStore _store;
-        private readonly LaunchAtLoginManager _launchAtLogin;
         private bool _refreshScheduled;
         private int _dismissGeneration;
         private int _actionFeedbackGeneration;
@@ -25,26 +24,21 @@ namespace YTray.Views
 
         public event EventHandler? OpenManagerRequested;
 
-        public WidgetView(InstanceStore store, LaunchAtLoginManager launchAtLogin)
+        public WidgetView(InstanceStore store)
         {
             InitializeComponent();
             _store = store;
-            _launchAtLogin = launchAtLogin;
             Loaded += (s, e) => Refresh();
             Deactivated += OnDeactivated;
             Closed += (s, e) =>
             {
                 _store.PropertyChanged -= OnStorePropertyChanged;
-                _launchAtLogin.PropertyChanged -= OnLaunchAtLoginChanged;
                 InstanceThumbnailImageSource.ImageLoaded -= OnThumbnailImageLoaded;
                 _thumbnailPreview.Close();
             };
             _store.PropertyChanged += OnStorePropertyChanged;
-            _launchAtLogin.PropertyChanged += OnLaunchAtLoginChanged;
             InstanceThumbnailImageSource.ImageLoaded += OnThumbnailImageLoaded;
         }
-
-        private void OnLaunchAtLoginChanged(object sender, PropertyChangedEventArgs e) => ScheduleRefresh();
 
         private void OnThumbnailImageLoaded(object sender, EventArgs e)
         {
@@ -192,8 +186,6 @@ namespace YTray.Views
                 ProxyStatus.Text = _store.ProxyCheckMessage;
             CheckBtn.IsEnabled = _store.ProxyCheckPhase != ProxyCheckPhase.Checking;
             DirectBtn.IsEnabled = ProxyBtn.IsEnabled = !_store.IsLaunching;
-            StartupIcon.Text = _launchAtLogin.IsEnabled ? "\uE7E8" : "\uE71B";
-            StartupLabel.Text = _launchAtLogin.IsEnabled ? "开机启动已开" : "开启开机启动";
         }
 
         private static string InstanceSignature(System.Collections.Generic.IEnumerable<BrowserInstance> instances) =>
@@ -230,24 +222,6 @@ namespace YTray.Views
         {
             HideWidget();
             OpenManagerRequested?.Invoke(this, e);
-        }
-
-        private void Startup_Click(object sender, RoutedEventArgs e)
-        {
-            if (_launchAtLogin.IsEnabled)
-            {
-                var choice = MessageBox.Show(
-                    "关闭后，登录 Windows 时 YTray 将不会自动进入系统托盘。",
-                    "确认关闭开机启动？",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning,
-                    MessageBoxResult.No
-                );
-                if (choice != MessageBoxResult.Yes) return;
-            }
-            if (!_launchAtLogin.SetEnabled(!_launchAtLogin.IsEnabled))
-                MessageBox.Show(_launchAtLogin.ErrorMessage ?? "设置失败。", "YTray", MessageBoxButton.OK, MessageBoxImage.Warning);
-            Refresh();
         }
 
         private void Close_Click(object sender, RoutedEventArgs e) => HideWidget();
