@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "VERSION"
       - "assets/app-icon/**"
       - "docs/images/v0.1.0/**"
       - "docs/images/v0.1.2/**"
