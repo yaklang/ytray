@@ -3,6 +3,21 @@ import Network
 @testable import YTray
 
 final class BrowserLauncherTests: XCTestCase {
+    func testBundledPluginOnlyInstallsWhenMissingOrStrictlyNewer() {
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: nil))
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: ""))
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion("0.2.10", installedVersion: "0.2.2"))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: "0.2.2"))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: "0.2.10"))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion(nil, installedVersion: "0.2.2"))
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion(
+            "0.2.2", installedVersion: "0.2.2", allowSameVersion: true
+        ))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion(
+            "0.2.2", installedVersion: "0.2.10", allowSameVersion: true
+        ))
+    }
+
     @MainActor
     func testLaunchAtLoginDefaultsOnOnceAndCanBeDisabled() throws {
         let suite = "io.yaklang.ytray.tests.\(UUID().uuidString)"
@@ -1118,6 +1133,41 @@ final class BrowserLauncherTests: XCTestCase {
         )
         XCTAssertTrue(arguments.contains("--load-extension=/tmp/local-extension"))
         XCTAssertTrue(arguments.contains("--disable-extensions-except=/tmp/local-extension"))
+    }
+
+    @MainActor
+    func testAppUpdateVersionComparisonHandlesPrereleases() {
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3", "0.1.2"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3", "0.1.3-beta.4"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3-beta.10", "0.1.3-beta.2"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3-beta10", "0.1.3-beta2"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("v0.1.2+build.9", "0.1.2"), .orderedSame)
+    }
+
+    @MainActor
+    func testAppUpdateSelectsTheNativeDMGAsset() throws {
+        let manifest = AppReleaseManifest(
+            schemaVersion: 1,
+            product: "ytray",
+            version: "0.1.3",
+            assets: [
+                AppReleaseAsset(
+                    platform: "darwin", architecture: "amd64", kind: "dmg",
+                    filename: "intel.dmg", url: URL(string: "https://example.com/intel.dmg")!,
+                    sha256: String(repeating: "a", count: 64), size: 100
+                ),
+                AppReleaseAsset(
+                    platform: "darwin", architecture: "arm64", kind: "dmg",
+                    filename: "arm.dmg", url: URL(string: "https://example.com/arm.dmg")!,
+                    sha256: String(repeating: "b", count: 64), size: 100
+                ),
+            ]
+        )
+
+        let selected = try XCTUnwrap(AppUpdateManager.selectAsset(
+            from: manifest, platform: "darwin", architecture: "arm64", kind: "dmg"
+        ))
+        XCTAssertEqual(selected.filename, "arm.dmg")
     }
 }
 

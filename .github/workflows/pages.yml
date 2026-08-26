@@ -6,6 +6,7 @@ on:
     paths:
       - "site/**"
       - "docs/images/v0.1.0/**"
+      - "docs/images/v0.1.2/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -42,8 +43,9 @@ jobs:
           set -euo pipefail
           mkdir -p site/public/assets
           cp docs/images/v0.1.0/*.png site/public/assets/
+          cp docs/images/v0.1.2/*.png site/public/assets/
           asset_count="$(find site/public/assets -type f -name '*.png' | wc -l | tr -d ' ')"
-          test "$asset_count" -ge 12
+          test "$asset_count" -ge 19
       - name: Build static Next.js website
         working-directory: site
         env:

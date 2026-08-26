@@ -184,6 +184,23 @@ enum ExtensionInstaller {
         return (left ?? "").compare(right ?? "", options: [.literal])
     }
 
+    /// Decides whether the embedded plugin should be installed automatically. A missing
+    /// local plugin is initialized from the bundle; an existing plugin is upgraded only
+    /// when the embedded version is strictly newer. This prevents equal-version rewrites
+    /// and downgrades after a user has independently updated the plugin.
+    static func shouldInstallBundledVersion(
+        _ bundledVersion: String?,
+        installedVersion: String?,
+        allowSameVersion: Bool = false
+    ) -> Bool {
+        guard let bundledVersion,
+              !bundledVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard let installedVersion,
+              !installedVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+        let comparison = compareVersions(bundledVersion, installedVersion)
+        return comparison == .orderedDescending || (allowSameVersion && comparison == .orderedSame)
+    }
+
     /// Installs the given release into Plugins/yakit-browser-agent/{version} and returns
     /// the extracted extension directory (the one containing manifest.json). Existing
     /// installs of the same version are replaced, which doubles as a repair path.

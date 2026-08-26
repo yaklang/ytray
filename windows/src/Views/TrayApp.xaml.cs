@@ -4,7 +4,9 @@ using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
+using System.Threading.Tasks;
 using YTray.Core;
 using YTray.Views;
 using YTray.Native;
@@ -16,6 +18,7 @@ namespace YTray
     {
         private readonly InstanceStore _store;
         private readonly LaunchAtLoginManager _launchAtLogin;
+        private readonly AppUpdateService _updater = AppUpdateService.Shared;
         private readonly System.Windows.Forms.NotifyIcon _notify;
         private Icon? _trayIcon;
         private WidgetView? _widget;
@@ -24,6 +27,8 @@ namespace YTray
         private System.Windows.Forms.ContextMenu? _menu;
         private bool _statusRefreshScheduled;
         private bool _launchAtLoginRefreshScheduled;
+        private bool _updateRefreshScheduled;
+        private string? _notifiedUpdateVersion;
 
         public TrayApp(InstanceStore store, LaunchAtLoginManager launchAtLogin)
         {
@@ -31,14 +36,17 @@ namespace YTray
             _launchAtLogin = launchAtLogin;
             _store.PropertyChanged += OnStorePropertyChanged;
             _launchAtLogin.PropertyChanged += OnLaunchAtLoginChanged;
+            _updater.PropertyChanged += OnUpdaterPropertyChanged;
 
             _trayIcon = LoadTrayIcon();
             _notify = new System.Windows.Forms.NotifyIcon
             {
                 Icon = _trayIcon,
                 Visible = true,
-                Text = "YTray · 右键打开菜单",
+                Text = "YTray · 左键打开主界面 · 右键打开菜单",
             };
+            _notify.MouseClick += OnNotifyMouseClick;
+            _notify.BalloonTipClicked += OnUpdateBalloonClicked;
             // Subscribe only after NotifyIcon is fully constructed. A Windows theme event can
             // arrive at any time; the handler must never observe a partially initialized owner.
             ThemeManager.ThemeChanged += OnThemeChanged;
@@ -47,6 +55,7 @@ namespace YTray
             BuildMenu();
             UpdateStatusTitle();
             if (_store.Settings.EdgeDockEnabled) _edgeDock.ShowDock(remember: false);
+            CrashGuard.Observe(CheckForUpdatesAfterStartupAsync(), "check-app-update-startup");
         }
 
         private void OnThemeChanged(object sender, EventArgs e)
@@ -82,6 +91,31 @@ namespace YTray
             }), DispatcherPriority.Background);
         }
 
+        private void OnUpdaterPropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(AppUpdateService.Phase)
+                && e.PropertyName != nameof(AppUpdateService.AvailableVersion)
+                && e.PropertyName != nameof(AppUpdateService.IsUpdateAvailable)) return;
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted || _updateRefreshScheduled) return;
+            _updateRefreshScheduled = true;
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                _updateRefreshScheduled = false;
+                BuildMenu();
+                if (_updater.IsUpdateAvailable
+                    && !string.Equals(_notifiedUpdateVersion, _updater.AvailableVersion, StringComparison.Ordinal))
+                {
+                    _notifiedUpdateVersion = _updater.AvailableVersion;
+                    _notify.ShowBalloonTip(
+                        7000,
+                        "YTray 有新版本",
+                        $"v{_updater.AvailableVersion} 已发布。点击即可在应用内下载、校验并安装。",
+                        System.Windows.Forms.ToolTipIcon.Info);
+                }
+            }), DispatcherPriority.Background);
+        }
+
         private void BuildMenu()
         {
             _notify.ContextMenu = null;
@@ -93,6 +127,11 @@ namespace YTray
             _menu.MenuItems.Add("全部管理", (s, e) => ShowManager());
             _menu.MenuItems.Add(_launchAtLogin.IsEnabled ? "关闭开机启动…" : "开启开机启动", (s, e) => ToggleLaunchAtLogin());
             _menu.MenuItems.Add("-");
+            var updateTitle = _updater.IsUpdateAvailable
+                ? $"安装 YTray v{_updater.AvailableVersion}…"
+                : "检查 YTray 更新…";
+            _menu.MenuItems.Add(updateTitle, (s, e) => OpenUpdatePage());
+            _menu.MenuItems.Add("-");
             _menu.MenuItems.Add("显示边缘小组件", (s, e) => _edgeDock.ShowDock());
             _menu.MenuItems.Add("-");
             _menu.MenuItems.Add("退出 YTray", (s, e) => Application.Current.Shutdown());
@@ -102,13 +141,27 @@ namespace YTray
         private void UpdateStatusTitle()
         {
             var count = _store.RunningInstances.Count;
-            _notify.Text = $"YTray · {count} 个运行中实例";
+            _notify.Text = $"YTray · {count} 个运行中实例 · 左键打开主界面";
+        }
+
+        private void OnNotifyMouseClick(object sender, System.Windows.Forms.MouseEventArgs e)
+        {
+            // Keep right-click exclusively for the native tray menu. A regular left-click is
+            // the shortest path back to the manager after its window has been closed.
+            if (e.Button != System.Windows.Forms.MouseButtons.Left) return;
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted) return;
+            if (dispatcher.CheckAccess())
+                ShowManager();
+            else
+                dispatcher.BeginInvoke(new Action(() => ShowManager()), DispatcherPriority.Send);
         }
 
         private WidgetView EnsureWidget()
         {
             if (_widget != null) return _widget;
-            _widget = new WidgetView(_store, _launchAtLogin);
+            _widget = new WidgetView(_store);
             _widget.OpenManagerRequested += (s, e) => ShowManager();
             return _widget;
         }
@@ -136,7 +189,7 @@ namespace YTray
             widget.PlayEntrance();
         }
 
-        public void ShowManager()
+        public void ShowManager(string? section = null)
         {
             _widget?.HideWidget();
             if (_manager == null)
@@ -144,10 +197,32 @@ namespace YTray
                 _manager = new ManagerView(_store, _launchAtLogin);
                 _manager.Closed += OnManagerClosed;
             }
-            _manager.Show();
+            if (!_manager.IsVisible) _manager.Show();
+            if (!string.IsNullOrWhiteSpace(section)) _manager.NavigateTo(section!);
             if (_manager.WindowState == WindowState.Minimized) _manager.WindowState = WindowState.Normal;
             _manager.Activate();
+            _manager.Focus();
+
+            // Activate() alone is not reliable when the window is restored from a tray event.
+            // The tray click is foreground user input, so Windows permits this foreground handoff.
+            var handle = new WindowInteropHelper(_manager).Handle;
+            if (handle != IntPtr.Zero) Win32.SetForegroundWindow(handle);
         }
+
+        private async Task CheckForUpdatesAfterStartupAsync()
+        {
+            await Task.Delay(2500).ConfigureAwait(false);
+            await _updater.CheckAsync().ConfigureAwait(false);
+        }
+
+        private void OpenUpdatePage()
+        {
+            ShowManager("settings");
+            if (!_updater.IsUpdateAvailable && !_updater.IsBusy)
+                CrashGuard.Observe(_updater.CheckAsync(), "check-app-update-menu");
+        }
+
+        private void OnUpdateBalloonClicked(object sender, EventArgs e) => OpenUpdatePage();
 
         private void ToggleLaunchAtLogin()
         {
@@ -194,10 +269,13 @@ namespace YTray
         {
             _store.PropertyChanged -= OnStorePropertyChanged;
             _launchAtLogin.PropertyChanged -= OnLaunchAtLoginChanged;
+            _updater.PropertyChanged -= OnUpdaterPropertyChanged;
             ThemeManager.ThemeChanged -= OnThemeChanged;
             _widget?.Close();
             _manager?.Close();
             _edgeDock?.Close();
+            _notify.MouseClick -= OnNotifyMouseClick;
+            _notify.BalloonTipClicked -= OnUpdateBalloonClicked;
             _notify.Visible = false;
             _notify.ContextMenu = null;
             _notify.Dispose();

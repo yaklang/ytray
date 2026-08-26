@@ -40,6 +40,7 @@ jobs:
           if ($process.ExitCode -ne 0 -or -not (Test-Path $marker)) { throw 'Standalone verification failed.' }
           $verification = Get-Content $marker -Raw | ConvertFrom-Json
           $bundled = Get-Content windows/src/Assets/BundledExtension/bundled-extension.json -Raw | ConvertFrom-Json
+          if ($verification.version -ne $version) { throw "Standalone version mismatch: $($verification.version) != $version" }
           if ($verification.bundledExtensionVersion -ne $bundled.version) { throw 'Bundled plugin version mismatch.' }
 
       - name: Capture Windows design review

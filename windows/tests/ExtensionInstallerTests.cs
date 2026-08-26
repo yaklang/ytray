@@ -76,6 +76,19 @@ namespace YTray.Tests
             Assert.IsTrue(ExtensionInstaller.CompareVersions("", null) == 0);
         }
 
+        [TestMethod]
+        public void BundledPluginOnlyInstallsWhenMissingOrStrictlyNewer()
+        {
+            Assert.IsTrue(ExtensionInstaller.ShouldInstallBundledVersion("0.2.2", null));
+            Assert.IsTrue(ExtensionInstaller.ShouldInstallBundledVersion("0.2.2", ""));
+            Assert.IsTrue(ExtensionInstaller.ShouldInstallBundledVersion("0.2.10", "0.2.2"));
+            Assert.IsFalse(ExtensionInstaller.ShouldInstallBundledVersion("0.2.2", "0.2.2"));
+            Assert.IsFalse(ExtensionInstaller.ShouldInstallBundledVersion("0.2.2", "0.2.10"));
+            Assert.IsFalse(ExtensionInstaller.ShouldInstallBundledVersion(null, "0.2.2"));
+            Assert.IsTrue(ExtensionInstaller.ShouldInstallBundledVersion("0.2.2", "0.2.2", allowSameVersion: true));
+            Assert.IsFalse(ExtensionInstaller.ShouldInstallBundledVersion("0.2.2", "0.2.10", allowSameVersion: true));
+        }
+
         // Hits the live OSS mirror; guards the gzip/AutomaticDecompression contract that
         // plain .NET Framework HttpClient would otherwise break (compressed JSON body).
         [TestMethod]

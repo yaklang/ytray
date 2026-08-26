@@ -60,13 +60,13 @@
   --destructive: #d70015;
   --border: #d2d2d7;
   --input: #d2d2d7;
-  --ring: #4b4fc7;
+  --ring: #f26512;
   --ink: #1d1d1f;
   --ink-muted: #6e6e73;
   --hairline: #d2d2d7;
   --surface-2: #f5f5f7;
-  --action: #4b4fc7;
-  --action-hover: #3f42b7;
+  --action: #f26512;
+  --action-hover: #d9540c;
   --radius: 0.75rem;
 }
 
@@ -135,46 +135,13 @@
 }
 
 .brand-mark {
-  position: relative;
   display: inline-block;
   flex: 0 0 auto;
-  overflow: hidden;
-  background: linear-gradient(145deg, #ffffff 16%, #f0effa 100%);
-  border: 1px solid rgba(29, 29, 31, 0.1);
-  box-shadow: 0 12px 28px rgba(46, 44, 92, 0.14);
+  filter: drop-shadow(0 10px 16px rgba(85, 42, 10, 0.14));
 }
 
-.brand-orbit {
-  position: absolute;
-  top: 50%;
-  left: 48%;
-  border: max(1.5px, 0.025em) solid var(--action);
-  border-radius: 999px;
-  transform: translate(-50%, -50%);
-}
-
-.brand-orbit-outer { width: 64%; height: 64%; opacity: 0.28; }
-.brand-orbit-middle { width: 45%; height: 45%; opacity: 0.55; }
-.brand-orbit-inner { width: 25%; height: 25%; opacity: 0.9; }
-.brand-core {
-  position: absolute;
-  top: 48%;
-  left: 47%;
-  width: 7%;
-  aspect-ratio: 1;
-  border-radius: 999px;
-  background: var(--action);
-  transform: translate(-50%, -50%);
-}
-.brand-dot {
-  position: absolute;
-  top: 18%;
-  right: 16%;
-  width: 10%;
-  aspect-ratio: 1;
-  border-radius: 999px;
-  background: var(--action);
-  opacity: 0.7;
+.brand-mark img {
+  display: block;
 }
 
 .hero-section {
@@ -188,7 +155,7 @@
   inset: 35% -10% auto;
   height: 72%;
   pointer-events: none;
-  background: radial-gradient(ellipse at 50% 45%, rgba(101, 91, 214, 0.15), rgba(255, 255, 255, 0) 68%);
+  background: radial-gradient(ellipse at 50% 45%, rgba(242, 101, 18, 0.15), rgba(255, 255, 255, 0) 68%);
   filter: blur(18px);
 }
 
@@ -203,8 +170,25 @@
   text-wrap: balance;
 }
 
-.hero-title > span + span {
+.hero-title-line {
+  display: block;
+  animation: hero-line-in 720ms var(--ease-out-quint) both;
+}
+
+.hero-title-line + .hero-title-line {
   margin-top: 0.08em;
+  animation-delay: 70ms;
+}
+
+@keyframes hero-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .hero-stage {
@@ -212,6 +196,28 @@
   z-index: 1;
   max-width: 1220px;
   padding-bottom: 6%;
+}
+
+.hero-stage-loading {
+  min-height: min(54vw, 680px);
+  border-radius: 24px;
+  background: linear-gradient(135deg, #f6f3f0, #ebe7e2);
+}
+
+.hero-platform-label {
+  position: absolute;
+  z-index: 4;
+  top: -44px;
+  right: 4%;
+  padding: 8px 13px;
+  border: 1px solid rgba(29, 29, 31, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--ink-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(29, 29, 31, 0.06);
 }
 
 .hero-main-shot {
@@ -223,14 +229,37 @@
   box-shadow: 0 40px 90px rgba(29, 29, 31, 0.16);
 }
 
-.hero-widget-shot {
+.hero-widget-frame {
   position: absolute;
   right: 0;
   bottom: 0;
   width: min(25%, 320px);
-  height: auto;
-  border-radius: 18px;
+  padding: 11px;
+  border: 1px solid rgba(29, 29, 31, 0.08);
+  border-radius: 25px;
+  background: #f5f1ed;
   box-shadow: 0 30px 70px rgba(29, 29, 31, 0.24);
+}
+
+.hero-widget-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 19px;
+}
+
+.hero-stage-windows {
+  padding-bottom: 3%;
+}
+
+.hero-stage-windows .hero-main-shot {
+  width: 92%;
+}
+
+.hero-stage-windows .hero-widget-frame {
+  right: 0;
+  bottom: 0;
+  width: min(23%, 286px);
 }
 
 .hero-dock-shot {
@@ -432,6 +461,12 @@
   transform: translate(-50%, -50%);
 }
 
+.capability-stage[data-platform="windows"] .capability-shot-dock {
+  bottom: 4%;
+  width: min(31%, 245px);
+  border-radius: 14px;
+}
+
 .visual-wide {
   width: 100%;
   max-width: 760px;
@@ -560,6 +595,11 @@
   border-radius: 18px;
   background: #303030;
   box-shadow: 0 28px 70px rgba(29, 29, 31, 0.14);
+}
+
+.tour-panel-placeholder {
+  aspect-ratio: 1.42;
+  background: linear-gradient(135deg, #303136, #232429);
 }
 
 .tour-panel:focus-visible,
@@ -699,12 +739,29 @@ details[open] .faq-plus {
     padding-bottom: 80px;
   }
 
+  .hero-stage-loading {
+    min-height: 520px;
+  }
+
+  .hero-platform-label {
+    right: 100px;
+  }
+
   .hero-main-shot {
     width: 760px;
   }
 
-  .hero-widget-shot {
+  .hero-widget-frame {
     right: 80px;
+    width: 190px;
+  }
+
+  .hero-stage-windows .hero-main-shot {
+    width: 800px;
+  }
+
+  .hero-stage-windows .hero-widget-frame {
+    right: 70px;
     width: 190px;
   }
 

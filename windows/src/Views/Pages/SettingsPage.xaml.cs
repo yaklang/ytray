@@ -1,5 +1,7 @@
 #nullable enable
 using System;
+using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -11,6 +13,7 @@ namespace YTray.Views.Pages
     public partial class SettingsPage : Page
     {
         private readonly InstanceStore _store;
+        private readonly AppUpdateService _updater = AppUpdateService.Shared;
         private bool _loadingControls;
         private int _feedbackGeneration;
 
@@ -27,11 +30,19 @@ namespace YTray.Views.Pages
         {
             ThemeManager.ThemeChanged -= OnThemeChanged;
             ThemeManager.ThemeChanged += OnThemeChanged;
+            _updater.PropertyChanged -= OnUpdaterPropertyChanged;
+            _updater.PropertyChanged += OnUpdaterPropertyChanged;
             SyncThemeSelection();
+            RefreshUpdateControls();
+            if (_updater.Phase == AppUpdatePhase.Idle && !IsCaptureProcess())
+                CrashGuard.Observe(_updater.CheckAsync(), "check-app-update-settings");
         }
 
-        private void OnUnloaded(object sender, RoutedEventArgs e) =>
+        private void OnUnloaded(object sender, RoutedEventArgs e)
+        {
             ThemeManager.ThemeChanged -= OnThemeChanged;
+            _updater.PropertyChanged -= OnUpdaterPropertyChanged;
+        }
 
         private void OnThemeChanged(object sender, EventArgs e)
         {
@@ -143,6 +154,55 @@ namespace YTray.Views.Pages
                 + "--disable-background-networking";
             ShowFeedback("已填入推荐参数");
         }
+
+        private void OnUpdaterPropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (!IsLoaded) return;
+            if (Dispatcher.CheckAccess()) RefreshUpdateControls();
+            else Dispatcher.BeginInvoke(new Action(RefreshUpdateControls));
+        }
+
+        private void RefreshUpdateControls()
+        {
+            if (UpdateButton == null) return;
+            CurrentVersionText.Text = $"当前 v{_updater.CurrentVersion}";
+            UpdateStatusText.Text = _updater.StatusText;
+            UpdateStatusText.Foreground = (Brush)FindResource(
+                _updater.Phase == AppUpdatePhase.Failed ? "DangerBrush"
+                : _updater.IsUpdateAvailable ? "BrandOrangeBrush"
+                : _updater.Phase == AppUpdatePhase.UpToDate ? "SuccessBrush"
+                : "TextSecondaryBrush");
+            UpdateButton.Content = _updater.ActionLabel;
+            UpdateButton.IsEnabled = !_updater.IsBusy;
+            UpdateProgress.Visibility = _updater.Phase == AppUpdatePhase.Downloading
+                ? Visibility.Visible : Visibility.Collapsed;
+            UpdateProgress.Value = _updater.DownloadPercent;
+        }
+
+        private async void Update_Click(object sender, RoutedEventArgs e)
+        {
+            if (_updater.IsBusy) return;
+            if (!_updater.IsUpdateAvailable && !_updater.IsDownloaded)
+            {
+                await _updater.CheckAsync();
+                return;
+            }
+
+            var version = _updater.AvailableVersion ?? "最新版";
+            var choice = MessageBox.Show(
+                $"YTray v{version} 将在应用内下载并校验。校验通过后会请求管理员权限完成安装，然后自动重新启动。\n\n运行中的浏览器不会被关闭。",
+                "安装 YTray 更新？",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information,
+                MessageBoxResult.Yes);
+            if (choice != MessageBoxResult.Yes) return;
+
+            if (!_updater.IsDownloaded && !await _updater.DownloadAsync()) return;
+            if (_updater.StartInstaller()) Application.Current.Shutdown();
+        }
+
+        private static bool IsCaptureProcess() => Environment.GetCommandLineArgs().Any(argument =>
+            argument.StartsWith("--capture-", StringComparison.OrdinalIgnoreCase));
 
         private async void ShowFeedback(string message, bool isError = false)
         {

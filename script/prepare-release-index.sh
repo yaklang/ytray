@@ -16,12 +16,15 @@ jq -e --arg version "$VERSION" --arg base "$PUBLIC_BASE_URL/$VERSION/" '
   .schema_version == 1 and .product == "ytray" and .version == $version and
   (.plugin.version | type == "string" and length > 0) and
   (.assets | type == "array" and length == 4) and
-  ([.assets[] | .platform + ":" + .architecture] | unique | length == 4) and
+  ([.assets[] | .platform + ":" + .architecture + ":" + .kind] | sort) ==
+    ["darwin:amd64:dmg", "darwin:arm64:dmg", "windows:386:setup", "windows:amd64:setup"] and
   all(.assets[];
     (.platform == "darwin" or .platform == "windows") and
     (.architecture == "arm64" or .architecture == "amd64" or .architecture == "386") and
+    (.filename | type == "string" and test("^[^/\\\\]+$")) and
     (.url | startswith($base)) and
-    (.sha256 | test("^[a-f0-9]{64}$"))
+    (.sha256 | test("^[a-f0-9]{64}$")) and
+    (.size | type == "number" and . > 0)
   )
 ' "$MANIFEST" >/dev/null || die "manifest schema validation failed"
 

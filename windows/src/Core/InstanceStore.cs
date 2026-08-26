@@ -135,16 +135,23 @@ namespace YTray.Core
 
         private bool InstallBundledExtensionIfNeeded(bool force = false)
         {
-            if (!force && ManagedExtension != null) return false;
+            var previous = ManagedExtension;
+            if (!ExtensionInstaller.TryGetBundledVersion(out var bundledVersion)
+                || !ExtensionInstaller.ShouldInstallBundledVersion(
+                    bundledVersion, previous?.Version, allowSameVersion: force))
+                return false;
             try
             {
                 if (!ExtensionInstaller.TryInstallBundled(ApplicationDirectory, out var directory,
                         out var version, ignoreOptOut: force, replaceExisting: force)) return false;
-                var previous = ManagedExtension;
                 RegisterManagedExtension(directory, previous?.Id, previous?.Enabled ?? true);
                 ExtensionInstaller.ClearManagedExtensionRemoved(ApplicationDirectory);
                 ExtensionInstaller.CleanupOldVersions(ApplicationDirectory, version);
-                ExtensionStatusMessage = $"已准备内置 Yakit 插件 {version}";
+                ExtensionStatusMessage = previous == null
+                    ? $"已准备内置 Yakit 插件 {version}"
+                    : ExtensionInstaller.CompareVersions(version, previous.Version) > 0
+                        ? $"已从内置包升级 Yakit 插件 {previous.Version} → {version}"
+                        : $"已重新准备内置 Yakit 插件 {version}";
                 return true;
             }
             catch (Exception ex)

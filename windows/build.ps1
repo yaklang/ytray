@@ -53,7 +53,8 @@ if ($Package) {
 }
 
 Write-Host "Building $solution ($config)..." -ForegroundColor Yellow
-& $msbuild $solution -p:Configuration=$config -p:PlatformTarget=$platformTarget -restore -nologo -v:minimal
+& $msbuild $solution -p:Configuration=$config -p:PlatformTarget=$platformTarget `
+    -p:YTrayVersion=$Version -restore -nologo -v:minimal
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 
 if ($Test) {

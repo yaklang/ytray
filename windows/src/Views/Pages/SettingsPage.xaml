@@ -53,7 +53,35 @@
             </Grid>
 
             <Border Grid.Column="2" Style="{StaticResource SurfaceBorder}" Padding="24,20">
-                <StackPanel><TextBlock Text="浏览器默认行为" Style="{StaticResource SectionTitle}" FontSize="15" Margin="0,0,0,22"/><CheckBox x:Name="WebRTCCheck" Content="禁用 WebRTC" FontSize="12.5" Margin="0,0,0,19"/><CheckBox x:Name="NotificationsCheck" Content="禁用浏览器通知" FontSize="12.5" Margin="0,0,0,19"/><CheckBox x:Name="CertCheck" Content="忽略证书错误" FontSize="12.5"/><TextBlock Text="作为新建实例和快速启动的默认值" Margin="0,22,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="浏览器默认行为" Style="{StaticResource SectionTitle}" FontSize="15" Margin="0,0,0,22"/>
+                        <CheckBox x:Name="WebRTCCheck" Content="禁用 WebRTC" FontSize="12.5" Margin="0,0,0,19"/>
+                        <CheckBox x:Name="NotificationsCheck" Content="禁用浏览器通知" FontSize="12.5" Margin="0,0,0,19"/>
+                        <CheckBox x:Name="CertCheck" Content="忽略证书错误" FontSize="12.5"/>
+                        <TextBlock Text="作为新建实例和快速启动的默认值" Margin="0,22,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                    </StackPanel>
+                    <Border Grid.Row="2" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="9"/><RowDefinition Height="Auto"/><RowDefinition Height="8"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Path Data="M 8 1 A 7 7 0 1 1 2.8 3.3 M 2.8 0.9 L 2.8 3.3 L 5.2 3.3" Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource BrandOrangeBrush}" StrokeThickness="1.35" Fill="Transparent" Margin="0,0,8,0"/>
+                                    <TextBlock Text="YTray 更新" Style="{StaticResource SectionTitle}" FontSize="14" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock x:Name="CurrentVersionText" Grid.Column="1" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Grid.Row="2">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="UpdateStatusText" Text="正在读取当前版本…" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                <Button x:Name="UpdateButton" Grid.Column="2" Content="检查更新" Click="Update_Click" MinWidth="112" Height="34" Padding="12,0" Style="{StaticResource YTrayPrimaryButton}"/>
+                            </Grid>
+                            <ProgressBar x:Name="UpdateProgress" Grid.Row="4" Height="4" Minimum="0" Maximum="100" Foreground="{DynamicResource BrandOrangeBrush}" Background="{DynamicResource SurfaceMutedBrush}" Visibility="Collapsed"/>
+                        </Grid>
+                    </Border>
+                </Grid>
             </Border>
         </Grid>
 

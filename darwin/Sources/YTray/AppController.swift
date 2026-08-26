@@ -12,6 +12,7 @@ enum Brand {
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let store = InstanceStore()
     private let launchAtLogin = LaunchAtLoginManager()
+    private let appUpdater = AppUpdateManager.shared
     private lazy var edgeDock = YTrayEdgeDockController(store: store) { [weak self] anchor, onLeft in
         self?.showWidgetFromEdge(anchor: anchor, onLeft: onLeft)
     }
@@ -39,6 +40,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             runEdgeWidgetSmoke()
         } else if focusSmoke || transientSmoke {
             waitForStableTrayAnchor(focusOnPresentation: true)
+        }
+        if !edgeWidgetSmoke && !focusSmoke && !transientSmoke {
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                await self?.appUpdater.checkForUpdates()
+            }
         }
     }
 
@@ -70,10 +77,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.$launchPhase.sink { [weak self] _ in
             Task { @MainActor in self?.refreshStatusTitle() }
         }.store(in: &subscriptions)
+        appUpdater.$phase.sink { [weak self] _ in
+            Task { @MainActor in self?.refreshStatusTitle() }
+        }.store(in: &subscriptions)
     }
 
     private func refreshStatusTitle() {
-        statusItem?.button?.title = store.isLaunching ? " …" : " \(store.runningInstances.count)"
+        let updateSuffix = appUpdater.isUpdateAvailable ? " ↑" : ""
+        statusItem?.button?.title = store.isLaunching ? " …" : " \(store.runningInstances.count)\(updateSuffix)"
+        statusItem?.button?.toolTip = appUpdater.isUpdateAvailable
+            ? "YTray v\(appUpdater.availableVersion ?? "最新版") 可更新"
+            : "YTray · 左键打开小组件 / 右键菜单"
         statusItem?.button?.superview?.layoutSubtreeIfNeeded()
         if widgetPanel?.isVisible == true {
             DispatchQueue.main.async { [weak self] in self?.updateWidgetSize(animated: false) }
@@ -97,6 +111,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         proxyItem.isEnabled = !store.isLaunching
         menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "") .target = self
         menu.addItem(withTitle: "全部管理", action: #selector(showManagerAction), keyEquivalent: ",").target = self
+        let updateTitle = appUpdater.isUpdateAvailable
+            ? "安装 YTray v\(appUpdater.availableVersion ?? "最新版")…"
+            : "检查 YTray 更新…"
+        menu.addItem(withTitle: updateTitle, action: #selector(showUpdateAction), keyEquivalent: "").target = self
         menu.addItem(.separator())
         let edgeItem = menu.addItem(
             withTitle: EdgeDockPreferences.isEnabled ? "隐藏边缘小组件" : "显示边缘小组件",
@@ -115,6 +133,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func proxyLaunch() { store.launchConfigured(usePresetProxy: true) }
     @objc private func showWidgetAction() { showWidget() }
     @objc private func showManagerAction() { showManager(section: .quick) }
+    @objc private func showUpdateAction() {
+        showManager(section: .settings)
+        if !appUpdater.isUpdateAvailable && !appUpdater.isBusy {
+            Task { await appUpdater.checkForUpdates() }
+        }
+    }
     @objc private func toggleEdgeDock() { edgeDock.toggleEnabled() }
     @objc private func quit() { NSApp.terminate(nil) }
 

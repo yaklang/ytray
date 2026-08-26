@@ -1,13 +1,11 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { assetPath } from "@/lib/site";
 
-export function BrandMark({ className }: { className?: string }) {
+export function BrandMark({ className, priority = false }: { className?: string; priority?: boolean }) {
   return (
     <span className={cn("brand-mark", className)} aria-hidden="true">
-      <i className="brand-orbit brand-orbit-outer" />
-      <i className="brand-orbit brand-orbit-middle" />
-      <i className="brand-orbit brand-orbit-inner" />
-      <b className="brand-core" />
-      <b className="brand-dot" />
+      <Image src={assetPath("/icon.svg")} width={1024} height={1024} alt="" className="size-full" priority={priority} />
     </span>
   );
 }

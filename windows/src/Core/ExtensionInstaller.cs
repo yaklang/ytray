@@ -255,6 +255,21 @@ namespace YTray.Core
         }
 
         /// <summary>
+        /// Returns true only when an embedded plugin should be installed automatically.
+        /// A missing local plugin is initialized from the bundle; an existing plugin is
+        /// upgraded only when the embedded version is strictly newer. Equal versions are
+        /// left untouched and a newer local version is never downgraded.
+        /// </summary>
+        public static bool ShouldInstallBundledVersion(string? bundledVersion, string? installedVersion,
+            bool allowSameVersion = false)
+        {
+            if (string.IsNullOrWhiteSpace(bundledVersion)) return false;
+            if (string.IsNullOrWhiteSpace(installedVersion)) return true;
+            var comparison = CompareVersions(bundledVersion, installedVersion);
+            return comparison > 0 || (allowSameVersion && comparison == 0);
+        }
+
+        /// <summary>
         /// Installs the given release into Plugins/yakit-browser-agent/{version} and returns
         /// the extracted directory. Existing installs of the same version are reinstalled
         /// (directory replaced), which doubles as a repair path.
