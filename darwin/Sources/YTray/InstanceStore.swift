@@ -296,7 +296,12 @@ final class InstanceStore: NSObject, ObservableObject {
 
     @discardableResult
     private func installBundledExtensionIfNeeded(force: Bool = false) -> Bool {
-        if !force, managedExtension != nil { return false }
+        let previous = managedExtension
+        guard ExtensionInstaller.shouldInstallBundledVersion(
+            ExtensionInstaller.bundledVersion(),
+            installedVersion: previous?.version,
+            allowSameVersion: force
+        ) else { return false }
         do {
             guard let bundled = try ExtensionInstaller.installBundled(
                 into: applicationDirectory,
@@ -309,7 +314,15 @@ final class InstanceStore: NSObject, ObservableObject {
                 applicationDirectory: applicationDirectory,
                 installedVersion: bundled.version
             )
-            extensionStatusMessage = "已准备内置 Yakit 插件 \(bundled.version)"
+            if let previous {
+                if ExtensionInstaller.compareVersions(bundled.version, previous.version) == .orderedDescending {
+                    extensionStatusMessage = "已从内置包升级 Yakit 插件 \(previous.version) → \(bundled.version)"
+                } else {
+                    extensionStatusMessage = "已重新准备内置 Yakit 插件 \(bundled.version)"
+                }
+            } else {
+                extensionStatusMessage = "已准备内置 Yakit 插件 \(bundled.version)"
+            }
             return true
         } catch {
             report(error)

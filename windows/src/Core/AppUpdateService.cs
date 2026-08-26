@@ -69,13 +69,15 @@ namespace YTray.Core
     /// manifest. The official Inno Setup package performs the privileged replacement after the
     /// current process exits and relaunches YTray when installation completes.
     /// </summary>
-    internal sealed class AppUpdateService : INotifyPropertyChanged
+    internal sealed class AppUpdateService : INotifyPropertyChanged, IDisposable
     {
         internal const string ManifestUrl = "https://aliyun-oss.yaklang.com/ytray/latest.json";
+        internal static readonly TimeSpan DefaultCheckTimeout = TimeSpan.FromSeconds(10);
         private static readonly Lazy<AppUpdateService> LazyShared =
             new Lazy<AppUpdateService>(() => new AppUpdateService());
 
         private readonly HttpClient _client;
+        private readonly TimeSpan _checkTimeout;
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private AppReleaseManifest? _release;
         private AppReleaseAsset? _asset;
@@ -86,9 +88,14 @@ namespace YTray.Core
 
         internal static AppUpdateService Shared => LazyShared.Value;
 
-        internal AppUpdateService(HttpMessageHandler? handler = null)
+        internal AppUpdateService(HttpMessageHandler? handler = null, TimeSpan? checkTimeout = null)
         {
             _client = handler == null ? new HttpClient() : new HttpClient(handler);
+            _checkTimeout = checkTimeout ?? DefaultCheckTimeout;
+            if (_checkTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(checkTimeout));
+            // Installer downloads may legitimately take a long time. Manifest checks use
+            // their own short cancellation budget in CheckAsync so a blocked OSS endpoint
+            // cannot leave the settings UI in the Checking phase for twenty minutes.
             _client.Timeout = TimeSpan.FromMinutes(20);
             _client.DefaultRequestHeaders.UserAgent.ParseAdd("YTray/" + CurrentVersion);
             _statusText = $"当前版本 v{CurrentVersion}";
@@ -134,13 +141,17 @@ namespace YTray.Core
                 using (var request = new HttpRequestMessage(
                     HttpMethod.Get,
                     ManifestUrl + "?app_update=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
+                using (var timeout = new CancellationTokenSource(_checkTimeout))
                 {
                     request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue
                     {
                         NoCache = true,
                         NoStore = true,
                     };
-                    using (var response = await _client.SendAsync(request).ConfigureAwait(false))
+                    using (var response = await _client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseContentRead,
+                        timeout.Token).ConfigureAwait(false))
                     {
                         response.EnsureSuccessStatusCode();
                         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -169,6 +180,10 @@ namespace YTray.Core
                         }
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                SetPhase(AppUpdatePhase.Failed, "检查更新超时，请稍后重试");
             }
             catch (Exception ex)
             {

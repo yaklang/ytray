@@ -3,6 +3,21 @@ import Network
 @testable import YTray
 
 final class BrowserLauncherTests: XCTestCase {
+    func testBundledPluginOnlyInstallsWhenMissingOrStrictlyNewer() {
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: nil))
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: ""))
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion("0.2.10", installedVersion: "0.2.2"))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: "0.2.2"))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion("0.2.2", installedVersion: "0.2.10"))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion(nil, installedVersion: "0.2.2"))
+        XCTAssertTrue(ExtensionInstaller.shouldInstallBundledVersion(
+            "0.2.2", installedVersion: "0.2.2", allowSameVersion: true
+        ))
+        XCTAssertFalse(ExtensionInstaller.shouldInstallBundledVersion(
+            "0.2.2", installedVersion: "0.2.10", allowSameVersion: true
+        ))
+    }
+
     @MainActor
     func testLaunchAtLoginDefaultsOnOnceAndCanBeDisabled() throws {
         let suite = "io.yaklang.ytray.tests.\(UUID().uuidString)"

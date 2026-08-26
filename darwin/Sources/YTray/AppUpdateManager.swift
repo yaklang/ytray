@@ -51,6 +51,7 @@ enum AppUpdateError: LocalizedError {
 final class AppUpdateManager: ObservableObject {
     static let shared = AppUpdateManager()
     static let manifestURL = URL(string: "https://aliyun-oss.yaklang.com/ytray/latest.json")!
+    static let manifestTimeout: TimeInterval = 10
 
     @Published private(set) var phase: AppUpdatePhase = .idle
     @Published private(set) var statusText: String
@@ -98,7 +99,7 @@ final class AppUpdateManager: ObservableObject {
         do {
             var request = URLRequest(url: Self.manifestURL)
             request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            request.timeoutInterval = 25
+            request.timeoutInterval = Self.manifestTimeout
             request.setValue("no-cache, no-store", forHTTPHeaderField: "Cache-Control")
             request.setValue("YTray/\(currentVersion)", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -132,6 +133,8 @@ final class AppUpdateManager: ObservableObject {
                 downloadedDMG = nil
                 setPhase(.upToDate, "YTray v\(currentVersion) 已是最新版本")
             }
+        } catch let urlError as URLError where urlError.code == .timedOut {
+            setPhase(.failed, "检查更新超时，请稍后重试")
         } catch {
             setPhase(.failed, "检查更新失败 · \(Self.userFacing(error))")
         }
