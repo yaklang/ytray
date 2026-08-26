@@ -71,9 +71,12 @@ export const metadata: Metadata = {
   },
   manifest: "/ytray/manifest.webmanifest",
   icons: {
-    icon: "/ytray/icon.svg",
-    shortcut: "/ytray/icon.svg",
-    apple: "/ytray/icon.svg",
+    icon: [
+      { url: "/ytray/favicon.ico", sizes: "any", type: "image/x-icon" },
+      { url: "/ytray/icon.png", sizes: "1024x1024", type: "image/png" },
+    ],
+    shortcut: "/ytray/favicon.ico",
+    apple: [{ url: "/ytray/apple-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 

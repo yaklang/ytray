@@ -1,6 +1,7 @@
 # YTray
 
 <p align="center">
+  <img alt="YTray 应用图标" src="assets/app-icon/YTray.png" width="128"><br>
   <strong>多身份浏览器实例工作台</strong><br>
   把独立用户目录、HTTP 代理、调试端口、本地插件和历史恢复，放进一个原生桌面应用。
 </p>
@@ -166,6 +167,16 @@ YTRAY_BASE_PATH=/ytray NEXT_PUBLIC_BASE_PATH=/ytray npm run build
 
 React Bits Pro 授权只保存在本机的 `site/.env.local`；其授权信息、Skill 与设计配方均已被 Git 忽略，不能提交到仓库。
 
+### 应用图标与核心美术资源
+
+生产应用图标的唯一源文件是 [`assets/app-icon/YTray.png`](assets/app-icon/YTray.png)。它会派生出 macOS `.icns`、Windows 多尺寸 PNG/ICO、系统托盘资源，以及官网 favicon、Apple Touch Icon 和 PWA 图标。更换源文件后统一执行：
+
+```bash
+./script/generate-app-icons.sh
+```
+
+生成脚本最后会运行 `script/verify-app-icons.py`，验证各尺寸、ICO 帧、官网展示图与源码引用；CI 和正式发版也会再次执行同一校验。
+
 ## CI、Pages 与发版
 
 - `macOS`：Swift Release 构建、测试、真实 UI 渲染、最新版插件打包、通用 DMG 挂载验证。
@@ -189,6 +200,7 @@ darwin/                 Swift / AppKit / SwiftUI 应用与测试
 windows/                C# / WPF 应用、测试与 Inno Setup
 script/                 macOS 打包、插件准备和发布索引
 site/                   Next.js / React / shadcn 官方网站（静态导出）
+assets/app-icon/        跨平台应用图标的 1024px 核心美术源文件
 docs/images/v0.1.0/     由应用真实渲染的版本化截图
 .github/workflows/      macOS、Windows、Pages 与 Release 流程
 ```

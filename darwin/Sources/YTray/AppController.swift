@@ -521,60 +521,64 @@ enum WidgetDismissalPolicy {
 
 enum TrayIconRenderer {
     static let canvasSize = NSSize(width: 18, height: 18)
-    static let contentBounds = NSRect(x: 0.35, y: 0.35, width: 17.3, height: 17.3)
+    static let contentBounds = NSRect(x: 0.55, y: 1.1, width: 16.9, height: 15.8)
 
     static func makeImage() -> NSImage {
         let image = NSImage(size: canvasSize, flipped: false) { _ in
             guard let context = NSGraphicsContext.current else { return false }
             context.shouldAntialias = true
-            NSColor.black.setStroke()
-
-            let chromeBody = NSRect(x: 0.35, y: 0.35, width: 15.8, height: 15.8)
             NSColor.black.setFill()
-            NSBezierPath(ovalIn: chromeBody).fill()
 
-            let center = NSPoint(x: chromeBody.midX, y: chromeBody.midY)
+            // A compact template rendering of the canonical icon's front WWW panel
+            // and three receding browser cards. Keeping it vector-based preserves the
+            // macOS menu-bar tinting and remains legible at the native 18pt size.
+            let frontPanel = NSBezierPath()
+            frontPanel.move(to: NSPoint(x: 0.55, y: 4.2))
+            frontPanel.curve(to: NSPoint(x: 2.05, y: 2.45),
+                             controlPoint1: NSPoint(x: 0.55, y: 3.35),
+                             controlPoint2: NSPoint(x: 1.05, y: 2.7))
+            frontPanel.line(to: NSPoint(x: 7.7, y: 1.1))
+            frontPanel.curve(to: NSPoint(x: 9.15, y: 2.45),
+                             controlPoint1: NSPoint(x: 8.55, y: 0.9),
+                             controlPoint2: NSPoint(x: 9.15, y: 1.55))
+            frontPanel.line(to: NSPoint(x: 9.15, y: 15.35))
+            frontPanel.curve(to: NSPoint(x: 7.7, y: 16.9),
+                             controlPoint1: NSPoint(x: 9.15, y: 16.25),
+                             controlPoint2: NSPoint(x: 8.55, y: 17.1))
+            frontPanel.line(to: NSPoint(x: 2.05, y: 15.55))
+            frontPanel.curve(to: NSPoint(x: 0.55, y: 13.8),
+                             controlPoint1: NSPoint(x: 1.05, y: 15.3),
+                             controlPoint2: NSPoint(x: 0.55, y: 14.65))
+            frontPanel.close()
+            frontPanel.fill()
+
+            NSBezierPath(roundedRect: NSRect(x: 10.35, y: 2.55, width: 2.45, height: 12.9),
+                         xRadius: 1.2, yRadius: 1.2).fill()
+            NSBezierPath(roundedRect: NSRect(x: 13.55, y: 3.85, width: 1.9, height: 10.3),
+                         xRadius: 0.95, yRadius: 0.95).fill()
+            NSBezierPath(roundedRect: NSRect(x: 16.05, y: 5.05, width: 1.4, height: 7.9),
+                         xRadius: 0.7, yRadius: 0.7).fill()
+
             context.saveGraphicsState()
             context.compositingOperation = .clear
-            let separators = NSBezierPath()
-            for angle in [CGFloat.pi / 2, CGFloat.pi / 2 + 2 * .pi / 3, CGFloat.pi / 2 + 4 * .pi / 3] {
-                separators.move(to: NSPoint(
-                    x: center.x + cos(angle) * 3.25,
-                    y: center.y + sin(angle) * 3.25
-                ))
-                separators.line(to: NSPoint(
-                    x: center.x + cos(angle) * chromeBody.width / 2,
-                    y: center.y + sin(angle) * chromeBody.height / 2
-                ))
+            NSColor.black.setFill()
+            for x in [2.1, 3.35, 4.6] {
+                NSBezierPath(ovalIn: NSRect(x: x, y: 12.85, width: 0.75, height: 0.75)).fill()
             }
-            separators.lineWidth = 0.9
-            separators.stroke()
-            NSBezierPath(ovalIn: NSRect(x: center.x - 3.25, y: center.y - 3.25,
-                                       width: 6.5, height: 6.5)).fill()
-            context.restoreGraphicsState()
-
-            NSColor.black.setFill()
-            NSBezierPath(ovalIn: NSRect(x: center.x - 2.15, y: center.y - 2.15,
-                                       width: 4.3, height: 4.3)).fill()
-
-            let plusBadge = NSRect(x: 11, y: 11, width: 6.65, height: 6.65)
-            context.saveGraphicsState()
-            context.compositingOperation = .clear
-            NSBezierPath(ovalIn: plusBadge.insetBy(dx: -0.6, dy: -0.6)).fill()
-            context.restoreGraphicsState()
-
-            NSColor.black.setFill()
-            NSBezierPath(ovalIn: plusBadge).fill()
-            context.saveGraphicsState()
-            context.compositingOperation = .clear
-            let plus = NSBezierPath()
-            plus.lineCapStyle = .round
-            plus.lineWidth = 1.05
-            plus.move(to: NSPoint(x: plusBadge.midX - 1.65, y: plusBadge.midY))
-            plus.line(to: NSPoint(x: plusBadge.midX + 1.65, y: plusBadge.midY))
-            plus.move(to: NSPoint(x: plusBadge.midX, y: plusBadge.midY - 1.65))
-            plus.line(to: NSPoint(x: plusBadge.midX, y: plusBadge.midY + 1.65))
-            plus.stroke()
+            NSColor.black.setStroke()
+            let webGlyph = NSBezierPath()
+            webGlyph.lineCapStyle = .round
+            webGlyph.lineJoinStyle = .round
+            webGlyph.lineWidth = 0.85
+            webGlyph.move(to: NSPoint(x: 2.0, y: 8.9))
+            webGlyph.line(to: NSPoint(x: 2.8, y: 6.7))
+            webGlyph.line(to: NSPoint(x: 3.6, y: 8.9))
+            webGlyph.line(to: NSPoint(x: 4.4, y: 6.7))
+            webGlyph.line(to: NSPoint(x: 5.2, y: 8.9))
+            webGlyph.line(to: NSPoint(x: 6.0, y: 6.7))
+            webGlyph.line(to: NSPoint(x: 6.8, y: 8.9))
+            webGlyph.line(to: NSPoint(x: 7.6, y: 6.7))
+            webGlyph.stroke()
             context.restoreGraphicsState()
             return true
         }

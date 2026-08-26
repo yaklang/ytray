@@ -30,6 +30,7 @@ jobs:
             exit 1
           fi
           bash -n script/*.sh
+          python3 script/verify-app-icons.py
 
       - name: Run release metadata tests
         run: bash script/test-release-index.sh

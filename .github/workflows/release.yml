@@ -28,6 +28,7 @@ jobs:
           repository_version="$(tr -d '[:space:]' < VERSION)"
           test "$version" = "$repository_version"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
+          python3 script/verify-app-icons.py
           bash script/test-release-index.sh
           test -n "$(bash script/release-notes.sh "$version")"
           echo "version=$version" >> "$GITHUB_OUTPUT"

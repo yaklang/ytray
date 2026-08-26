@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify generated icon assets
+        run: python script/verify-app-icons.py
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 

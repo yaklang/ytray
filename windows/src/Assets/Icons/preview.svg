@@ -3,7 +3,7 @@
   <title>YTray icon asset preview</title>
   <rect width="1200" height="760" rx="32" fill="#101216"/>
   <text x="64" y="74" fill="#F6F5F1" font-family="Segoe UI, sans-serif" font-size="30" font-weight="600">YTray icon system</text>
-  <text x="64" y="108" fill="#9298A0" font-family="Segoe UI, sans-serif" font-size="17">Production vector masters and Windows raster exports</text>
+  <text x="64" y="108" fill="#9298A0" font-family="Segoe UI, sans-serif" font-size="17">Canonical PNG artwork and Windows raster exports</text>
 
   <rect x="64" y="152" width="550" height="544" rx="24" fill="#181B1F" stroke="#30343A" stroke-width="2"/>
   <text x="96" y="198" fill="#F6F5F1" font-family="Segoe UI, sans-serif" font-size="20" font-weight="600">Application / desktop</text>
@@ -17,7 +17,7 @@
 
   <rect x="646" y="152" width="490" height="544" rx="24" fill="#181B1F" stroke="#30343A" stroke-width="2"/>
   <text x="678" y="198" fill="#F6F5F1" font-family="Segoe UI, sans-serif" font-size="20" font-weight="600">System tray</text>
-  <text x="678" y="226" fill="#9298A0" font-family="Segoe UI, sans-serif" font-size="15">Purpose-built monochrome glyphs</text>
+  <text x="678" y="226" fill="#9298A0" font-family="Segoe UI, sans-serif" font-size="15">Consistent full-color brand artwork</text>
 
   <rect x="686" y="270" width="410" height="142" rx="18" fill="#F4F4F4"/>
   <image href="png/tray-on-light/ytray-tray-on-light-64.png" x="732" y="309" width="64" height="64"/>

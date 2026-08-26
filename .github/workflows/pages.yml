@@ -5,8 +5,11 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "assets/app-icon/**"
       - "docs/images/v0.1.0/**"
       - "docs/images/v0.1.2/**"
+      - "docs/images/v0.1.4/**"
+      - "script/verify-app-icons.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -37,6 +40,8 @@ jobs:
       - name: Install website dependencies
         working-directory: site
         run: npm ci
+      - name: Verify generated icon assets
+        run: python3 script/verify-app-icons.py
       - name: Assemble product assets
         shell: bash
         run: |
@@ -44,6 +49,7 @@ jobs:
           mkdir -p site/public/assets
           cp docs/images/v0.1.0/*.png site/public/assets/
           cp docs/images/v0.1.2/*.png site/public/assets/
+          cp docs/images/v0.1.4/*.png site/public/assets/
           asset_count="$(find site/public/assets -type f -name '*.png' | wc -l | tr -d ' ')"
           test "$asset_count" -ge 19
       - name: Build static Next.js website

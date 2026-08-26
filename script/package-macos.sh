@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKAGE_ROOT="$PROJECT_ROOT/darwin"
 RESOURCE_ROOT="$PACKAGE_ROOT/Resources"
 OUTPUT_ROOT="$PROJECT_ROOT/dist"
-ICON_SOURCE="$RESOURCE_ROOT/YTrayAppIcon.svg"
+ICON_SOURCE="$PROJECT_ROOT/assets/app-icon/YTray.png"
 INFO_PLIST_SOURCE="$RESOURCE_ROOT/Info.plist"
 
 VERSION="$(tr -d '[:space:]' < "$PROJECT_ROOT/VERSION")"
@@ -49,7 +49,7 @@ ICONSET_DIR="$APP_OUTPUT_ROOT/YTray.iconset"
 BUNDLED_EXTENSION_DIR="$APP_OUTPUT_ROOT/BundledExtension"
 
 command -v magick >/dev/null 2>&1 || {
-    echo "ImageMagick is required to render the SVG app icon (missing: magick)." >&2
+    echo "ImageMagick is required to render the app icon set (missing: magick)." >&2
     exit 1
 }
 
@@ -67,7 +67,7 @@ cp "$BUNDLED_EXTENSION_DIR/yakit-browser-agent.zip" "$APP_BUNDLE/Contents/Resour
 cp "$BUNDLED_EXTENSION_DIR/bundled-extension.json" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 
 BASE_PNG="$APP_OUTPUT_ROOT/YTrayAppIcon-1024.png"
-magick -background none "$ICON_SOURCE" -resize 1024x1024 "$BASE_PNG"
+cp "$ICON_SOURCE" "$BASE_PNG"
 
 render_icon() {
     local size="$1" output="$2"
