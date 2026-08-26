@@ -22,6 +22,7 @@
     <Deterministic>true</Deterministic>
     <LangVersion>9.0</LangVersion>
     <ApplicationIcon>Assets\Icons\ytray-app.ico</ApplicationIcon>
+    <YTrayVersion Condition=" '$(YTrayVersion)' == '' ">$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\..\VERSION').Trim())</YTrayVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -113,6 +114,19 @@
     <EmbeddedResource Include="Assets\BundledExtension\bundled-extension.json"
                       Condition="Exists('Assets\BundledExtension\bundled-extension.json')" />
   </ItemGroup>
+
+  <Target Name="GenerateYTrayVersionAttribute" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <_YTrayVersionAttribute Include="System.Reflection.AssemblyInformationalVersionAttribute">
+        <_Parameter1>$(YTrayVersion)</_Parameter1>
+      </_YTrayVersionAttribute>
+    </ItemGroup>
+    <WriteCodeFragment Language="C#"
+                       OutputFile="$(IntermediateOutputPath)YTrayVersion.g.cs"
+                       AssemblyAttributes="@(_YTrayVersionAttribute)">
+      <Output TaskParameter="OutputFile" ItemName="Compile" />
+    </WriteCodeFragment>
+  </Target>
 
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 

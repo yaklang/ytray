@@ -309,8 +309,12 @@ struct RuntimePage: View {
     }
 }
 
+@MainActor
 struct SettingsPage: View {
     @ObservedObject var store: InstanceStore
+    @ObservedObject private var updater = AppUpdateManager.shared
+    @State private var confirmUpdate = false
+
     var body: some View {
         Form {
             Section {
@@ -333,8 +337,63 @@ struct SettingsPage: View {
                 Text("每行一个 --flag。实例隔离、调试端口和插件参数由 YTray 管理，不能在这里覆盖。")
                     .font(.caption).foregroundStyle(.secondary)
             } header: { Text("附加参数") }
+            Section {
+                HStack(spacing: 14) {
+                    Image(systemName: updater.isUpdateAvailable ? "arrow.down.circle.fill" : "checkmark.circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(updater.isUpdateAvailable ? Brand.orange : Color.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text("YTray v\(updater.currentVersion)").font(.headline)
+                            if let version = updater.availableVersion, updater.isUpdateAvailable {
+                                StatusBadge(text: "v\(version) 可用", color: Brand.orange)
+                            }
+                        }
+                        Text(updater.statusText)
+                            .font(.caption)
+                            .foregroundStyle(updater.phase == .failed ? Color.red : Color.secondary)
+                    }
+                    Spacer(minLength: 16)
+                    Button(updater.actionLabel) {
+                        if updater.isUpdateAvailable || updater.isDownloaded {
+                            confirmUpdate = true
+                        } else {
+                            Task { await updater.checkForUpdates() }
+                        }
+                    }
+                    .buttonStyle(FilledOrangeButtonStyle())
+                    .disabled(updater.isBusy)
+                }
+                if updater.phase == .downloading {
+                    ProgressView(value: Double(updater.downloadPercent), total: 100)
+                        .tint(Brand.orange)
+                    Text("正在下载并校验官方 DMG · \(updater.downloadPercent)%")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Text("更新包会在应用内完成下载、大小和 SHA-256 校验；安装时校验开发者签名，替换失败会自动恢复旧版本。")
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: { Text("应用更新") }
             Button("保存默认设置") { store.saveSettings() }.buttonStyle(FilledOrangeButtonStyle())
-        }.formStyle(.grouped).navigationTitle("启动设置")
+        }
+        .formStyle(.grouped)
+        .navigationTitle("启动设置")
+        .task {
+            if updater.phase == .idle { await updater.checkForUpdates() }
+        }
+        .confirmationDialog("安装 YTray \(updater.availableVersion.map { "v\($0)" } ?? "更新")？", isPresented: $confirmUpdate) {
+            Button("下载、安装并重启") {
+                Task {
+                    if !updater.isDownloaded {
+                        let downloaded = await updater.downloadUpdate()
+                        if !downloaded { return }
+                    }
+                    _ = await updater.installDownloadedUpdate()
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("YTray 会在本机下载并校验官方安装包，然后替换当前应用并自动重启。运行中的浏览器不会被关闭。")
+        }
     }
 }
 

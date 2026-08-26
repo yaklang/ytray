@@ -32,6 +32,7 @@ macOS 版本使用 Swift、AppKit 与 SwiftUI；Windows 版本使用 C# 与 WPF�
 - 历史记录可以恢复同一个身份环境、用户目录、插件、角标与最近页面。
 - 支持本机 Chrome、Chrome Beta、Chrome Canary、Chrome for Testing、Chromium 与 Edge。
 - 安装包构建时下载并校验最新 Yakit Browser Agent，再作为默认本地插件内置。
+- YTray 会在后台检查正式版本；发现更新后可在应用内查看进度、校验并安装，不需要重新打开网站手动下载。
 
 YTray 不修改系统浏览器的名称、Bundle ID、签名或默认浏览器设置。它只用隔离参数启动用户明确选择的浏览器。
 
@@ -78,6 +79,8 @@ YTray 不修改系统浏览器的名称、Bundle ID、签名或默认浏览器�
 | Windows 10/11 | x86 / 386 | `YTray-<version>-windows-386-setup.exe` |
 
 Windows on ARM 当前可以通过系统兼容层运行 x64 版；项目暂未发布原生 Windows ARM64 安装包。
+
+安装版会通过 OSS `latest.json` 自动检查 YTray 自身更新。Windows 下载对应架构的官方 Setup，校验大小和 SHA-256 后静默安装并重新启动；macOS 下载对应架构的官方 DMG，校验大小、SHA-256、Bundle ID、版本与开发者签名后替换当前 `.app`，失败时恢复旧版本。写入 `/Applications` 时仍会显示 macOS 的系统管理员授权窗口。
 
 Release CI 支持 Developer ID hardened runtime 签名，并在 Apple 账号凭据齐全时分别公证、装订 `.app` 与 DMG；Windows 也支持与 CapTray 相同的 Azure 代码签名凭据。若仓库没有配置相应 secrets，流程会明确降级为临时签名或未签名安装包。此时若 Gatekeeper 阻止首次打开，请在 Finder 中右键 YTray，选择“打开”，并确认只从本仓库 Release 或上述 OSS 路径下载。
 
@@ -177,6 +180,7 @@ https://aliyun-oss.yaklang.com/ytray/<version>/<filename>
 ```
 
 发布流程先上传并公开校验所有版本化文件，再更新 `latest.json`、`latest.txt` 与 `releases.json`。若相同版本路径已经存在不同内容，CI 会拒绝覆盖。每个安装包同时提供 SHA-256 文件，完整信息记录在版本 `manifest.json` 中。
+桌面端更新器只读取这个最终发布的 `latest.json`，并严格选择当前平台与进程架构的安装包；未通过大小、SHA-256 或平台签名检查的文件不会执行。
 
 ## 项目结构
 

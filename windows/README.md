@@ -74,6 +74,7 @@ windows/
 - NuGet 包通过 MSBuild 自动还原（Newtonsoft.Json / MSTest）
 - Release 使用 Costura/Fody 将 HandyControl、Newtonsoft.Json 等托管依赖嵌入单个 `YTray.exe`
 - `-Package` 会读取 OSS 发布清单的 `latest`，下载并校验对应的 Yakit Browser Agent，再作为资源嵌入同一个 EXE
+- 正式版启动后会读取 YTray OSS `latest.json`；用户可在设置页查看下载进度，安装包通过大小与 SHA-256 校验后由 Inno Setup 静默替换并自动重启
 
 ### 构建
 
@@ -100,7 +101,7 @@ $msbuild = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\MSB
 pwsh -File windows/build.ps1 -Test
 ```
 
-测试覆盖：Dock 角标序列/校验、浏览器类型推断、HTTP 代理规范化、代理探测请求/响应解析、启动参数隔离边界、自定义参数防护、插件加载、Chrome for Testing 标志、会话恢复、命令行扩展能力、稳定实例 AUMID、Windows Shell PropertyKey 和 PROPVARIANT 生命周期。
+测试覆盖：应用更新版本比较与架构选择、Dock 角标序列/校验、浏览器类型推断、HTTP 代理规范化、代理探测请求/响应解析、启动参数隔离边界、自定义参数防护、插件加载、Chrome for Testing 标志、会话恢复、命令行扩展能力、稳定实例 AUMID、Windows Shell PropertyKey 和 PROPVARIANT 生命周期。
 
 CI 上传的 Windows Release artifact 只包含 `YTray.exe`，其中同时带有经过大小和 SHA-256 校验的 Yakit Browser Agent。首次启动会释放并默认启用该插件，之后仍可在插件页更新、重新下载或移除。目标机器仍需安装 Windows 自带/系统提供的 .NET Framework 4.8.1；第三方托管 DLL 不需要与 exe 一起分发。
 

@@ -156,6 +156,17 @@ namespace YTray.Views
             ContentFrame.Content = page;
         }
 
+        public void NavigateTo(string tag)
+        {
+            if (string.Equals(tag, "settings", StringComparison.OrdinalIgnoreCase))
+                NavSettings.IsSelected = true;
+            else if (string.Equals(tag, "plugins", StringComparison.OrdinalIgnoreCase))
+                NavPlugins.IsSelected = true;
+            else if (string.Equals(tag, "runtimes", StringComparison.OrdinalIgnoreCase))
+                NavRuntimes.IsSelected = true;
+            ShowPage(tag);
+        }
+
         private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
         private void Maximize_Click(object sender, RoutedEventArgs e) =>
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;

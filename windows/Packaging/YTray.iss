@@ -53,3 +53,10 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Run]
 Filename: "{app}\YTray.exe"; Description: "Launch YTray"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\YTray.exe"; Flags: nowait skipifdoesntexist; Check: IsAutoUpdate
+
+[Code]
+function IsAutoUpdate(): Boolean;
+begin
+  Result := CompareText(ExpandConstant('{param:YTRAYAUTOUPDATE|0}'), '1') = 0;
+end;

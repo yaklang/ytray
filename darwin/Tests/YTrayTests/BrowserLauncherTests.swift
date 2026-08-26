@@ -1119,6 +1119,41 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertTrue(arguments.contains("--load-extension=/tmp/local-extension"))
         XCTAssertTrue(arguments.contains("--disable-extensions-except=/tmp/local-extension"))
     }
+
+    @MainActor
+    func testAppUpdateVersionComparisonHandlesPrereleases() {
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3", "0.1.2"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3", "0.1.3-beta.4"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3-beta.10", "0.1.3-beta.2"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("0.1.3-beta10", "0.1.3-beta2"), .orderedDescending)
+        XCTAssertEqual(AppUpdateManager.compareVersions("v0.1.2+build.9", "0.1.2"), .orderedSame)
+    }
+
+    @MainActor
+    func testAppUpdateSelectsTheNativeDMGAsset() throws {
+        let manifest = AppReleaseManifest(
+            schemaVersion: 1,
+            product: "ytray",
+            version: "0.1.3",
+            assets: [
+                AppReleaseAsset(
+                    platform: "darwin", architecture: "amd64", kind: "dmg",
+                    filename: "intel.dmg", url: URL(string: "https://example.com/intel.dmg")!,
+                    sha256: String(repeating: "a", count: 64), size: 100
+                ),
+                AppReleaseAsset(
+                    platform: "darwin", architecture: "arm64", kind: "dmg",
+                    filename: "arm.dmg", url: URL(string: "https://example.com/arm.dmg")!,
+                    sha256: String(repeating: "b", count: 64), size: 100
+                ),
+            ]
+        )
+
+        let selected = try XCTUnwrap(AppUpdateManager.selectAsset(
+            from: manifest, platform: "darwin", architecture: "arm64", kind: "dmg"
+        ))
+        XCTAssertEqual(selected.filename, "arm.dmg")
+    }
 }
 
 private final class TestLaunchAtLoginBackend: LaunchAtLoginBackend {

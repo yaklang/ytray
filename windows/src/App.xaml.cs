@@ -151,6 +151,7 @@ namespace YTray
             var payload = JsonConvert.SerializeObject(new
             {
                 application = "YTray",
+                version = YTrayBuildInfo.Version,
                 framework = ".NET Framework 4.8.1",
                 jsonAssembly = typeof(JsonConvert).Assembly.GetName().Name,
                 bundledExtensionVersion = bundledVersion,

@@ -37,7 +37,7 @@ const faqs = [
   {
     question: "应该从哪里下载和更新？",
     answer:
-      "本站会根据当前系统推荐正式安装包，也可以从 GitHub Releases 获取。每个版本同时提供 macOS 与 Windows 安装包、校验值，并在应用内检查 Chrome for Testing 和 Yakit Browser Agent 更新。",
+      "首次安装可以使用本站按系统推荐的正式安装包，也可以从 GitHub Releases 获取。之后 YTray 会在应用内检查、下载、校验并安装自身更新；Chrome for Testing 和 Yakit Browser Agent 也分别提供应用内更新。",
   },
 ] as const;
 
