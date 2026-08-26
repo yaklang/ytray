@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — 2026-08-26
+
+- 新增 macOS 与 Windows 应用内更新：从 OSS 获取平台与架构匹配的安装包，显示下载进度，校验文件大小和 SHA-256 后完成安装与自动重启。
+- 更新清单检查使用独立的 10 秒超时；OSS 不可达时会恢复按钮并允许立即重试，不再长时间停留在“正在检查”。
+- YTray 升级后会比较安装包内置与本地 Yakit Browser Agent 版本，仅在内置版本严格更新时离线升级，保留默认加载状态且绝不降级。
+- 优化 Windows 托盘、贴边悬浮面板与主窗口交互，并更新官网的平台识别、下载入口、产品文案和 Windows 实机展示。
+
 ## 0.1.2 — 2026-08-24
 
 - 发布流程接入现有 Yakit Apple 与 Azure 签名配置，并在配置存在时验证 macOS Developer ID、公证装订、Gatekeeper 与 Windows Authenticode。

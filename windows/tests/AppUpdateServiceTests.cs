@@ -44,7 +44,7 @@ namespace YTray.Tests
         [TestMethod]
         public void BuildVersionComesFromRepositoryReleaseVersion()
         {
-            Assert.AreEqual("0.1.2", YTrayBuildInfo.Version);
+            Assert.AreEqual("0.1.3", YTrayBuildInfo.Version);
         }
 
         [TestMethod]
