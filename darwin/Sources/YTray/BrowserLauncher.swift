@@ -13,6 +13,23 @@ enum BrowserLauncher {
         }
     }
 
+    static func commandLineExtensionCompatibilityError(
+        runtime: BrowserRuntime,
+        mode: LaunchMode,
+        settings: LaunchSettings,
+        plugins: [BrowserPlugin]
+    ) -> String? {
+        guard mode != .isolated,
+              !supportsCommandLineExtensions(runtimeKind: runtime.kind) else { return nil }
+        let enabledPluginCount = plugins.filter(\.enabled).count
+        let needsProxyAuthentication = !settings.proxyUsername.isEmpty || !settings.proxyPassword.isEmpty
+        guard enabledPluginCount > 0 || needsProxyAuthentication else { return nil }
+        let reason = enabledPluginCount > 0
+            ? "当前已默认加载 \(enabledPluginCount) 个本地插件"
+            : "当前 HTTP 代理使用了认证信息"
+        return "\(runtime.displayTitle) 不支持由 YTray 通过命令行加载本地插件。\(reason)，请改用 Chrome for Testing、Chromium 或 Edge；也可在“插件”页关闭默认加载后再启动。"
+    }
+
     struct LaunchResult {
         let process: Process
         let instance: BrowserInstance
@@ -92,16 +109,13 @@ enum BrowserLauncher {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw YTrayError.invalidExecutable(executable.path)
         }
-        let needsCommandLineExtension = mode != .isolated && (
-            plugins.contains(where: \.enabled)
-                || !settings.proxyUsername.isEmpty
-                || !settings.proxyPassword.isEmpty
-        )
-        guard !needsCommandLineExtension
-                || supportsCommandLineExtensions(runtimeKind: runtime.kind) else {
-            throw YTrayError.launchFailed(
-                "(runtime.displayTitle) 不接受命令行加载本地插件；请在快速配置中选择 Chrome for Testing、Chromium 或 Edge"
-            )
+        if let compatibilityError = commandLineExtensionCompatibilityError(
+            runtime: runtime,
+            mode: mode,
+            settings: settings,
+            plugins: plugins
+        ) {
+            throw YTrayError.launchFailed(compatibilityError)
         }
         let id = history?.id ?? UUID()
         let normalizedBadge = try DockBadgeLabel.normalize(dockBadge)

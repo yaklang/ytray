@@ -38,6 +38,25 @@ namespace YTray.Core
             }
         }
 
+        public static string? CommandLineExtensionCompatibilityError(
+            BrowserRuntime runtime, LaunchMode mode, LaunchSettings settings,
+            IEnumerable<BrowserPlugin> plugins)
+        {
+            if (mode == LaunchMode.Isolated || SupportsCommandLineExtensions(runtime.Kind))
+                return null;
+
+            var enabledPluginCount = plugins.Count(plugin => plugin.Enabled);
+            var needsProxyAuthentication = !string.IsNullOrEmpty(settings.ProxyUsername)
+                || !string.IsNullOrEmpty(settings.ProxyPassword);
+            if (enabledPluginCount == 0 && !needsProxyAuthentication)
+                return null;
+
+            var reason = enabledPluginCount > 0
+                ? $"当前已默认加载 {enabledPluginCount} 个本地插件"
+                : "当前 HTTP 代理使用了认证信息";
+            return $"{runtime.DisplayTitle} 不支持由 YTray 通过命令行加载本地插件。{reason}，请改用 Chrome for Testing、Chromium 或 Edge；也可在“插件”页关闭默认加载后再启动。";
+        }
+
         /// <summary>
         /// Unique owner of every resource created for one browser launch. Keeping the process,
         /// redirected log stream and taskbar controller in one disposable object prevents the
@@ -202,13 +221,9 @@ namespace YTray.Core
             if (!File.Exists(runtime.ExecutablePath))
                 throw new YTrayException(YTrayError.InvalidExecutable, runtime.ExecutablePath);
 
-            var needsCommandLineExtension = mode != LaunchMode.Isolated && (
-                plugins.Any(p => p.Enabled)
-                || !string.IsNullOrEmpty(settings.ProxyUsername)
-                || !string.IsNullOrEmpty(settings.ProxyPassword));
-            if (needsCommandLineExtension && !SupportsCommandLineExtensions(runtime.Kind))
-                throw new YTrayException(YTrayError.LaunchFailed,
-                    $"{runtime.DisplayTitle} 不接受命令行加载本地插件；请在快速配置中选择 Chrome for Testing、Chromium 或 Edge");
+            var compatibilityError = CommandLineExtensionCompatibilityError(runtime, mode, settings, plugins);
+            if (compatibilityError != null)
+                throw new YTrayException(YTrayError.LaunchFailed, compatibilityError);
 
             var id = restoring?.Id ?? Guid.NewGuid();
             var normalizedBadge = DockBadgeLabel.Normalize(dockBadge);

@@ -121,8 +121,8 @@ namespace YTray
             _notify.ContextMenu = null;
             _menu?.Dispose();
             _menu = new System.Windows.Forms.ContextMenu();
-            _menu.MenuItems.Add("无代理启动", (s, e) => _store.LaunchConfigured(false));
-            _menu.MenuItems.Add("使用 HTTP 代理启动", (s, e) => _store.LaunchConfigured(true));
+            _menu.MenuItems.Add("无代理启动", (s, e) => LaunchFromTray(false));
+            _menu.MenuItems.Add("使用 HTTP 代理启动", (s, e) => LaunchFromTray(true));
             _menu.MenuItems.Add("显示小组件", (s, e) => ShowWidget());
             _menu.MenuItems.Add("全部管理", (s, e) => ShowManager());
             _menu.MenuItems.Add(_launchAtLogin.IsEnabled ? "关闭开机启动…" : "开启开机启动", (s, e) => ToggleLaunchAtLogin());
@@ -136,6 +136,16 @@ namespace YTray
             _menu.MenuItems.Add("-");
             _menu.MenuItems.Add("退出 YTray", (s, e) => Application.Current.Shutdown());
             _notify.ContextMenu = _menu;
+        }
+
+        private void LaunchFromTray(bool usePresetProxy)
+        {
+            if (_store.LaunchConfigured(usePresetProxy)) return;
+            _notify.ShowBalloonTip(
+                7000,
+                "无法启动实例",
+                _store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。",
+                System.Windows.Forms.ToolTipIcon.Warning);
         }
 
         private void UpdateStatusTitle()

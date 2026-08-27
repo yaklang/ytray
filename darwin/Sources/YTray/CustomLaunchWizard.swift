@@ -7,6 +7,7 @@ struct CustomLaunchWizard: View {
     @State private var draft: LaunchSettings
     @State private var pluginIDs: Set<UUID>
     @State private var rememberBrowser = true
+    @State private var usePresetProxy = false
 
     init(store: InstanceStore, isPresented: Binding<Bool>) {
         self.store = store
@@ -48,7 +49,9 @@ struct CustomLaunchWizard: View {
                 } else {
                     Button {
                         var settings = draft
-                        settings.defaultPluginIDs = Array(pluginIDs)
+                        applySelectedNetwork(to: &settings)
+                        let selectedPluginIDs = effectivePluginIDs
+                        settings.defaultPluginIDs = selectedPluginIDs
                         if rememberBrowser {
                             store.settings.defaultRuntimeID = settings.defaultRuntimeID
                             store.saveSettings()
@@ -56,8 +59,8 @@ struct CustomLaunchWizard: View {
                         store.launch(
                             mode: .custom,
                             customSettings: settings,
-                            customPluginIDs: Array(pluginIDs),
-                            launchUsesProxy: false
+                            customPluginIDs: selectedPluginIDs,
+                            launchUsesProxy: usePresetProxy
                         )
                     } label: {
                         LaunchActionLabel(title: "启动实例", systemImage: "play.fill",
@@ -84,7 +87,7 @@ struct CustomLaunchWizard: View {
         HStack(spacing: 0) {
             stepItem(0, "运行时", "选择浏览器")
             connector(after: 0)
-            stepItem(1, "启动参数", "调试与参数")
+            stepItem(1, "网络与参数", "代理与调试")
             connector(after: 1)
             stepItem(2, "插件", "本地扩展")
             connector(after: 2)
@@ -149,6 +152,11 @@ struct CustomLaunchWizard: View {
 
     private var networkStep: some View {
         Form {
+            Picker("网络模式", selection: $usePresetProxy) {
+                Text("无代理（直连）").tag(false)
+                Text("HTTP 代理 · \(presetProxyAddress)").tag(true)
+            }
+            .pickerStyle(.segmented)
             TextField("启动地址", text: $draft.homeURL)
             TextField("调试端口", value: $draft.debugPort, format: .number)
             TextField("Dock 角标（留空自动分配 A/B/C…，可填 1–2 个字母）", text: $draft.dockBadge)
@@ -160,7 +168,10 @@ struct CustomLaunchWizard: View {
                 TextEditor(text: $draft.additionalFlags).font(.system(.body, design: .monospaced)).frame(height: 90)
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
             }
-            Label("自定义启动使用直连；HTTP 代理请在托盘的“预设代理”中选择。", systemImage: "network")
+            Label(usePresetProxy
+                  ? "将使用已保存的 HTTP 代理 \(presetProxyAddress)。"
+                  : "将忽略系统代理并以直连方式启动。",
+                  systemImage: usePresetProxy ? "network" : "network.slash")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }.formStyle(.grouped)
@@ -169,13 +180,26 @@ struct CustomLaunchWizard: View {
     private var pluginStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("选择本次加载的本地插件").font(.headline)
-            Text("仅列出已验证 manifest.json 的已解压目录。").font(.caption).foregroundStyle(.secondary)
+            if let runtime = selectedRuntime, !selectedRuntimeSupportsPlugins {
+                Label {
+                    Text("\(runtime.displayTitle) 不支持由 YTray 加载本地插件。本次将不加载插件；如需使用，请返回选择 Chrome for Testing、Chromium 或 Edge。")
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(12)
+                .background(Color.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+            } else {
+                Text("仅列出已验证 manifest.json 的已解压目录。").font(.caption).foregroundStyle(.secondary)
+            }
             if store.plugins.isEmpty {
                 ContentUnavailableView("没有本地插件", systemImage: "puzzlepiece.extension", description: Text("本次实例将不加载扩展"))
             } else {
                 List(store.plugins.filter(\.enabled)) { plugin in
                     Toggle(isOn: Binding(
-                        get: { pluginIDs.contains(plugin.id) },
+                        get: { selectedRuntimeSupportsPlugins && pluginIDs.contains(plugin.id) },
                         set: { enabled in
                             if enabled { pluginIDs.insert(plugin.id) } else { pluginIDs.remove(plugin.id) }
                         }
@@ -185,6 +209,7 @@ struct CustomLaunchWizard: View {
                             Text("v\(plugin.version) · Manifest V\(plugin.manifestVersion)").font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    .disabled(!selectedRuntimeSupportsPlugins)
                 }
             }
         }
@@ -196,12 +221,12 @@ struct CustomLaunchWizard: View {
             Grid(alignment: .leading, horizontalSpacing: 30, verticalSpacing: 13) {
                 reviewRow("浏览器", selectedRuntimeDescription)
                 reviewRow("启动地址", draft.homeURL)
-                reviewRow("网络", "直连（无代理）")
+                reviewRow("网络", usePresetProxy ? "HTTP 代理 · \(presetProxyAddress)" : "直连（无代理）")
                 reviewRow("调试", "127.0.0.1:\(draft.debugPort) 起自动避让")
                 reviewRow("Dock 角标", draft.dockBadge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                           ? "自动分配" : draft.dockBadge.uppercased())
                 reviewRow("WebRTC", draft.restrictWebRTC ? "限制非代理 UDP/IP 暴露" : "不限制")
-                reviewRow("插件", "\(pluginIDs.count) 个")
+                reviewRow("插件", selectedRuntimeSupportsPlugins ? "\(pluginIDs.count) 个" : "不支持（本次不加载）")
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(Brand.orange.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13))
             Toggle("记住此浏览器，作为下次快速启动的默认选择", isOn: $rememberBrowser)
@@ -218,5 +243,42 @@ struct CustomLaunchWizard: View {
     private var selectedRuntimeDescription: String {
         guard let runtime = store.runtimes.first(where: { $0.id == draft.defaultRuntimeID }) else { return "未选择" }
         return "\(runtime.displayTitle) \(runtime.versionLabel) · \(runtime.source.title)"
+    }
+
+    private var selectedRuntime: BrowserRuntime? {
+        store.runtimes.first(where: { $0.id == draft.defaultRuntimeID })
+    }
+
+    private var selectedRuntimeSupportsPlugins: Bool {
+        guard let selectedRuntime else { return false }
+        return BrowserLauncher.supportsCommandLineExtensions(runtimeKind: selectedRuntime.kind)
+    }
+
+    private var effectivePluginIDs: [UUID] {
+        selectedRuntimeSupportsPlugins ? Array(pluginIDs) : []
+    }
+
+    private var presetProxyAddress: String {
+        let value = draft.presetProxyServer.isEmpty
+            ? LaunchSettings.defaultPresetProxyServer
+            : draft.presetProxyServer
+        return value.replacingOccurrences(of: "http://", with: "")
+            .replacingOccurrences(of: "https://", with: "")
+    }
+
+    private func applySelectedNetwork(to settings: inout LaunchSettings) {
+        if usePresetProxy {
+            settings.proxyServer = (try? HTTPProxyAddress.build(
+                scheme: settings.presetProxyScheme,
+                host: settings.presetProxyHost,
+                port: settings.presetProxyPort
+            )) ?? settings.presetProxyServer
+            settings.proxyUsername = settings.presetProxyUsername
+            settings.proxyPassword = settings.presetProxyPassword
+        } else {
+            settings.proxyServer = ""
+            settings.proxyUsername = ""
+            settings.proxyPassword = ""
+        }
     }
 }

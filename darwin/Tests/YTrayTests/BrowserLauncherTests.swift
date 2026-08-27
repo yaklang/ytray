@@ -824,6 +824,40 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertTrue(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .edge))
     }
 
+    func testUnsupportedChromeExplainsWhyQuickLaunchCannotLoadDefaultPlugins() throws {
+        var chrome = BrowserRuntime(
+            name: "Google Chrome",
+            version: "151.0",
+            architecture: "arm64",
+            executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            source: .system,
+            browserKind: .chrome
+        )
+        let plugin = BrowserPlugin(
+            name: "Yakit Browser Agent",
+            version: "0.2.2",
+            path: "/tmp/yakit-browser-agent",
+            manifestVersion: 3
+        )
+
+        let message = try XCTUnwrap(BrowserLauncher.commandLineExtensionCompatibilityError(
+            runtime: chrome,
+            mode: .quick,
+            settings: LaunchSettings(),
+            plugins: [plugin]
+        ))
+        XCTAssertTrue(message.contains("默认加载 1 个本地插件"))
+        XCTAssertTrue(message.contains("Chrome for Testing"))
+
+        chrome.browserKind = .chromeForTesting
+        XCTAssertNil(BrowserLauncher.commandLineExtensionCompatibilityError(
+            runtime: chrome,
+            mode: .quick,
+            settings: LaunchSettings(),
+            plugins: [plugin]
+        ))
+    }
+
     func testRealChromeForTestingUsesGeneratedProxyAuthenticationExtensionWhenConfigured() async throws {
         guard let executablePath = ProcessInfo.processInfo.environment["YTRAY_CFT_PATH"],
               FileManager.default.isExecutableFile(atPath: executablePath) else {

@@ -62,7 +62,7 @@
                         <Border x:Name="Step1Dot" Width="29" Height="29" CornerRadius="14.5" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1.5">
                             <Grid><TextBlock x:Name="Step1Number" Text="2" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/><Path x:Name="Step1Check" Data="M 2 6 L 5 9 L 11 2" Width="12" Height="10" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/></Grid>
                         </Border>
-                        <StackPanel Margin="9,0,0,0"><TextBlock x:Name="Step1Title" Text="参数" FontSize="12"/><TextBlock Text="启动与调试" FontSize="9.5" Margin="0,2,0,0" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
+                        <StackPanel Margin="9,0,0,0"><TextBlock x:Name="Step1Title" Text="网络与参数" FontSize="12"/><TextBlock Text="代理与调试" FontSize="9.5" Margin="0,2,0,0" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
                     </StackPanel>
                     <Rectangle x:Name="Step1Connector" Grid.Column="3" Height="1" Margin="14,0" Fill="{DynamicResource HairlineBrush}" VerticalAlignment="Center"/>
                     <StackPanel Grid.Column="4" Orientation="Horizontal" x:Name="Step2Panel">

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -44,7 +45,10 @@ namespace YTray.Tests
         [TestMethod]
         public void BuildVersionComesFromRepositoryReleaseVersion()
         {
-            Assert.AreEqual("0.1.4", YTrayBuildInfo.Version);
+            var versionFile = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "VERSION"));
+            Assert.AreEqual(File.ReadAllText(versionFile).Trim(), YTrayBuildInfo.Version);
         }
 
         [TestMethod]

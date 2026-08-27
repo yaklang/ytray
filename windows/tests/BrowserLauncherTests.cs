@@ -343,6 +343,65 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void UnsupportedChromeExplainsWhyQuickLaunchCannotLoadDefaultPlugins()
+        {
+            var chrome = new BrowserRuntime
+            {
+                Name = "Google Chrome",
+                BrowserKind = BrowserKind.Chrome,
+                Source = RuntimeSource.System,
+            };
+            var plugin = new BrowserPlugin { Name = "Yakit Browser Agent", Enabled = true };
+
+            var message = BrowserLauncher.CommandLineExtensionCompatibilityError(
+                chrome, LaunchMode.Quick, new LaunchSettings(), new[] { plugin });
+
+            Assert.IsNotNull(message);
+            StringAssert.Contains(message, "默认加载 1 个本地插件");
+            StringAssert.Contains(message, "Chrome for Testing");
+
+            chrome.BrowserKind = BrowserKind.ChromeForTesting;
+            Assert.IsNull(BrowserLauncher.CommandLineExtensionCompatibilityError(
+                chrome, LaunchMode.Quick, new LaunchSettings(), new[] { plugin }));
+        }
+
+        [TestMethod]
+        public void QuickLaunchReturnsFailureThatTheUiCanPresentForSystemChromePlugins()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayChromeCompatibilityTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(directory);
+                var executable = Path.Combine(directory, "chrome.exe");
+                File.WriteAllText(executable, "not reached");
+                var extension = Path.Combine(directory, "extension");
+                Directory.CreateDirectory(extension);
+                File.WriteAllText(Path.Combine(extension, "manifest.json"),
+                    "{\"name\":\"Local\",\"version\":\"1.0\",\"manifest_version\":3}");
+
+                using var store = new InstanceStore(directory, discoverSystemBrowsers: false);
+                var chrome = new BrowserRuntime
+                {
+                    Name = "Google Chrome",
+                    ExecutablePath = executable,
+                    Source = RuntimeSource.System,
+                    BrowserKind = BrowserKind.Chrome,
+                };
+                store.Runtimes.Add(chrome);
+                store.Settings.DefaultRuntimeID = chrome.Id;
+                store.AddPlugin(extension);
+
+                Assert.IsFalse(store.LaunchConfigured(usePresetProxy: false));
+                StringAssert.Contains(store.ErrorMessage, "不支持由 YTray");
+                Assert.IsFalse(store.IsLaunching);
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
         public void AumidProfileIdRuleMatchesChromiumFormat()
         {
             // Default profile -> empty profile_id

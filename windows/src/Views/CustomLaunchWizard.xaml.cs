@@ -17,6 +17,7 @@ namespace YTray.Views
         private int _step;
         private LaunchSettings _draft;
         private List<Guid> _pluginIDs;
+        private bool _usePresetProxy;
 
         public CustomLaunchWizard(InstanceStore store)
         {
@@ -169,6 +170,27 @@ namespace YTray.Views
         private UIElement BuildNetworkStep()
         {
             var sp = new StackPanel();
+            var proxyAddress = (_store.Settings.PresetProxyServer ?? LaunchSettings.DefaultPresetProxyServer)
+                .Replace("http://", "").Replace("https://", "");
+            var networkLabel = new TextBlock
+            {
+                Text = "网络模式",
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            sp.Children.Add(networkLabel);
+            var networkChoices = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            networkChoices.ColumnDefinitions.Add(new ColumnDefinition());
+            networkChoices.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            networkChoices.ColumnDefinitions.Add(new ColumnDefinition());
+            var direct = MakeNetworkChoice("无代理", "直连网络", !_usePresetProxy);
+            var proxy = MakeNetworkChoice("HTTP 代理", proxyAddress, _usePresetProxy);
+            direct.Checked += (s, e) => _usePresetProxy = false;
+            proxy.Checked += (s, e) => _usePresetProxy = true;
+            networkChoices.Children.Add(direct);
+            Grid.SetColumn(proxy, 2);
+            networkChoices.Children.Add(proxy);
+            sp.Children.Add(networkChoices);
             sp.Children.Add(MakeField("启动地址", out var urlBox));
             urlBox.Text = _draft.HomeURL;
             sp.Children.Add(MakeField("调试端口", out var portBox));
@@ -198,7 +220,7 @@ namespace YTray.Views
             };
             sp.Children.Add(flags);
             // capture on Next
-            sp.Tag = new System.Action(() =>
+            sp.Tag = new Func<bool>(() =>
             {
                 _draft.HomeURL = urlBox.Text;
                 if (int.TryParse(portBox.Text, out int p)) _draft.DebugPort = p;
@@ -207,20 +229,91 @@ namespace YTray.Views
                 _draft.DisableNotifications = notif.IsChecked == true;
                 _draft.IgnoreCertificateErrors = cert.IsChecked == true;
                 _draft.AdditionalFlags = flags.Text;
+                if (!ApplySelectedNetwork()) return false;
+                return true;
             });
             return sp;
+        }
+
+        private RadioButton MakeNetworkChoice(string title, string subtitle, bool selected)
+        {
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 12 });
+            var secondary = new TextBlock { Text = subtitle, FontSize = 10, Margin = new Thickness(0, 2, 0, 0) };
+            secondary.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            text.Children.Add(secondary);
+            var choice = new RadioButton
+            {
+                Content = text,
+                GroupName = "WizardNetworkMode",
+                IsChecked = selected,
+                Padding = new Thickness(11, 8, 11, 8),
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            return choice;
+        }
+
+        private bool ApplySelectedNetwork()
+        {
+            if (!_usePresetProxy)
+            {
+                _draft.ProxyServer = "";
+                _draft.ProxyUsername = "";
+                _draft.ProxyPassword = "";
+                return true;
+            }
+
+            try
+            {
+                _draft.ProxyServer = HTTPProxyAddress.Build(
+                    _store.Settings.PresetProxyScheme,
+                    _store.Settings.PresetProxyHost,
+                    _store.Settings.PresetProxyPort);
+                _draft.ProxyUsername = _store.Settings.PresetProxyUsername;
+                _draft.ProxyPassword = _store.Settings.PresetProxyPassword;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "HTTP 代理配置无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
         }
 
         private UIElement BuildPluginStep()
         {
             var sp = new StackPanel();
+            var runtime = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
+            var supportsPlugins = runtime != null && BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind);
             sp.Children.Add(new TextBlock { Text = "选择本次加载的本地插件", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
+            if (!supportsPlugins && runtime != null)
+            {
+                var notice = new TextBlock
+                {
+                    Text = $"{runtime.DisplayTitle} 不支持由 YTray 加载本地插件。本次启动将不加载插件；如需使用插件，请返回选择 Chrome for Testing、Chromium 或 Edge。",
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 11,
+                };
+                notice.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                var noticeBorder = new Border
+                {
+                    Child = notice,
+                    CornerRadius = new CornerRadius(8),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(12, 9, 12, 9),
+                    Margin = new Thickness(0, 0, 0, 12),
+                };
+                noticeBorder.SetResourceReference(Border.BackgroundProperty, "SurfaceMutedBrush");
+                noticeBorder.SetResourceReference(Border.BorderBrushProperty, "HairlineBrush");
+                sp.Children.Add(noticeBorder);
+            }
             foreach (var p in _store.Plugins.Where(pl => pl.Enabled))
             {
                 var cb = new CheckBox
                 {
                     Content = $"{p.Name} v{p.Version} · Manifest V{p.ManifestVersion}",
-                    IsChecked = _pluginIDs.Contains(p.Id),
+                    IsChecked = supportsPlugins && _pluginIDs.Contains(p.Id),
+                    IsEnabled = supportsPlugins,
                     Tag = p.Id,
                     Margin = new Thickness(0, 0, 0, 6),
                 };
@@ -228,7 +321,7 @@ namespace YTray.Views
                 cb.Unchecked += (s, e) => _pluginIDs.Remove((Guid)((CheckBox)s).Tag);
                 sp.Children.Add(cb);
             }
-            if (_store.Plugins.Count == 0)
+            if (!_store.Plugins.Any(plugin => plugin.Enabled))
             {
                 var empty = new TextBlock { Text = "没有可用的本地插件" };
                 empty.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
@@ -248,12 +341,15 @@ namespace YTray.Views
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             AddReviewRow(grid, 0, "浏览器", rt != null ? $"{rt.DisplayTitle} {rt.VersionLabel} · {rt.Source.Title()}" : "未选择");
             AddReviewRow(grid, 1, "启动地址", _draft.HomeURL);
-            AddReviewRow(grid, 2, "网络", "直连（无代理）");
+            AddReviewRow(grid, 2, "网络", _usePresetProxy
+                ? $"HTTP 代理 · {_draft.ProxyServer.Replace("http://", "").Replace("https://", "")}"
+                : "直连（无代理）");
             AddReviewRow(grid, 3, "调试", $"127.0.0.1:{_draft.DebugPort} 起自动避让");
             var dockBadge = _draft.DockBadge?.Trim();
             AddReviewRow(grid, 4, "Dock 角标", string.IsNullOrEmpty(dockBadge) ? "自动分配" : dockBadge!.ToUpperInvariant());
             AddReviewRow(grid, 5, "WebRTC", _draft.RestrictWebRTC ? "限制" : "不限制");
-            AddReviewRow(grid, 6, "插件", $"{_pluginIDs.Count} 个");
+            var supportsPlugins = rt != null && BrowserLauncher.SupportsCommandLineExtensions(rt.Kind);
+            AddReviewRow(grid, 6, "插件", supportsPlugins ? $"{_pluginIDs.Count} 个" : "不支持（本次不加载）");
             sp.Children.Add(grid);
             return sp;
         }
@@ -283,10 +379,23 @@ namespace YTray.Views
         private void Next_Click(object s, RoutedEventArgs e)
         {
             // capture network-step draft
-            if (ContentArea.Children[0] is StackPanel net && net.Tag is System.Action capture) capture();
+            if (ContentArea.Children[0] is FrameworkElement content && content.Tag is Func<bool> capture && !capture())
+                return;
             if (_step < 3) { _step++; ShowStep(); return; }
-            _draft.DefaultPluginIDs = _pluginIDs.ToList();
-            _store.Launch(LaunchMode.Custom, _draft, _pluginIDs, launchUsesProxy: false);
+            var runtime = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
+            var effectivePluginIDs = runtime != null && BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind)
+                ? _pluginIDs.ToList()
+                : new List<Guid>();
+            _draft.DefaultPluginIDs = effectivePluginIDs;
+            if (!_store.Launch(LaunchMode.Custom, _draft, effectivePluginIDs, launchUsesProxy: _usePresetProxy))
+            {
+                MessageBox.Show(this,
+                    _store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。",
+                    "无法启动实例",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
             DialogResult = true;
             Close();
         }

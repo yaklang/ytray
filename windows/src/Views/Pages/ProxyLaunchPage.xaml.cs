@@ -212,8 +212,17 @@ namespace YTray.Views.Pages
             ShowSaveStatus("已删除最近代理");
         }
 
-        private void Direct_Click(object sender, RoutedEventArgs e) { if (ApplyControls()) _store.LaunchConfigured(false); }
-        private void Proxy_Click(object sender, RoutedEventArgs e) { if (ApplyControls()) _store.LaunchConfigured(true); }
+        private void Direct_Click(object sender, RoutedEventArgs e)
+        {
+            if (ApplyControls() && !_store.LaunchConfigured(false))
+                ShowSaveStatus(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
+        }
+
+        private void Proxy_Click(object sender, RoutedEventArgs e)
+        {
+            if (ApplyControls() && !_store.LaunchConfigured(true))
+                ShowSaveStatus(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
+        }
         private void Wizard_Click(object sender, RoutedEventArgs e)
         {
             ApplyControls();

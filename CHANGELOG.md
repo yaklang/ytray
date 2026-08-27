@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5 — 2026-08-27
+
+- 系统 Google Chrome 与默认本地插件冲突时，快速启动会明确提示原因和可用浏览器，不再表现为点击后无反应。
+- Windows 概述页、代理页、悬浮面板与系统托盘统一展示启动错误，自定义启动失败时保留向导便于修改配置。
+- macOS 与 Windows 自定义启动第二步新增“无代理 / HTTP 代理”选择，确认页会显示本次实际使用的网络模式。
+- 自定义启动第三步会根据浏览器能力管理插件：系统 Chrome/Beta/Canary 禁用本地插件选择，Chrome for Testing、Chromium 与 Edge 保持可用。
+
 ## 0.1.4 — 2026-08-26
 
 - 全面启用新版 YTray 应用图标，统一 macOS 应用包与菜单栏、Windows 程序/安装包/系统托盘，以及官网品牌标识、favicon、Apple Touch Icon 与 PWA 图标。

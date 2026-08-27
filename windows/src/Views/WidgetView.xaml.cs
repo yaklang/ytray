@@ -211,11 +211,16 @@ namespace YTray.Views
             return true;
         }
 
-        private void DirectLaunch_Click(object sender, RoutedEventArgs e) => _store.LaunchConfigured(false);
+        private void DirectLaunch_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_store.LaunchConfigured(false))
+                ShowInstanceAction(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
+        }
         private void ProxyLaunch_Click(object sender, RoutedEventArgs e)
         {
             if (!CommitProxyEditor()) return;
-            _store.LaunchConfigured(true);
+            if (!_store.LaunchConfigured(true))
+                ShowInstanceAction(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
         }
 
         private void OpenManager_Click(object sender, RoutedEventArgs e)

@@ -152,8 +152,16 @@ namespace YTray.Views.Pages
         {
             _store.Settings.HomeURL = HomeUrlBox.Text.Trim();
             _store.SaveSettings();
-            _store.LaunchConfigured((NetworkCombo.SelectedItem as NetworkChoice)?.UsesProxy == true);
+            if (!_store.LaunchConfigured((NetworkCombo.SelectedItem as NetworkChoice)?.UsesProxy == true))
+                ShowLaunchError();
         }
+
+        private void ShowLaunchError() => MessageBox.Show(
+            Window.GetWindow(this),
+            _store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。",
+            "无法启动实例",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
 
         private void Focus_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) _store.Focus(i); }
         private async void Stop_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) await _store.StopAsync(i); }

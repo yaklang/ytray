@@ -491,10 +491,10 @@ namespace YTray.Core
             Save();
         }
 
-        public void Launch(LaunchMode mode, LaunchSettings? customSettings = null, List<Guid>? customPluginIDs = null,
+        public bool Launch(LaunchMode mode, LaunchSettings? customSettings = null, List<Guid>? customPluginIDs = null,
             BrowserInstance? restoring = null, bool? launchUsesProxy = null)
         {
-            if (IsLaunching) return;
+            if (IsLaunching) return false;
             var token = Guid.NewGuid();
             LaunchToken = token;
             LaunchingMode = mode;
@@ -521,7 +521,7 @@ namespace YTray.Core
             if (runtimeID == null || !Runtimes.Any(r => r.Id == runtimeID))
             {
                 FinishLaunchFailure(new YTrayException(YTrayError.NoRuntime, ""), token);
-                return;
+                return false;
             }
             var runtime = Runtimes.First(r => r.Id == runtimeID);
             var selectedIDs = customPluginIDs ?? configuration.DefaultPluginIDs;
@@ -567,18 +567,20 @@ namespace YTray.Core
                 LaunchPhase = BrowserLaunchPhase.Waiting;
 
                 CrashGuard.Observe(WaitForBrowserAsync(result.Instance, token), "wait-for-browser");
+                return true;
             }
             catch (Exception ex)
             {
                 FinishLaunchFailure(ex, token);
+                return false;
             }
         }
 
-        public void LaunchConfigured(bool usePresetProxy)
+        public bool LaunchConfigured(bool usePresetProxy)
         {
             var cfg = QuickLaunchConfiguration(usePresetProxy);
-            if (cfg == null) return;
-            Launch(LaunchMode.Quick, cfg, launchUsesProxy: usePresetProxy);
+            if (cfg == null) return false;
+            return Launch(LaunchMode.Quick, cfg, launchUsesProxy: usePresetProxy);
         }
 
         public LaunchSettings? QuickLaunchConfiguration(bool usePresetProxy)
