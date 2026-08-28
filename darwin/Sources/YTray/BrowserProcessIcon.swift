@@ -29,13 +29,22 @@ enum BrowserProcessIcon {
             .appendingPathComponent("\(instanceID.uuidString).png")
     }
 
-    static func write(sourceExecutable: URL, badge: String, instanceID: UUID,
-                      applicationDirectory: URL) throws -> URL {
+    static func write(
+        sourceExecutable: URL,
+        badge: String,
+        instanceID: UUID,
+        applicationDirectory: URL,
+        identityColor: BrowserIdentityColor? = nil
+    ) throws -> URL {
         let label = try DockBadgeLabel.normalize(badge)
         let directory = applicationDirectory.appendingPathComponent("ProcessIcons", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let source = enclosingApplication(for: sourceExecutable) ?? sourceExecutable
-        let rendered = renderIcon(baseIcon: NSWorkspace.shared.icon(forFile: source.path), badge: label)
+        let rendered = renderIcon(
+            baseIcon: NSWorkspace.shared.icon(forFile: source.path),
+            badge: label,
+            identityColor: identityColor
+        )
         guard let tiff = rendered.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:]) else {
@@ -52,7 +61,12 @@ enum BrowserProcessIcon {
         try? FileManager.default.removeItem(at: output)
     }
 
-    static func renderIcon(baseIcon: NSImage, badge: String, size: CGFloat = 512) -> NSImage {
+    static func renderIcon(
+        baseIcon: NSImage,
+        badge: String,
+        size: CGFloat = 512,
+        identityColor: BrowserIdentityColor? = nil
+    ) -> NSImage {
         let output = NSImage(size: NSSize(width: size, height: size))
         output.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .high
@@ -68,10 +82,7 @@ enum BrowserProcessIcon {
         let border = NSBezierPath(ovalIn: badgeRect.insetBy(dx: -size * 0.012, dy: -size * 0.012))
         border.lineWidth = size * 0.024
         border.stroke()
-        let badgeColor = AppEnvironment.instanceColorThemesEnabled
-            ? BrowserIdentityColor.color(for: badge).nsColor
-            : Brand.orangeNS
-        badgeColor.setFill()
+        (identityColor?.nsColor ?? Brand.orangeNS).setFill()
         NSBezierPath(ovalIn: badgeRect).fill()
 
         let fontSize = badge.count == 1 ? diameter * 0.59 : diameter * 0.43

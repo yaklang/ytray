@@ -221,7 +221,7 @@ enum LaunchMode: String, Codable, CaseIterable {
 }
 
 struct LaunchSettings: Codable, Equatable {
-    static let currentConfigurationVersion = 4
+    static let currentConfigurationVersion = 5
     static let certificateDefaultMigrationVersion = 2
     static let defaultPresetProxyServer = "http://127.0.0.1:8083"
 
@@ -244,6 +244,7 @@ struct LaunchSettings: Codable, Equatable {
     var restrictWebRTC = true
     var disableNotifications = true
     var ignoreCertificateErrors = true
+    var colorizeBrowserInstances = true
     var additionalFlags = ""
     var defaultPluginIDs: [UUID] = []
     var dockBadge = ""
@@ -262,7 +263,7 @@ struct LaunchSettings: Codable, Equatable {
         case presetProxyUsername, presetProxyPassword, presetProxyRemark, presetProxyCheckTarget
         case recentProxyPresets
         case debugPort, restrictWebRTC
-        case disableNotifications, ignoreCertificateErrors, additionalFlags
+        case disableNotifications, ignoreCertificateErrors, colorizeBrowserInstances, additionalFlags
         case defaultPluginIDs, dockBadge
     }
 }
@@ -305,6 +306,10 @@ extension LaunchSettings {
         ignoreCertificateErrors = savedVersion < Self.certificateDefaultMigrationVersion
             ? true
             : try container.decodeIfPresent(Bool.self, forKey: .ignoreCertificateErrors) ?? true
+        colorizeBrowserInstances = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .colorizeBrowserInstances
+        ) ?? true
         additionalFlags = try container.decodeIfPresent(String.self, forKey: .additionalFlags) ?? ""
         defaultPluginIDs = try container.decodeIfPresent([UUID].self, forKey: .defaultPluginIDs) ?? []
         dockBadge = try container.decodeIfPresent(String.self, forKey: .dockBadge) ?? ""

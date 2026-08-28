@@ -133,7 +133,14 @@ enum YTrayMain {
         do {
             let normalized = try DockBadgeLabel.normalize(badge)
             let base = NSWorkspace.shared.icon(forFile: sourceApp)
-            let icon = BrowserProcessIcon.renderIcon(baseIcon: base, badge: normalized)
+            let identityColor = AppEnvironment.instanceColorThemesEnabled
+                ? BrowserIdentityColor.color(for: normalized)
+                : nil
+            let icon = BrowserProcessIcon.renderIcon(
+                baseIcon: base,
+                badge: normalized,
+                identityColor: identityColor
+            )
             guard let tiff = icon.tiffRepresentation,
                   let bitmap = NSBitmapImageRep(data: tiff),
                   let png = bitmap.representation(using: .png, properties: [:]) else {
@@ -420,7 +427,7 @@ enum YTrayMain {
                                      architecture: RuntimeInstaller.platform,
                                      executablePath: executablePath, source: .local)
         var settings = LaunchSettings()
-        settings.homeURL = "data:text/html,<title>YTray Smoke</title><h1>YTray</h1>"
+        settings.homeURL = "data:text/html,%3Ctitle%3EYTray%20Smoke%3C/title%3E%3Ch1%3EYTray%3C/h1%3E"
         settings.debugPort = 17_777
         application.setActivationPolicy(.prohibited)
         Task { @MainActor in
@@ -434,20 +441,18 @@ enum YTrayMain {
                     ordinal: 1,
                     dockBadge: "A"
                 )
+                var succeeded = false
                 do {
-                    var runningApp: NSRunningApplication?
-                    for _ in 0..<50 {
-                        if let app = NSRunningApplication(processIdentifier: launched.instance.processID),
-                           app.bundleURL?.pathExtension.lowercased() == "app",
-                           app.bundleIdentifier?.hasPrefix("com.yaklang.YTray") != true {
-                            runningApp = app
-                            break
-                        }
-                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard await ScreenshotService.waitUntilReady(
+                        debugPort: launched.instance.debugPort,
+                        attempts: 60
+                    ) else {
+                        throw YTrayError.launchFailed("浏览器调试端口未就绪")
                     }
-                    guard let runningApp else {
-                        throw YTrayError.launchFailed("同 PID 没有切换为原始浏览器应用身份")
-                    }
+                    try await ScreenshotService.navigate(
+                        debugPort: launched.instance.debugPort,
+                        to: settings.homeURL
+                    )
                     let title = await ScreenshotService.currentPageTitle(
                         debugPort: launched.instance.debugPort,
                         attempts: 30
@@ -469,10 +474,19 @@ enum YTrayMain {
                     )
                     let thumbnailAttributes = try? FileManager.default.attributesOfItem(atPath: thumbnail.path)
                     let thumbnailSize = (thumbnailAttributes?[.size] as? NSNumber)?.intValue ?? 0
-                    guard title == "YTray Smoke", size > 0, thumbnailSize > 0 else {
-                        throw YTrayError.launchFailed("浏览器调试或截图验证未通过")
+                    guard title == "YTray Smoke" else {
+                        throw YTrayError.launchFailed("页面标题验证失败：\(title ?? "missing")")
                     }
-                    print("browser smoke passed: pid=\(launched.instance.processID) port=\(launched.instance.debugPort) badge=A bundle=\(runningApp.bundleIdentifier ?? "missing") name=\(runningApp.localizedName ?? "missing") title=\(title ?? "missing") screenshot=\(size) bytes thumbnail=\(thumbnailSize) bytes")
+                    guard size > 0, thumbnailSize > 0 else {
+                        throw YTrayError.launchFailed(
+                            "截图验证失败：screenshot=\(size) thumbnail=\(thumbnailSize)"
+                        )
+                    }
+                    let runningApp = NSRunningApplication(
+                        processIdentifier: launched.instance.processID
+                    )
+                    print("browser smoke passed: pid=\(launched.instance.processID) port=\(launched.instance.debugPort) badge=A bundle=\(runningApp?.bundleIdentifier ?? "missing") name=\(runningApp?.localizedName ?? "missing") title=\(title ?? "missing") screenshot=\(size) bytes thumbnail=\(thumbnailSize) bytes")
+                    succeeded = true
                 } catch {
                     fputs("browser smoke failed: \(error.localizedDescription)\n", stderr)
                     let log = scratch.appendingPathComponent("Logs/\(launched.instance.id.uuidString).log")
@@ -486,11 +500,11 @@ enum YTrayMain {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
                 try? FileManager.default.removeItem(at: scratch)
-                application.terminate(nil)
+                exit(succeeded ? 0 : 1)
             } catch {
                 fputs("browser smoke failed: \(error.localizedDescription)\n", stderr)
                 try? FileManager.default.removeItem(at: scratch)
-                application.terminate(nil)
+                exit(1)
             }
         }
         application.run()

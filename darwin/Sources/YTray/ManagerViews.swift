@@ -332,7 +332,8 @@ struct SettingsPage: View {
                 Toggle("关闭浏览器通知", isOn: $store.settings.disableNotifications)
                 Toggle("忽略证书错误（默认开启，适合本地网络调试）", isOn: $store.settings.ignoreCertificateErrors)
                 if AppEnvironment.instanceColorThemesEnabled {
-                    Label("YTrayDev 会按 A/B/C 为新实例设置不同的 Chrome 顶栏颜色；恢复实例不会覆盖你手动选择的主题。", systemImage: "paintpalette.fill")
+                    Toggle("新实例按 A/B/C 使用独立主题色", isOn: $store.settings.colorizeBrowserInstances)
+                    Label("仅在创建新实例时设置 Chrome 顶栏颜色；恢复实例不会覆盖你手动选择的主题。关闭后只影响之后创建的实例。", systemImage: "paintpalette.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

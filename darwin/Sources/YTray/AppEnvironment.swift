@@ -20,8 +20,10 @@ enum AppEnvironment {
     }
 
     static var instanceColorThemesEnabled: Bool {
-        guard isDevelopmentBuild else { return false }
-        return Bundle.main.object(forInfoDictionaryKey: "YTrayInstanceColorThemes") as? Bool ?? false
+        if isDevelopmentBuild {
+            return Bundle.main.object(forInfoDictionaryKey: "YTrayInstanceColorThemes") as? Bool ?? false
+        }
+        return true
     }
 
     static var appUpdatesEnabled: Bool { !isDevelopmentBuild }

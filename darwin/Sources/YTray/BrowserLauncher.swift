@@ -13,6 +13,15 @@ enum BrowserLauncher {
         }
     }
 
+    static func resolvedIdentityColor(
+        badge: String,
+        settings: LaunchSettings
+    ) -> BrowserIdentityColor? {
+        guard settings.colorizeBrowserInstances,
+              AppEnvironment.instanceColorThemesEnabled else { return nil }
+        return BrowserIdentityColor.color(for: badge)
+    }
+
     static func commandLineExtensionCompatibilityError(
         runtime: BrowserRuntime,
         mode: LaunchMode,
@@ -145,13 +154,14 @@ enum BrowserLauncher {
             launchSettings.homeURL = proxyAuthenticationBootstrapURL
         }
         let arguments: [String]
+        let dockIdentityColor = AppEnvironment.instanceColorThemesEnabled
+            ? BrowserIdentityColor.color(for: normalizedBadge)
+            : nil
+        let themeIdentityColor = resolvedIdentityColor(badge: normalizedBadge, settings: settings)
         do {
-            // A generated theme is installed only for a brand-new development
-            // profile. Restored profiles keep their persisted or user-selected
+            // A generated theme is installed only for a brand-new profile.
+            // Restored profiles keep their persisted or user-selected
             // theme, so a normal restart never overwrites appearance choices.
-            let identityColor = history == nil && AppEnvironment.instanceColorThemesEnabled
-                ? BrowserIdentityColor.color(for: normalizedBadge)
-                : nil
             arguments = try buildArguments(
                 mode: mode,
                 settings: launchSettings,
@@ -160,7 +170,7 @@ enum BrowserLauncher {
                 plugins: plugins,
                 runtimeKind: runtime.kind,
                 internalExtensionPaths: proxyAuthExtension.map { [$0.path] } ?? [],
-                identityColor: identityColor,
+                identityColor: history == nil ? themeIdentityColor : nil,
                 restoreLastSession: history != nil && !usesProxyAuthentication
             )
         } catch {
@@ -184,7 +194,8 @@ enum BrowserLauncher {
                 sourceExecutable: executable,
                 badge: normalizedBadge,
                 instanceID: id,
-                applicationDirectory: applicationDirectory
+                applicationDirectory: applicationDirectory,
+                identityColor: dockIdentityColor
             )
         } catch {
             try? log.close()
