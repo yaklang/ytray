@@ -36,6 +36,12 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def sha256_text(path: Path) -> str:
+    """Hash text with platform checkout line endings normalized to LF."""
+    text = path.read_text(encoding="utf-8")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def require_png(path: Path, size: int) -> None:
     if not path.is_file():
         fail(f"missing PNG: {path.relative_to(ROOT)}")
@@ -141,7 +147,9 @@ def main() -> int:
     require_png(SITE_BRAND / "ytray-flat.png", 1024)
     require_safe_svg(SITE_BRAND / "ytray-vector.svg")
     for name, expected_hash in website_digests.items():
-        if sha256(SITE_BRAND / name) != expected_hash:
+        path = SITE_BRAND / name
+        actual_hash = sha256_text(path) if path.suffix == ".svg" else sha256(path)
+        if actual_hash != expected_hash:
             fail(f"website brand artwork changed: site/public/brand/{name}")
 
     for obsolete in (
