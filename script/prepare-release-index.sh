@@ -34,7 +34,7 @@ mkdir -p "$OUT_DIR"
 if [[ -n "${EXISTING_RELEASES_FILE:-}" ]]; then
   cp "$EXISTING_RELEASES_FILE" "$OUT_DIR/releases.previous.json"
 else
-  status="$(curl --retry 3 --retry-all-errors -sS -L -o "$OUT_DIR/releases.previous.json" -w '%{http_code}' "$RELEASES_URL")" ||
+  status="$(curl --compressed --retry 3 --retry-all-errors -sS -L -o "$OUT_DIR/releases.previous.json" -w '%{http_code}' "$RELEASES_URL")" ||
     die "failed to fetch existing release index"
   case "$status" in
     200) ;;

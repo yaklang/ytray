@@ -1,0 +1,87 @@
+name: Repair OSS release index transport
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-oss-release-index
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      OSS_BUCKET: yaklang
+      OSS_ENDPOINT: oss-accelerate.aliyuncs.com
+      PUBLIC_BASE_URL: https://aliyun-oss.yaklang.com/ytray
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and validate the current indexes
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ytray-index-repair"
+          mkdir -p "$work"
+          curl --compressed --retry 4 --retry-all-errors -fsSL \
+            "$PUBLIC_BASE_URL/releases.json?repair_source=$GITHUB_RUN_ID" -o "$work/releases.json"
+          curl --compressed --retry 4 --retry-all-errors -fsSL \
+            "$PUBLIC_BASE_URL/latest.json?repair_source=$GITHUB_RUN_ID" -o "$work/latest.json"
+          jq -e '.schema_version == 1 and .product == "ytray" and
+            (.latest | type == "string" and length > 0) and
+            (.versions | type == "array" and length > 0) and
+            .versions[0].version == .latest' "$work/releases.json" >/dev/null
+          jq -e --slurpfile releases "$work/releases.json" '
+            .schema_version == 1 and .product == "ytray" and
+            .version == $releases[0].latest' "$work/latest.json" >/dev/null
+
+      - name: Install official ossutil
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          mkdir -p "$GOBIN"
+          go install github.com/aliyun/ossutil@v1.7.19
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
+      - name: Restore legacy-compatible response bytes
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_KEY_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OSS_ACCESS_KEY_ID"
+          test -n "$OSS_ACCESS_KEY_SECRET"
+          work="$RUNNER_TEMP/ytray-index-repair"
+          json_index_meta='Content-Type:application/octet-stream#Cache-Control:no-cache,no-transform'
+          for name in releases.json latest.json; do
+            ossutil cp -f "$work/$name" "oss://$OSS_BUCKET/ytray/$name" \
+              --meta "$json_index_meta" \
+              -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
+          done
+
+      - name: Verify untransformed CDN responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ytray-index-repair"
+          verify_raw() {
+            local name="$1" attempt
+            for attempt in $(seq 1 24); do
+              if curl --retry 3 --retry-all-errors -H 'Accept-Encoding: identity' \
+                -H 'Cache-Control: no-cache' -fsSL \
+                "$PUBLIC_BASE_URL/$name?repair_verify=$GITHUB_RUN_ID-$attempt" \
+                -o "$work/verified-$name" && cmp "$work/$name" "$work/verified-$name"; then
+                echo "Verified untransformed response: $name"
+                return 0
+              fi
+              if [[ "$attempt" -lt 24 ]]; then sleep 10; fi
+            done
+            echo "CDN still transforms $name" >&2
+            return 1
+          }
+          verify_raw releases.json
+          verify_raw latest.json
