@@ -37,7 +37,7 @@ export function SiteHeader() {
     >
       <div className="mx-auto flex h-full max-w-[1400px] items-center px-6 lg:px-8">
         <a href="#product" className="flex items-center gap-2.5 text-[15px] font-medium" aria-label="YTray 首页">
-          <BrandMark className="size-8 rounded-[10px]" />
+          <BrandMark className="size-8" />
           YTray
         </a>
 

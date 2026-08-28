@@ -135,13 +135,25 @@
 }
 
 .brand-mark {
-  display: inline-block;
+  display: inline-grid;
+  place-items: center;
   flex: 0 0 auto;
-  filter: drop-shadow(0 10px 16px rgba(85, 42, 10, 0.14));
 }
 
 .brand-mark img {
   display: block;
+}
+
+.brand-mark-vector {
+  filter: drop-shadow(0 8px 16px rgba(242, 98, 21, 0.12));
+}
+
+.brand-mark-flat {
+  filter: drop-shadow(0 14px 24px rgba(143, 57, 9, 0.18));
+}
+
+.brand-mark-material {
+  filter: drop-shadow(0 14px 22px rgba(85, 42, 10, 0.16));
 }
 
 .hero-section {
@@ -157,6 +169,27 @@
   pointer-events: none;
   background: radial-gradient(ellipse at 50% 45%, rgba(242, 101, 18, 0.15), rgba(255, 255, 255, 0) 68%);
   filter: blur(18px);
+}
+
+.hero-brand-emblem {
+  position: relative;
+  display: grid;
+  width: 9rem;
+  height: 8.5rem;
+  margin-bottom: 1rem;
+  place-items: center;
+  isolation: isolate;
+}
+
+.hero-brand-emblem::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0.35rem;
+  border: 1px solid rgba(242, 98, 21, 0.14);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(242, 98, 21, 0.12), rgba(242, 98, 21, 0.03) 50%, transparent 72%);
+  content: "";
+  transform: rotate(-8deg) scaleX(1.08);
 }
 
 .hero-title {
@@ -680,6 +713,54 @@
   line-height: 1.55;
 }
 
+.download-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: clamp(40px, 7vw, 112px);
+  align-items: end;
+}
+
+.download-app-card {
+  display: flex;
+  min-width: 310px;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 26px 18px 18px;
+  border: 1px solid rgba(242, 98, 21, 0.13);
+  border-radius: 26px;
+  background: linear-gradient(145deg, #fffaf6, #ffffff 58%, #f8f4f1);
+  box-shadow: 0 24px 70px rgba(75, 39, 18, 0.09);
+}
+
+.download-app-icon {
+  width: 86px;
+  height: 86px;
+}
+
+.download-app-label,
+.download-app-platforms {
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.download-app-label {
+  letter-spacing: 0.06em;
+}
+
+.download-app-version {
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+
+.download-app-platforms {
+  margin-top: 4px;
+}
+
 .platform-item {
   min-height: 250px;
   padding: 32px 28px 32px 0;
@@ -732,6 +813,11 @@ details[open] .faq-plus {
 }
 
 @media (max-width: 767px) {
+  .hero-brand-emblem {
+    width: 8rem;
+    height: 7.75rem;
+  }
+
   .hero-stage {
     width: 920px !important;
     max-width: none;
@@ -815,6 +901,16 @@ details[open] .faq-plus {
 }
 
 @media (max-width: 1023px) {
+  .download-intro {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .download-app-card {
+    width: min(100%, 400px);
+    min-width: 0;
+  }
+
   .capability-stage {
     grid-template-columns: 1fr;
     gap: 28px;

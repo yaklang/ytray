@@ -97,7 +97,9 @@ export default function Home() {
         <section id="product" className="hero-section" aria-labelledby="hero-title">
           <div className="hero-wash" aria-hidden="true" />
           <div className="mx-auto flex max-w-[1400px] flex-col items-center px-6 pb-16 pt-28 text-center lg:px-8 lg:pb-24 lg:pt-32">
-            <BrandMark className="mb-6 size-20 rounded-[20px] sm:size-24" priority />
+            <div className="hero-brand-emblem">
+              <BrandMark variant="flat" className="size-28 sm:size-32" preload />
+            </div>
             <p className="mb-6 text-[13px] text-ink-muted"><ReleaseVersion /> 现已发布 · macOS 14+ · Windows 10/11</p>
             <h1 id="hero-title" className="hero-title">
               <span className="hero-title-line">为测试与研发而生的</span>
@@ -201,11 +203,19 @@ export default function Home() {
 
         <section id="download" className="download-section" aria-labelledby="download-title">
           <div className="mx-auto max-w-[1400px] px-6 py-24 lg:px-8 lg:py-32">
-            <Reveal>
+            <Reveal className="download-intro">
               <div className="max-w-[900px]">
                 <p className="eyebrow">下载 YTray</p>
                 <h2 id="download-title" className="display-l mt-5">安装 YTray，开始管理独立浏览器实例。</h2>
                 <p className="mt-6 max-w-[48ch] text-[18px] leading-[1.55] text-ink-muted">macOS 与 Windows 四种安装包独立构建，并随 Release 提供校验值。</p>
+              </div>
+              <div className="download-app-card">
+                <BrandMark variant="material" className="download-app-icon" />
+                <div>
+                  <p className="download-app-label">当前正式版</p>
+                  <p className="download-app-version"><ReleaseVersion /></p>
+                  <p className="download-app-platforms">macOS · Windows</p>
+                </div>
               </div>
             </Reveal>
             <div className="platform-lineup mt-14 grid border-t border-hairline sm:grid-cols-2 lg:grid-cols-4">
@@ -238,7 +248,7 @@ export default function Home() {
 
       <footer className="border-t border-hairline bg-surface-2">
         <div className="mx-auto flex max-w-[1400px] flex-col gap-8 px-6 py-12 text-[13px] text-ink-muted sm:flex-row sm:items-center sm:justify-between lg:px-8">
-          <div className="flex items-center gap-3 text-ink"><BrandMark className="size-8 rounded-[9px]" /><span className="font-medium">YTray</span></div>
+          <div className="flex items-center gap-3 text-ink"><BrandMark className="size-8" /><span className="font-medium">YTray</span></div>
           <p>Yaklang 公开源码项目 · 本地优先 · 为测试与研发而生</p>
           <div className="flex gap-6"><a className="hover:text-ink" href={siteConfig.github}>GitHub</a><a className="hover:text-ink" href={`${siteConfig.github}/issues`}>反馈问题</a></div>
         </div>

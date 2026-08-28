@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Verify that every shipped YTray brand icon comes from the canonical PNG."""
+"""Verify YTray application icons and the approved website brand artwork."""
 
 from __future__ import annotations
 
 import hashlib
 import struct
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ SOURCE = ROOT / "assets/app-icon/YTray.png"
 WINDOWS = ROOT / "windows/src/Assets/Icons"
 SITE_APP = ROOT / "site/src/app"
 SITE_PUBLIC = ROOT / "site/public/icons"
+SITE_BRAND = ROOT / "site/public/brand"
 
 
 def fail(message: str) -> None:
@@ -39,6 +41,29 @@ def require_png(path: Path, size: int) -> None:
         fail(f"missing PNG: {path.relative_to(ROOT)}")
     if png_dimensions(path) != (size, size):
         fail(f"wrong PNG dimensions: {path.relative_to(ROOT)}")
+
+
+def require_safe_svg(path: Path) -> None:
+    if not path.is_file():
+        fail(f"missing SVG: {path.relative_to(ROOT)}")
+    try:
+        root = ET.fromstring(path.read_text(encoding="utf-8"))
+    except ET.ParseError as error:
+        fail(f"invalid SVG in {path.relative_to(ROOT)}: {error}")
+    if root.tag.rsplit("}", 1)[-1] != "svg":
+        fail(f"unexpected SVG root in {path.relative_to(ROOT)}")
+    if root.attrib.get("width") != "1024" or root.attrib.get("height") != "1024":
+        fail(f"website SVG must be 1024px: {path.relative_to(ROOT)}")
+    if root.attrib.get("viewBox") != "0 0 1024 1024":
+        fail(f"unexpected website SVG viewBox: {path.relative_to(ROOT)}")
+
+    blocked_tags = {"script", "foreignObject", "image", "use"}
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] in blocked_tags:
+            fail(f"unsafe SVG element in {path.relative_to(ROOT)}: {element.tag}")
+        for attribute, value in element.attrib.items():
+            if attribute.rsplit("}", 1)[-1] == "href" or "javascript:" in value.lower():
+                fail(f"unsafe SVG reference in {path.relative_to(ROOT)}")
 
 
 def ico_sizes(path: Path) -> list[int]:
@@ -106,6 +131,19 @@ def main() -> int:
     if sha256(SITE_APP / "icon.png") != source_hash:
         fail("website icon.png does not match the canonical source")
 
+    website_digests: dict[str, str] = {}
+    for line in (SITE_BRAND / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+        digest, name = line.split()
+        website_digests[name] = digest
+    expected_website_assets = {"ytray-flat.png", "ytray-vector.svg"}
+    if set(website_digests) != expected_website_assets:
+        fail("unexpected website brand checksum manifest")
+    require_png(SITE_BRAND / "ytray-flat.png", 1024)
+    require_safe_svg(SITE_BRAND / "ytray-vector.svg")
+    for name, expected_hash in website_digests.items():
+        if sha256(SITE_BRAND / name) != expected_hash:
+            fail(f"website brand artwork changed: site/public/brand/{name}")
+
     for obsolete in (
         ROOT / "darwin/Resources/YTrayAppIcon.svg",
         WINDOWS / "ytray-app-icon.svg",
@@ -117,7 +155,10 @@ def main() -> int:
             fail(f"obsolete icon source still exists: {obsolete.relative_to(ROOT)}")
 
     require_text(ROOT / "script/package-macos.sh", "assets/app-icon/YTray.png")
-    require_text(ROOT / "site/src/components/site/brand-mark.tsx", 'assetPath("/icon.png")')
+    brand_component = ROOT / "site/src/components/site/brand-mark.tsx"
+    require_text(brand_component, 'vector: "/brand/ytray-vector.svg"')
+    require_text(brand_component, 'flat: "/brand/ytray-flat.png"')
+    require_text(brand_component, 'material: "/icon.png"')
     require_text(ROOT / "site/src/app/manifest.ts", "/ytray/icons/icon-192.png")
     require_text(ROOT / "site/src/app/manifest.ts", "/ytray/icons/icon-512.png")
 
@@ -135,7 +176,7 @@ def main() -> int:
         elif sha256(output_image) == sha256(source_image):
             fail(f"Windows title-bar icon was not refreshed: {output_image.relative_to(ROOT)}")
 
-    print(f"verified canonical YTray icon and all derivatives ({source_hash})")
+    print(f"verified canonical YTray icons and website artwork ({source_hash})")
     return 0
 
 
