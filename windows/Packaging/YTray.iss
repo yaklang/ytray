@@ -52,8 +52,8 @@ Name: "{autodesktop}\YTray"; Filename: "{app}\YTray.exe"; Tasks: desktopicon
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Run]
-Filename: "{app}\YTray.exe"; Description: "Launch YTray"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\YTray.exe"; Flags: nowait skipifdoesntexist; Check: IsAutoUpdate
+Filename: "{app}\YTray.exe"; Description: "Launch YTray"; Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: "{app}\YTray.exe"; Flags: nowait skipifdoesntexist runasoriginaluser; Check: IsAutoUpdate
 
 [Code]
 function IsAutoUpdate(): Boolean;

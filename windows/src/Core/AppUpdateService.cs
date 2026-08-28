@@ -75,6 +75,8 @@ namespace YTray.Core
     internal sealed class AppUpdateService : INotifyPropertyChanged, IDisposable
     {
         internal const string ManifestUrl = "https://aliyun-oss.yaklang.com/ytray/latest.json";
+        internal const string InstallerArguments =
+            "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /YTRAYAUTOUPDATE=1";
         internal static readonly TimeSpan DefaultCheckTimeout = TimeSpan.FromSeconds(10);
         private const int MaximumManifestBytes = 2 * 1024 * 1024;
         private static readonly Lazy<AppUpdateService> LazyShared =
@@ -82,6 +84,7 @@ namespace YTray.Core
 
         private readonly HttpClient _client;
         private readonly TimeSpan _checkTimeout;
+        private readonly string _updatesDirectory;
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private AppReleaseManifest? _release;
         private AppReleaseAsset? _asset;
@@ -92,11 +95,20 @@ namespace YTray.Core
 
         internal static AppUpdateService Shared => LazyShared.Value;
 
-        internal AppUpdateService(HttpMessageHandler? handler = null, TimeSpan? checkTimeout = null)
+        internal AppUpdateService(
+            HttpMessageHandler? handler = null,
+            TimeSpan? checkTimeout = null,
+            string? updatesDirectory = null)
         {
             _client = new HttpClient(handler ?? CreateDefaultHandler());
             _checkTimeout = checkTimeout ?? DefaultCheckTimeout;
             if (_checkTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(checkTimeout));
+            _updatesDirectory = string.IsNullOrWhiteSpace(updatesDirectory)
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "YTray",
+                    "Updates")
+                : Path.GetFullPath(updatesDirectory!);
             // Installer downloads may legitimately take a long time. Manifest checks use
             // their own short cancellation budget in CheckAsync so a blocked OSS endpoint
             // cannot leave the settings UI in the Checking phase for twenty minutes.
@@ -295,14 +307,7 @@ namespace YTray.Core
                     throw new InvalidOperationException("安装包尚未下载");
                 VerifyFile(installer!, asset);
                 SetPhase(AppUpdatePhase.Installing, "正在启动安装程序，YTray 将自动重启…");
-                var process = Process.Start(new ProcessStartInfo
-                {
-                    FileName = installer,
-                    Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /YTRAYAUTOUPDATE=1",
-                    UseShellExecute = true,
-                    Verb = "runas",
-                    WorkingDirectory = Path.GetDirectoryName(installer),
-                });
+                var process = Process.Start(CreateInstallerStartInfo(installer!));
                 if (process == null) throw new InvalidOperationException("无法启动安装程序");
                 return true;
             }
@@ -311,6 +316,22 @@ namespace YTray.Core
                 SetPhase(AppUpdatePhase.Failed, "无法安装更新 · " + UserFacingError(ex));
                 return false;
             }
+        }
+
+        internal static ProcessStartInfo CreateInstallerStartInfo(string installer)
+        {
+            if (string.IsNullOrWhiteSpace(installer)) throw new ArgumentException("安装包路径为空", nameof(installer));
+            return new ProcessStartInfo
+            {
+                FileName = installer,
+                Arguments = InstallerArguments,
+                UseShellExecute = true,
+                // Do not set Verb=runas here. The signed Inno Setup executable declares
+                // PrivilegesRequired=admin and performs its own UAC transition while retaining
+                // the original user's token. Pre-elevating Setup prevents runasoriginaluser
+                // from dropping the relaunched YTray process back to normal integrity.
+                WorkingDirectory = Path.GetDirectoryName(installer),
+            };
         }
 
         private string? ExistingVerifiedDownload(AppReleaseManifest release, AppReleaseAsset asset)
@@ -328,7 +349,7 @@ namespace YTray.Core
             }
         }
 
-        private static string DownloadPath(AppReleaseManifest release, AppReleaseAsset asset)
+        private string DownloadPath(AppReleaseManifest release, AppReleaseAsset asset)
         {
             var safeVersion = release.Version.Replace('/', '-').Replace('\\', '-');
             var safeFilename = Path.GetFileName(asset.Filename);
@@ -336,9 +357,7 @@ namespace YTray.Core
                 || !string.Equals(safeFilename, asset.Filename, StringComparison.Ordinal))
                 throw new InvalidDataException("更新清单中的文件名不安全");
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "YTray",
-                "Updates",
+                _updatesDirectory,
                 safeVersion,
                 safeFilename);
         }

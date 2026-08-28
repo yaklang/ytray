@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8 — 2026-08-28
+
+- 修复 Windows 应用内更新完成后由提权安装器直接启动 YTray、导致新进程继承管理员权限的问题；安装器仍正常请求 UAC，但更新后的 YTray 会以原登录用户权限运行。
+- 增加安装启动参数与 Inno Setup `runasoriginaluser` 回归校验，防止后续打包再次破坏自动重启权限边界。
+
 ## 0.1.7 — 2026-08-28
 
 - macOS 浏览器实例默认使用 Chromium 测试钥匙链，避免 “Chromium Safe Storage” 授权弹窗阻塞启动；实例 helper 的固定等待由 1 秒缩短为 0.1 秒。

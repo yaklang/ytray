@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -152,6 +153,85 @@ namespace YTray.Tests
             }
         }
 
+        [TestMethod]
+        public void AutoUpdateLetsInnoSetupPreserveTheOriginalUserToken()
+        {
+            var installer = Path.Combine(Path.GetTempPath(), "YTray-test-setup.exe");
+            var startInfo = AppUpdateService.CreateInstallerStartInfo(installer);
+
+            Assert.AreEqual(installer, startInfo.FileName);
+            Assert.AreEqual(AppUpdateService.InstallerArguments, startInfo.Arguments);
+            Assert.IsTrue(startInfo.UseShellExecute);
+            Assert.IsTrue(string.IsNullOrEmpty(startInfo.Verb),
+                "Pre-elevating Setup prevents Inno from relaunching YTray as the original user.");
+
+            var repositoryRoot = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", ".."));
+            var innoScript = File.ReadAllText(Path.Combine(
+                repositoryRoot,
+                "windows", "Packaging", "YTray.iss"));
+            StringAssert.Contains(innoScript,
+                "Flags: nowait skipifdoesntexist runasoriginaluser; Check: IsAutoUpdate");
+        }
+
+        [TestMethod]
+        public async Task DownloadProgressObserverFailureCannotAbortAValidUpdate()
+        {
+            var payload = Encoding.UTF8.GetBytes("deterministic installer payload");
+            string sha256;
+            using (var sha = SHA256.Create())
+                sha256 = BitConverter.ToString(sha.ComputeHash(payload)).Replace("-", "").ToLowerInvariant();
+            var architecture = Environment.Is64BitProcess ? "amd64" : "386";
+            var filename = "YTray-99.0.1-setup.exe";
+            var assetUrl = "https://example.test/" + filename;
+            var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.1\","
+                + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\"" + architecture
+                + "\",\"kind\":\"setup\",\"filename\":\"" + filename + "\","
+                + "\"url\":\"" + assetUrl + "\",\"sha256\":\"" + sha256
+                + "\",\"size\":" + payload.Length + "}]}";
+            var updateRoot = Path.Combine(Path.GetTempPath(), "YTray.Tests", Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                using (var service = new AppUpdateService(
+                    new RoutedResponseHandler(request =>
+                    {
+                        if (string.Equals(request.RequestUri?.AbsoluteUri, assetUrl, StringComparison.Ordinal))
+                            return new HttpResponseMessage(HttpStatusCode.OK)
+                            {
+                                Content = new ByteArrayContent(payload),
+                            };
+                        return new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = new StringContent(manifest, Encoding.UTF8, "application/json"),
+                        };
+                    }),
+                    updatesDirectory: updateRoot))
+                {
+                    service.PropertyChanged += (sender, args) =>
+                    {
+                        if (args.PropertyName == nameof(AppUpdateService.DownloadPercent))
+                            throw new InvalidOperationException("Broken progress observer");
+                    };
+
+                    await service.CheckAsync();
+                    var downloaded = await service.DownloadAsync();
+
+                    Assert.IsTrue(downloaded);
+                    Assert.AreEqual(AppUpdatePhase.Downloaded, service.Phase);
+                    Assert.AreEqual(100, service.DownloadPercent);
+                    CollectionAssert.AreEqual(
+                        payload,
+                        File.ReadAllBytes(Path.Combine(updateRoot, "99.0.1", filename)));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(updateRoot)) Directory.Delete(updateRoot, recursive: true);
+            }
+        }
+
         private static HttpResponseMessage GzipResponse(string value)
         {
             byte[] compressed;
@@ -182,6 +262,18 @@ namespace YTray.Tests
             protected override Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request,
                 CancellationToken cancellationToken) => Task.FromResult(_response());
+        }
+
+        private sealed class RoutedResponseHandler : HttpMessageHandler
+        {
+            private readonly Func<HttpRequestMessage, HttpResponseMessage> _response;
+
+            internal RoutedResponseHandler(Func<HttpRequestMessage, HttpResponseMessage> response) =>
+                _response = response;
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken) => Task.FromResult(_response(request));
         }
 
         private sealed class NeverCompletingHandler : HttpMessageHandler
