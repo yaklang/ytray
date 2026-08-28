@@ -824,6 +824,23 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertTrue(BrowserLauncher.supportsCommandLineExtensions(runtimeKind: .edge))
     }
 
+    func testEveryMacOSLaunchModeAvoidsTheBlockingSystemKeychain() throws {
+        for mode in [LaunchMode.quick, .isolated, .custom] {
+            let arguments = try BrowserLauncher.buildArguments(
+                mode: mode,
+                settings: LaunchSettings(),
+                profilePath: "/tmp/keychain-profile-\(mode.rawValue)",
+                debugPort: 9321,
+                plugins: []
+            )
+            XCTAssertEqual(arguments.filter { $0 == "--use-mock-keychain" }.count, 1)
+        }
+    }
+
+    func testBrowserProcessBootstrapDoesNotAddAOneSecondDelay() {
+        XCTAssertLessThanOrEqual(YTrayMain.browserProcessBootstrapDelay, 0.1)
+    }
+
     func testUnsupportedChromeExplainsWhyQuickLaunchCannotLoadDefaultPlugins() throws {
         var chrome = BrowserRuntime(
             name: "Google Chrome",

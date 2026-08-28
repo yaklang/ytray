@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 — 2026-08-28
+
+- macOS 浏览器实例默认使用 Chromium 测试钥匙链，避免 “Chromium Safe Storage” 授权弹窗阻塞启动；实例 helper 的固定等待由 1 秒缩短为 0.1 秒。
+
 ## 0.1.6 — 2026-08-28
 
 - 修复 Windows 更新清单被 OSS/CDN gzip 压缩后无法解析的问题，并增加响应大小、压缩格式与 JSON 正文校验。

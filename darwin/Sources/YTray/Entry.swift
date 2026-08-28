@@ -4,6 +4,11 @@ import SwiftUI
 
 @main
 enum YTrayMain {
+    // A short main-run-loop grace period lets Dock register the per-instance
+    // icon before exec replaces this helper with Chromium. A full second made
+    // every macOS browser launch feel needlessly slow.
+    static let browserProcessBootstrapDelay: TimeInterval = 0.1
+
     @MainActor
     static func main() {
         if let index = CommandLine.arguments.firstIndex(of: "--browser-process") {
@@ -95,7 +100,7 @@ enum YTrayMain {
         application.applicationIconImage = icon
         application.finishLaunching()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + browserProcessBootstrapDelay) {
             let arguments = [browserPath] + browserArguments
             var pointers = arguments.map { strdup($0) }
             pointers.append(nil)

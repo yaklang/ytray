@@ -51,6 +51,10 @@ enum BrowserLauncher {
             "--remote-debugging-port=\(debugPort)",
             "--remote-allow-origins=http://127.0.0.1:\(debugPort)",
             "--no-first-run", "--no-default-browser-check",
+            // YTray profiles are automation/testing profiles. Using Chromium's
+            // test keychain prevents macOS Safe Storage authorization dialogs
+            // from blocking startup when a managed browser build changes.
+            "--use-mock-keychain",
         ]
         if runtimeKind == .chromeForTesting {
             arguments.append("--disable-infobars")
