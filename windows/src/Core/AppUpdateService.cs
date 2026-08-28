@@ -3,9 +3,12 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -73,6 +76,7 @@ namespace YTray.Core
     {
         internal const string ManifestUrl = "https://aliyun-oss.yaklang.com/ytray/latest.json";
         internal static readonly TimeSpan DefaultCheckTimeout = TimeSpan.FromSeconds(10);
+        private const int MaximumManifestBytes = 2 * 1024 * 1024;
         private static readonly Lazy<AppUpdateService> LazyShared =
             new Lazy<AppUpdateService>(() => new AppUpdateService());
 
@@ -90,7 +94,7 @@ namespace YTray.Core
 
         internal AppUpdateService(HttpMessageHandler? handler = null, TimeSpan? checkTimeout = null)
         {
-            _client = handler == null ? new HttpClient() : new HttpClient(handler);
+            _client = new HttpClient(handler ?? CreateDefaultHandler());
             _checkTimeout = checkTimeout ?? DefaultCheckTimeout;
             if (_checkTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(checkTimeout));
             // Installer downloads may legitimately take a long time. Manifest checks use
@@ -100,6 +104,14 @@ namespace YTray.Core
             _client.DefaultRequestHeaders.UserAgent.ParseAdd("YTray/" + CurrentVersion);
             _statusText = $"当前版本 v{CurrentVersion}";
         }
+
+        internal static HttpClientHandler CreateDefaultHandler() => new HttpClientHandler
+        {
+            // The OSS/CDN currently returns latest.json as gzip even for clients that do
+            // not advertise Accept-Encoding. .NET Framework does not decompress it unless
+            // explicitly configured, which otherwise feeds the 1F 8B bytes to Json.NET.
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+        };
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -154,9 +166,17 @@ namespace YTray.Core
                         timeout.Token).ConfigureAwait(false))
                     {
                         response.EnsureSuccessStatusCode();
-                        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                        var release = JsonConvert.DeserializeObject<AppReleaseManifest>(json)
-                            ?? throw new InvalidDataException("更新清单为空");
+                        var json = await ReadManifestJsonAsync(response.Content).ConfigureAwait(false);
+                        AppReleaseManifest release;
+                        try
+                        {
+                            release = JsonConvert.DeserializeObject<AppReleaseManifest>(json)
+                                ?? throw new InvalidDataException("更新清单为空");
+                        }
+                        catch (JsonException ex)
+                        {
+                            throw new InvalidDataException("更新服务器返回的数据无法识别", ex);
+                        }
                         ValidateManifest(release);
                         var architecture = Environment.Is64BitProcess ? "amd64" : "386";
                         var asset = SelectAsset(release, "windows", architecture, "setup")
@@ -323,6 +343,49 @@ namespace YTray.Core
                 safeFilename);
         }
 
+        private static async Task<string> ReadManifestJsonAsync(HttpContent content)
+        {
+            var payload = await content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            if (payload.Length == 0) throw new InvalidDataException("更新清单为空");
+            if (payload.Length > MaximumManifestBytes)
+                throw new InvalidDataException("更新清单超过允许的大小");
+
+            // AutomaticDecompression is the normal path. Keep a small payload-level
+            // fallback for proxies/CDNs that preserve Content-Encoding incorrectly or
+            // return gzip bytes without the header.
+            var isGzip = payload.Length >= 2 && payload[0] == 0x1f && payload[1] == 0x8b;
+            var isDeflate = content.Headers.ContentEncoding.Any(value =>
+                string.Equals(value, "deflate", StringComparison.OrdinalIgnoreCase));
+            if (isGzip || isDeflate)
+                payload = DecompressManifest(payload, isGzip);
+
+            var json = Encoding.UTF8.GetString(payload).TrimStart('\uFEFF');
+            var first = json.FirstOrDefault(character => !char.IsWhiteSpace(character));
+            if (first != '{')
+                throw new InvalidDataException("更新服务器返回的数据无法识别");
+            return json;
+        }
+
+        private static byte[] DecompressManifest(byte[] payload, bool gzip)
+        {
+            using (var source = new MemoryStream(payload, writable: false))
+            using (var decoder = gzip
+                ? (Stream)new GZipStream(source, CompressionMode.Decompress)
+                : new DeflateStream(source, CompressionMode.Decompress))
+            using (var output = new MemoryStream())
+            {
+                var buffer = new byte[8192];
+                int read;
+                while ((read = decoder.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (output.Length + read > MaximumManifestBytes)
+                        throw new InvalidDataException("解压后的更新清单超过允许的大小");
+                    output.Write(buffer, 0, read);
+                }
+                return output.ToArray();
+            }
+        }
+
         private static void ValidateManifest(AppReleaseManifest release)
         {
             if (release.SchemaVersion != 1 || !string.Equals(release.Product, "ytray", StringComparison.Ordinal)
@@ -465,8 +528,26 @@ namespace YTray.Core
             OnPropertyChanged(nameof(AvailableVersion));
         }
 
-        private void OnPropertyChanged(string name) =>
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        private void OnPropertyChanged(string name)
+        {
+            var handlers = PropertyChanged;
+            if (handlers == null) return;
+            var args = new PropertyChangedEventArgs(name);
+            foreach (PropertyChangedEventHandler handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, args);
+                }
+                catch (Exception ex)
+                {
+                    // A presentation observer must never break the updater state machine or
+                    // strand the UI in Checking/Downloading. Preserve diagnostics and keep
+                    // notifying the remaining observers.
+                    CrashGuard.Record("app-update-property-changed:" + name, ex);
+                }
+            }
+        }
 
         private static void TryDelete(string path)
         {
@@ -477,6 +558,7 @@ namespace YTray.Core
         {
             if (error is OperationCanceledException) return "请求已取消或超时";
             if (error is Win32Exception native && native.NativeErrorCode == 1223) return "已取消管理员授权";
+            if (error is JsonException) return "更新服务器返回的数据无法识别";
             return error.Message;
         }
 

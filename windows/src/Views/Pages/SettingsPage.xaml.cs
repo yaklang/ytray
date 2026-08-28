@@ -157,9 +157,22 @@ namespace YTray.Views.Pages
 
         private void OnUpdaterPropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (!IsLoaded) return;
-            if (Dispatcher.CheckAccess()) RefreshUpdateControls();
-            else Dispatcher.BeginInvoke(new Action(RefreshUpdateControls));
+            // AppUpdateService deliberately performs network and checksum work away from
+            // the UI thread. Do not touch IsLoaded (a DependencyObject property) until the
+            // notification has been marshalled back to this page's dispatcher.
+            var dispatcher = Dispatcher;
+            if (!dispatcher.CheckAccess())
+            {
+                if (!dispatcher.HasShutdownStarted)
+                    dispatcher.BeginInvoke(new Action(RefreshUpdateControlsIfLoaded));
+                return;
+            }
+            RefreshUpdateControlsIfLoaded();
+        }
+
+        private void RefreshUpdateControlsIfLoaded()
+        {
+            if (IsLoaded) RefreshUpdateControls();
         }
 
         private void RefreshUpdateControls()

@@ -47,6 +47,32 @@ download_exact() {
   die "CDN did not serve expected content: $url"
 }
 
+download_raw_exact() {
+  local url="$1" expected_file="$2" label="$3"
+  local expected_hash output headers actual_hash content_encoding attempt request_url
+  expected_hash="$(sha256_file "$expected_file")"
+  output="$WORK_DIR/raw-download"
+  headers="$WORK_DIR/raw-headers"
+  for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+    request_url="${url}?ci_raw_verify=${CACHE_BUSTER}-${attempt}"
+    if curl --retry 3 --retry-all-errors --connect-timeout 15 --max-time 180 \
+      -H 'Accept-Encoding: identity' -H 'Cache-Control: no-cache' \
+      -D "$headers" -fsSL "$request_url" -o "$output"; then
+      actual_hash="$(sha256_file "$output")"
+      if [[ "$actual_hash" == "$expected_hash" ]]; then
+        echo "CDN raw-response verified: $label ($actual_hash)"
+        return 0
+      fi
+      content_encoding="$(awk 'BEGIN { IGNORECASE=1 } /^content-encoding:/ { gsub("\\r", ""); value=$0 } END { print value }' "$headers")"
+      echo "CDN raw-response mismatch for $label on attempt $attempt${content_encoding:+ ($content_encoding)}" >&2
+    else
+      echo "CDN raw-response download failed for $label on attempt $attempt" >&2
+    fi
+    if [[ "$attempt" -lt "$MAX_ATTEMPTS" ]]; then sleep "$RETRY_DELAY_SECONDS"; fi
+  done
+  die "CDN transformed raw response bytes; legacy clients cannot read: $url"
+}
+
 [[ "$VERSION" =~ $VERSION_RE ]] || die "invalid version: $VERSION"
 [[ -d "$DIST_DIR" ]] || die "dist directory is missing: $DIST_DIR"
 [[ -d "$INDEX_DIR" ]] || die "index directory is missing: $INDEX_DIR"
@@ -73,9 +99,9 @@ while IFS=$'\t' read -r filename expected_hash expected_size; do
   download_exact "$PUBLIC_BASE_URL/$VERSION/$filename.sha256.txt" "$checksum_file" "$filename.sha256.txt"
 done < <(jq -r '.assets[] | [.filename, .sha256, (.size | tostring)] | @tsv' "$MANIFEST")
 
-download_exact "$PUBLIC_BASE_URL/latest.json" "$INDEX_DIR/latest.json" "latest.json"
+download_raw_exact "$PUBLIC_BASE_URL/latest.json" "$INDEX_DIR/latest.json" "latest.json"
 download_exact "$PUBLIC_BASE_URL/latest.txt" "$INDEX_DIR/latest.txt" "latest.txt"
 download_exact "$PUBLIC_BASE_URL/latest-version.txt" "$INDEX_DIR/latest-version.txt" "latest-version.txt"
-download_exact "$PUBLIC_BASE_URL/releases.json" "$INDEX_DIR/releases.json" "releases.json"
+download_raw_exact "$PUBLIC_BASE_URL/releases.json" "$INDEX_DIR/releases.json" "releases.json"
 
 echo "Aliyun CDN release verification passed for YTray $VERSION"

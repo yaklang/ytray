@@ -287,9 +287,17 @@ jobs:
         run: |
           set -euo pipefail
           bash script/prepare-release-index.sh "$VERSION" dist/manifest.json release-index
+          # Keep the mutable JSON indexes byte-for-byte readable by legacy Windows
+          # clients. The CDN currently compresses application/json even when a
+          # client requests identity, while YTray <= 0.1.5 does not decompress it.
+          # application/octet-stream avoids MIME-based edge compression and
+          # no-transform makes the compatibility contract explicit.
+          json_index_meta='Content-Type:application/octet-stream#Cache-Control:no-cache,no-transform'
           ossutil cp -f release-index/releases.json "oss://$OSS_BUCKET/ytray/releases.json" \
+            --meta "$json_index_meta" \
             -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
           ossutil cp -f release-index/latest.json "oss://$OSS_BUCKET/ytray/latest.json" \
+            --meta "$json_index_meta" \
             -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
           ossutil cp -f release-index/latest.txt "oss://$OSS_BUCKET/ytray/latest.txt" \
             -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"

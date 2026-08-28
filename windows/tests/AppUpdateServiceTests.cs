@@ -1,6 +1,9 @@
 using System;
 using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -70,6 +73,115 @@ namespace YTray.Tests
                 Assert.AreEqual(2, handler.RequestCount);
                 Assert.AreEqual(AppUpdatePhase.Failed, service.Phase);
             }
+        }
+
+        [TestMethod]
+        public void DefaultUpdateClientAcceptsCompressedOssResponses()
+        {
+            using (var handler = AppUpdateService.CreateDefaultHandler())
+            {
+                Assert.IsTrue(handler.AutomaticDecompression.HasFlag(DecompressionMethods.GZip));
+                Assert.IsTrue(handler.AutomaticDecompression.HasFlag(DecompressionMethods.Deflate));
+            }
+        }
+
+        [TestMethod]
+        public async Task GzipManifestIsDecodedEvenWhenAnIntermediaryLeavesItCompressed()
+        {
+            var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.0\","
+                + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\""
+                + (Environment.Is64BitProcess ? "amd64" : "386")
+                + "\",\"kind\":\"setup\",\"filename\":\"YTray-99.0.0-setup.exe\","
+                + "\"url\":\"https://example.test/YTray-99.0.0-setup.exe\","
+                + "\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}]}";
+            using (var service = new AppUpdateService(
+                new StaticResponseHandler(() => GzipResponse(manifest))))
+            {
+                await service.CheckAsync();
+
+                Assert.AreEqual(AppUpdatePhase.Available, service.Phase);
+                Assert.AreEqual("99.0.0", service.AvailableVersion);
+                StringAssert.Contains(service.StatusText, "发现新版本 v99.0.0");
+            }
+        }
+
+        [TestMethod]
+        public async Task InvalidManifestUsesAChineseUserFacingMessage()
+        {
+            using (var service = new AppUpdateService(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("proxy returned an error page", Encoding.UTF8, "application/json"),
+                })))
+            {
+                await service.CheckAsync();
+
+                Assert.AreEqual(AppUpdatePhase.Failed, service.Phase);
+                Assert.AreEqual("检查更新失败 · 更新服务器返回的数据无法识别", service.StatusText);
+            }
+        }
+
+        [TestMethod]
+        public async Task ThrowingObserverCannotLeaveUpdaterInCheckingState()
+        {
+            var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.0\","
+                + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\""
+                + (Environment.Is64BitProcess ? "amd64" : "386")
+                + "\",\"kind\":\"setup\",\"filename\":\"YTray-99.0.0-setup.exe\","
+                + "\"url\":\"https://example.test/YTray-99.0.0-setup.exe\","
+                + "\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}]}";
+            using (var service = new AppUpdateService(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(manifest, Encoding.UTF8, "application/json"),
+                })))
+            {
+                var notifications = 0;
+                service.PropertyChanged += (sender, args) =>
+                {
+                    Interlocked.Increment(ref notifications);
+                    throw new InvalidOperationException("Broken UI observer");
+                };
+
+                await service.CheckAsync();
+
+                Assert.IsTrue(notifications > 0);
+                Assert.AreEqual(AppUpdatePhase.Available, service.Phase);
+                Assert.IsFalse(service.IsBusy);
+                Assert.AreEqual("99.0.0", service.AvailableVersion);
+            }
+        }
+
+        private static HttpResponseMessage GzipResponse(string value)
+        {
+            byte[] compressed;
+            using (var output = new MemoryStream())
+            {
+                using (var gzip = new GZipStream(output, CompressionMode.Compress, leaveOpen: true))
+                {
+                    var input = Encoding.UTF8.GetBytes(value);
+                    gzip.Write(input, 0, input.Length);
+                }
+                compressed = output.ToArray();
+            }
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(compressed),
+            };
+            response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            response.Content.Headers.ContentEncoding.Add("gzip");
+            return response;
+        }
+
+        private sealed class StaticResponseHandler : HttpMessageHandler
+        {
+            private readonly Func<HttpResponseMessage> _response;
+
+            internal StaticResponseHandler(Func<HttpResponseMessage> response) => _response = response;
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken) => Task.FromResult(_response());
         }
 
         private sealed class NeverCompletingHandler : HttpMessageHandler
