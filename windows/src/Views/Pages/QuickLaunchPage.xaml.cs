@@ -33,8 +33,9 @@ namespace YTray.Views.Pages
         private readonly InstanceStore _store;
         private bool _subscribed;
         private bool _refreshScheduled;
+        private bool _isRebindingRuntimeChoices;
         private string? _runtimeChoicesSignature;
-        private readonly List<RuntimeChoice> _runtimeChoices = new List<RuntimeChoice>();
+        private List<RuntimeChoice> _runtimeChoices = new List<RuntimeChoice>();
         private readonly List<NetworkChoice> _networkChoices = new List<NetworkChoice>();
 
         public QuickLaunchPage(InstanceStore store)
@@ -110,26 +111,45 @@ namespace YTray.Views.Pages
                 + ":default=" + _store.Settings.DefaultRuntimeID;
             if (_runtimeChoicesSignature == signature) return;
 
-            var selectedId = (RuntimeCombo.SelectedItem as RuntimeChoice)?.Runtime.Id
-                ?? _store.DefaultRuntime?.Id;
-            _runtimeChoicesSignature = signature;
-            _runtimeChoices.Clear();
+            // A cached overview page can still contain the runtime that was selected before the
+            // user changed the default on the browser page. The persisted setting is authoritative
+            // when this list is rebuilt; using the stale ComboBox value here would select it and
+            // SelectionChanged would immediately write it back as the default.
+            var selectedId = RuntimeSelectionPolicy.TargetRuntimeId(
+                _store.Settings.DefaultRuntimeID,
+                _store.DefaultRuntime?.Id);
+            var refreshedChoices = new List<RuntimeChoice>();
             foreach (var runtime in _store.Runtimes.OrderByDescending(r => r.Id == _store.Settings.DefaultRuntimeID))
             {
-                _runtimeChoices.Add(new RuntimeChoice
+                refreshedChoices.Add(new RuntimeChoice
                 {
                     Runtime = runtime,
                     IconSource = BrowserIconSource.FromExecutable(runtime.ExecutablePath),
                 });
             }
-            RuntimeCombo.ItemsSource = _runtimeChoices;
-            RuntimeCombo.SelectedItem = _runtimeChoices.FirstOrDefault(choice => choice.Runtime.Id == selectedId)
-                ?? _runtimeChoices.FirstOrDefault();
+
+            _runtimeChoicesSignature = signature;
+            _runtimeChoices = refreshedChoices;
+            _isRebindingRuntimeChoices = true;
+            try
+            {
+                RuntimeCombo.ItemsSource = refreshedChoices;
+                RuntimeCombo.SelectedItem = refreshedChoices.FirstOrDefault(choice => choice.Runtime.Id == selectedId)
+                    ?? refreshedChoices.FirstOrDefault();
+            }
+            finally
+            {
+                _isRebindingRuntimeChoices = false;
+            }
         }
 
         private void RuntimeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (RuntimeCombo.SelectedItem is RuntimeChoice choice && _store.Settings.DefaultRuntimeID != choice.Runtime.Id)
+            if (RuntimeCombo.SelectedItem is RuntimeChoice choice
+                && RuntimeSelectionPolicy.ShouldPersistUserSelection(
+                    _isRebindingRuntimeChoices,
+                    choice.Runtime.Id,
+                    _store.Settings.DefaultRuntimeID))
                 _store.SelectDefaultRuntime(choice.Runtime);
         }
 

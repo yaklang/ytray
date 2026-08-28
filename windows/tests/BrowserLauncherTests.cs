@@ -136,6 +136,70 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void CachedRuntimeSelectorCannotOverwriteANewerPersistedDefault()
+        {
+            var testingId = Guid.NewGuid();
+            var staleChromeId = Guid.NewGuid();
+
+            Assert.AreEqual(
+                testingId,
+                RuntimeSelectionPolicy.TargetRuntimeId(testingId, staleChromeId),
+                "A page refresh must use the default selected on the browser page, not its cached ComboBox value.");
+            Assert.IsFalse(RuntimeSelectionPolicy.ShouldPersistUserSelection(
+                isRebinding: true,
+                selectedRuntimeId: staleChromeId,
+                configuredDefaultId: testingId),
+                "Programmatic ComboBox changes while rebinding must not be treated as user input.");
+            Assert.IsTrue(RuntimeSelectionPolicy.ShouldPersistUserSelection(
+                isRebinding: false,
+                selectedRuntimeId: staleChromeId,
+                configuredDefaultId: testingId),
+                "A real user selection must still be persisted.");
+        }
+
+        [TestMethod]
+        public void SelectedDefaultRuntimeSurvivesStoreReload()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayDefaultRuntimeTests", Guid.NewGuid().ToString("N"));
+            var testingId = Guid.NewGuid();
+            try
+            {
+                using (var store = new InstanceStore(directory, discoverSystemBrowsers: false))
+                {
+                    store.Runtimes.Add(new BrowserRuntime
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = "Google Chrome",
+                        ExecutablePath = @"C:\Browsers\Chrome\chrome.exe",
+                        Source = RuntimeSource.System,
+                        BrowserKind = BrowserKind.Chrome,
+                    });
+                    var testing = new BrowserRuntime
+                    {
+                        Id = testingId,
+                        Name = "Chrome for Testing",
+                        ExecutablePath = @"C:\YTray\Runtimes\chrome.exe",
+                        Source = RuntimeSource.Managed,
+                        BrowserKind = BrowserKind.ChromeForTesting,
+                    };
+                    store.Runtimes.Add(testing);
+                    store.SelectDefaultRuntime(testing);
+                }
+
+                using (var reloaded = new InstanceStore(directory, discoverSystemBrowsers: false))
+                {
+                    Assert.AreEqual(testingId, reloaded.Settings.DefaultRuntimeID);
+                    Assert.AreEqual(testingId, reloaded.DefaultRuntime?.Id);
+                    Assert.AreEqual(BrowserKind.ChromeForTesting, reloaded.DefaultRuntime?.BrowserKind);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
         public void ProxyProbeBuildsBasicAuthAndInterpretsResponses()
         {
             var req = ProxyConnectivityChecker.ProbeRequest(new Uri("https://example.com/"), "yak", "secret");
