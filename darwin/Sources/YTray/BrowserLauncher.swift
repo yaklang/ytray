@@ -44,6 +44,7 @@ enum BrowserLauncher {
                                debugPort: Int, plugins: [BrowserPlugin],
                                runtimeKind: BrowserKind? = nil,
                                internalExtensionPaths: [String] = [],
+                               identityColor: BrowserIdentityColor? = nil,
                                restoreLastSession: Bool = false) throws -> [String] {
         var arguments = [
             "--user-data-dir=\(profilePath)",
@@ -56,6 +57,9 @@ enum BrowserLauncher {
             // from blocking startup when a managed browser build changes.
             "--use-mock-keychain",
         ]
+        if let identityColor {
+            arguments.append(identityColor.chromeThemeArgument)
+        }
         if runtimeKind == .chromeForTesting {
             arguments.append("--disable-infobars")
         }
@@ -142,6 +146,12 @@ enum BrowserLauncher {
         }
         let arguments: [String]
         do {
+            // A generated theme is installed only for a brand-new development
+            // profile. Restored profiles keep their persisted or user-selected
+            // theme, so a normal restart never overwrites appearance choices.
+            let identityColor = history == nil && AppEnvironment.instanceColorThemesEnabled
+                ? BrowserIdentityColor.color(for: normalizedBadge)
+                : nil
             arguments = try buildArguments(
                 mode: mode,
                 settings: launchSettings,
@@ -150,6 +160,7 @@ enum BrowserLauncher {
                 plugins: plugins,
                 runtimeKind: runtime.kind,
                 internalExtensionPaths: proxyAuthExtension.map { [$0.path] } ?? [],
+                identityColor: identityColor,
                 restoreLastSession: history != nil && !usesProxyAuthentication
             )
         } catch {

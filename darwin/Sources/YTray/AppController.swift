@@ -41,7 +41,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else if focusSmoke || transientSmoke {
             waitForStableTrayAnchor(focusOnPresentation: true)
         }
-        if !edgeWidgetSmoke && !focusSmoke && !transientSmoke {
+        if !edgeWidgetSmoke && !focusSmoke && !transientSmoke && appUpdater.updatesEnabled {
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
                 await self?.appUpdater.checkForUpdates()
@@ -61,7 +61,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.target = self
         button.action = #selector(statusClicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        button.toolTip = "YTray · 左键打开小组件 / 右键菜单"
+        button.toolTip = "\(AppEnvironment.displayName) · 左键打开小组件 / 右键菜单"
         store.$instances.sink { [weak self] _ in
             Task { @MainActor in
                 self?.refreshStatusTitle()
@@ -86,8 +86,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let updateSuffix = appUpdater.isUpdateAvailable ? " ↑" : ""
         statusItem?.button?.title = store.isLaunching ? " …" : " \(store.runningInstances.count)\(updateSuffix)"
         statusItem?.button?.toolTip = appUpdater.isUpdateAvailable
-            ? "YTray v\(appUpdater.availableVersion ?? "最新版") 可更新"
-            : "YTray · 左键打开小组件 / 右键菜单"
+            ? "\(AppEnvironment.displayName) v\(appUpdater.availableVersion ?? "最新版") 可更新"
+            : "\(AppEnvironment.displayName) · 左键打开小组件 / 右键菜单"
         statusItem?.button?.superview?.layoutSubtreeIfNeeded()
         if widgetPanel?.isVisible == true {
             DispatchQueue.main.async { [weak self] in self?.updateWidgetSize(animated: false) }
@@ -112,8 +112,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "") .target = self
         menu.addItem(withTitle: "全部管理", action: #selector(showManagerAction), keyEquivalent: ",").target = self
         let updateTitle = appUpdater.isUpdateAvailable
-            ? "安装 YTray v\(appUpdater.availableVersion ?? "最新版")…"
-            : "检查 YTray 更新…"
+            ? "安装 \(AppEnvironment.displayName) v\(appUpdater.availableVersion ?? "最新版")…"
+            : "检查 \(AppEnvironment.displayName) 更新…"
         menu.addItem(withTitle: updateTitle, action: #selector(showUpdateAction), keyEquivalent: "").target = self
         menu.addItem(.separator())
         let edgeItem = menu.addItem(
@@ -123,7 +123,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         edgeItem.target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出 YTray", action: #selector(quit), keyEquivalent: "q").target = self
+        menu.addItem(withTitle: "退出 \(AppEnvironment.displayName)", action: #selector(quit), keyEquivalent: "q").target = self
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil

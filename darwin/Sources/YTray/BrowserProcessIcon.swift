@@ -68,7 +68,10 @@ enum BrowserProcessIcon {
         let border = NSBezierPath(ovalIn: badgeRect.insetBy(dx: -size * 0.012, dy: -size * 0.012))
         border.lineWidth = size * 0.024
         border.stroke()
-        Brand.orangeNS.setFill()
+        let badgeColor = AppEnvironment.instanceColorThemesEnabled
+            ? BrowserIdentityColor.color(for: badge).nsColor
+            : Brand.orangeNS
+        badgeColor.setFill()
         NSBezierPath(ovalIn: badgeRect).fill()
 
         let fontSize = badge.count == 1 ? diameter * 0.59 : diameter * 0.43

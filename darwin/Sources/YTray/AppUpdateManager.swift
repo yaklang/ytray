@@ -59,14 +59,18 @@ final class AppUpdateManager: ObservableObject {
     @Published private(set) var availableVersion: String?
 
     let currentVersion: String
+    let updatesEnabled: Bool
     private var release: AppReleaseManifest?
     private var asset: AppReleaseAsset?
     private var downloadedDMG: URL?
 
-    init(currentVersion: String? = nil) {
+    init(currentVersion: String? = nil, updatesEnabled: Bool? = nil) {
         let bundleVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         self.currentVersion = currentVersion ?? bundleVersion ?? "0.0.0"
-        self.statusText = "当前版本 v\(self.currentVersion)"
+        self.updatesEnabled = updatesEnabled ?? AppEnvironment.appUpdatesEnabled
+        self.statusText = self.updatesEnabled
+            ? "当前版本 v\(self.currentVersion)"
+            : "YTrayDev 体验版已关闭应用内更新"
     }
 
     var isBusy: Bool {
@@ -84,6 +88,7 @@ final class AppUpdateManager: ObservableObject {
     }
 
     var actionLabel: String {
+        guard updatesEnabled else { return "体验版不更新" }
         switch phase {
         case .checking: return "正在检查…"
         case .downloading: return "下载中 \(downloadPercent)%"
@@ -94,6 +99,10 @@ final class AppUpdateManager: ObservableObject {
     }
 
     func checkForUpdates() async {
+        guard updatesEnabled else {
+            setPhase(.upToDate, "YTrayDev 体验版已关闭应用内更新")
+            return
+        }
         guard !isBusy else { return }
         setPhase(.checking, "正在检查 YTray 更新…")
         do {
@@ -141,6 +150,7 @@ final class AppUpdateManager: ObservableObject {
     }
 
     func downloadUpdate() async -> Bool {
+        guard updatesEnabled else { return false }
         guard !isBusy, isUpdateAvailable, let release, let asset else { return false }
         do {
             let destination = try Self.downloadPath(manifest: release, asset: asset)
@@ -184,6 +194,7 @@ final class AppUpdateManager: ObservableObject {
     }
 
     func installDownloadedUpdate() async -> Bool {
+        guard updatesEnabled else { return false }
         guard !isBusy, let release, let asset, let downloadedDMG else { return false }
         do {
             try Self.verifyFile(downloadedDMG, asset: asset)

@@ -11,6 +11,20 @@ enum YTrayMain {
 
     @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--diagnose-environment") {
+            print("name=\(AppEnvironment.displayName)")
+            print("bundle_id=\(Bundle.main.bundleIdentifier ?? "missing")")
+            print("development=\(AppEnvironment.isDevelopmentBuild)")
+            print("application_directory=\(AppEnvironment.applicationDirectoryName)")
+            print("instance_color_themes=\(AppEnvironment.instanceColorThemesEnabled)")
+            print("app_updates=\(AppEnvironment.appUpdatesEnabled)")
+            print("launch_at_login=\(AppEnvironment.launchAtLoginEnabled)")
+            for badge in ["A", "B", "C"] {
+                print("badge_\(badge)=\(BrowserIdentityColor.color(for: badge).chromeThemeArgument)")
+            }
+            return
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--browser-process") {
             runBrowserProcess(argumentIndex: index)
             return

@@ -62,6 +62,7 @@ final class LaunchAtLoginManager: ObservableObject {
         backend: LaunchAtLoginBackend = SystemLaunchAtLoginBackend(),
         defaults: UserDefaults = .standard,
         packagedApplication: Bool = Bundle.main.bundleURL.pathExtension.lowercased() == "app"
+            && AppEnvironment.launchAtLoginEnabled
     ) {
         self.backend = backend
         self.defaults = defaults

@@ -12,16 +12,28 @@ INFO_PLIST_SOURCE="$RESOURCE_ROOT/Info.plist"
 VERSION="$(tr -d '[:space:]' < "$PROJECT_ROOT/VERSION")"
 REQUESTED_ARCH="native"
 BUILD_DMG=0
+DEVELOPMENT_BUILD=0
+VERSION_WAS_REQUESTED=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --arch) REQUESTED_ARCH="${2:?--arch requires arm64, amd64, or universal}"; shift 2 ;;
         --universal) REQUESTED_ARCH="universal"; shift ;;
-        --version) VERSION="${2:?--version requires a version}"; shift 2 ;;
+        --version) VERSION="${2:?--version requires a version}"; VERSION_WAS_REQUESTED=1; shift 2 ;;
+        --dev) DEVELOPMENT_BUILD=1; shift ;;
         --dmg) BUILD_DMG=1; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+if [[ "$DEVELOPMENT_BUILD" -eq 1 && "$VERSION_WAS_REQUESTED" -eq 0 ]]; then
+    VERSION="${VERSION}-dev"
+fi
+
+if [[ "$DEVELOPMENT_BUILD" -eq 1 && "$BUILD_DMG" -eq 1 ]]; then
+    echo "YTrayDev is a local-only app bundle and cannot be packaged as a release DMG." >&2
+    exit 1
+fi
 
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] || {
     echo "Invalid version: $VERSION" >&2
@@ -42,8 +54,20 @@ case "$REQUESTED_ARCH" in
     *) echo "Unsupported --arch value: $REQUESTED_ARCH" >&2; exit 1 ;;
 esac
 
-APP_OUTPUT_ROOT="$OUTPUT_ROOT/darwin-$ARCH_LABEL"
-APP_BUNDLE="$APP_OUTPUT_ROOT/YTray.app"
+if [[ "$DEVELOPMENT_BUILD" -eq 1 ]]; then
+    APP_NAME="YTrayDev"
+    EXECUTABLE_NAME="YTrayDev"
+    OUTPUT_FLAVOR="-dev"
+    FLAVOR_LABEL="development"
+else
+    APP_NAME="YTray"
+    EXECUTABLE_NAME="YTray"
+    OUTPUT_FLAVOR=""
+    FLAVOR_LABEL="production"
+fi
+
+APP_OUTPUT_ROOT="$OUTPUT_ROOT/darwin-$ARCH_LABEL$OUTPUT_FLAVOR"
+APP_BUNDLE="$APP_OUTPUT_ROOT/$APP_NAME.app"
 DMG_PATH="$OUTPUT_ROOT/YTray-$VERSION-darwin-$ARCH_LABEL.dmg"
 ICONSET_DIR="$APP_OUTPUT_ROOT/YTray.iconset"
 BUNDLED_EXTENSION_DIR="$APP_OUTPUT_ROOT/BundledExtension"
@@ -62,7 +86,7 @@ swift build "${BUILD_ARGS[@]}"
 BIN_PATH="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/BundledExtension" "$ICONSET_DIR"
-cp "$BIN_PATH/YTray" "$APP_BUNDLE/Contents/MacOS/YTray"
+cp "$BIN_PATH/YTray" "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
 cp "$BUNDLED_EXTENSION_DIR/yakit-browser-agent.zip" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 cp "$BUNDLED_EXTENSION_DIR/bundled-extension.json" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 
@@ -89,13 +113,20 @@ iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/YTray.icns"
 cp "$INFO_PLIST_SOURCE" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-$(git -C "$PROJECT_ROOT" rev-list --count HEAD)}" "$APP_BUNDLE/Contents/Info.plist"
+if [[ "$DEVELOPMENT_BUILD" -eq 1 ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName YTrayDev" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName YTrayDev" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable YTrayDev" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier io.yaklang.ytray.dev" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :YTrayInstanceColorThemes bool true" "$APP_BUNDLE/Contents/Info.plist"
+fi
 
 # Local packages are ad-hoc signed. The release workflow replaces this with a
 # stable Developer ID signature and notarization when the repository secrets exist.
 codesign --force --deep --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
 
-ARCHS="$(lipo -archs "$APP_BUNDLE/Contents/MacOS/YTray")"
+ARCHS="$(lipo -archs "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME")"
 case "$ARCH_LABEL:$ARCHS" in
     arm64:arm64|amd64:x86_64) ;;
     universal:*arm64*x86_64*|universal:*x86_64*arm64*) ;;
@@ -104,6 +135,7 @@ esac
 
 echo "app=$APP_BUNDLE"
 echo "version=$VERSION"
+echo "flavor=$FLAVOR_LABEL"
 echo "architecture=$ARCH_LABEL"
 echo "binary_archs=$ARCHS"
 echo "bundled_extension=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$BUNDLED_EXTENSION_DIR/bundled-extension.json")"

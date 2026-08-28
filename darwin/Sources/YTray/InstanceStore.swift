@@ -38,7 +38,7 @@ final class InstanceStore: NSObject, ObservableObject {
     private var proxyCheckToken: UUID?
 
     private static let thumbnailRefreshInterval: TimeInterval = 12
-    private static let applicationDirectoryName = "YTray"
+    private static var applicationDirectoryName: String { AppEnvironment.applicationDirectoryName }
     private static let legacyApplicationDirectoryName = ["Instance", "Dock"].joined()
 
     var isLaunching: Bool {
@@ -57,7 +57,7 @@ final class InstanceStore: NSObject, ObservableObject {
         )[0]
         let base = applicationDirectory ?? supportDirectory
             .appendingPathComponent(Self.applicationDirectoryName, isDirectory: true)
-        let legacyBase = legacyApplicationDirectory ?? (applicationDirectory == nil
+        let legacyBase = legacyApplicationDirectory ?? (applicationDirectory == nil && !AppEnvironment.isDevelopmentBuild
             ? supportDirectory.appendingPathComponent(Self.legacyApplicationDirectoryName, isDirectory: true)
             : nil)
         if let legacyBase {
@@ -71,7 +71,9 @@ final class InstanceStore: NSObject, ObservableObject {
         if let legacyBase {
             rewriteManagedPaths(from: legacyBase, to: base)
         }
-        if usesDefaultApplicationDirectory { installBundledExtensionIfNeeded() }
+        if usesDefaultApplicationDirectory && AppEnvironment.bundledExtensionAutoInstallEnabled {
+            installBundledExtensionIfNeeded()
+        }
         if discoverSystemBrowsers { refreshSystemBrowsers() }
         refreshProcessStates()
         NotificationCenter.default.addObserver(self, selector: #selector(processDidTerminate(_:)),

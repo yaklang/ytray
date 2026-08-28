@@ -331,6 +331,11 @@ struct SettingsPage: View {
                 Toggle("限制 WebRTC 非代理 UDP 与本地 IP 暴露", isOn: $store.settings.restrictWebRTC)
                 Toggle("关闭浏览器通知", isOn: $store.settings.disableNotifications)
                 Toggle("忽略证书错误（默认开启，适合本地网络调试）", isOn: $store.settings.ignoreCertificateErrors)
+                if AppEnvironment.instanceColorThemesEnabled {
+                    Label("YTrayDev 会按 A/B/C 为新实例设置不同的 Chrome 顶栏颜色；恢复实例不会覆盖你手动选择的主题。", systemImage: "paintpalette.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } header: { Text("浏览器精简与网络") }
             Section {
                 TextEditor(text: $store.settings.additionalFlags).font(.system(.body, design: .monospaced)).frame(minHeight: 130)
@@ -344,7 +349,7 @@ struct SettingsPage: View {
                         .foregroundStyle(updater.isUpdateAvailable ? Brand.orange : Color.secondary)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
-                            Text("YTray v\(updater.currentVersion)").font(.headline)
+                            Text("\(AppEnvironment.displayName) v\(updater.currentVersion)").font(.headline)
                             if let version = updater.availableVersion, updater.isUpdateAvailable {
                                 StatusBadge(text: "v\(version) 可用", color: Brand.orange)
                             }
@@ -362,7 +367,7 @@ struct SettingsPage: View {
                         }
                     }
                     .buttonStyle(FilledOrangeButtonStyle())
-                    .disabled(updater.isBusy)
+                    .disabled(updater.isBusy || !updater.updatesEnabled)
                 }
                 if updater.phase == .downloading {
                     ProgressView(value: Double(updater.downloadPercent), total: 100)
