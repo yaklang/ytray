@@ -178,18 +178,6 @@
   height: 8.5rem;
   margin-bottom: 1rem;
   place-items: center;
-  isolation: isolate;
-}
-
-.hero-brand-emblem::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0.35rem;
-  border: 1px solid rgba(242, 98, 21, 0.14);
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(242, 98, 21, 0.12), rgba(242, 98, 21, 0.03) 50%, transparent 72%);
-  content: "";
-  transform: rotate(-8deg) scaleX(1.08);
 }
 
 .hero-title {
