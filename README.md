@@ -104,6 +104,7 @@ macOS：
 ├── Plugins/        # 本地与内置插件
 ├── Runtimes/       # 可选 Chrome for Testing
 ├── Screenshots/    # 用户导出的页面截图
+├── Logs/           # YTray 运行日志、错误日志与浏览器实例日志
 └── state.json      # 配置和历史
 ```
 

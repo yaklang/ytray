@@ -213,12 +213,14 @@ namespace YTray.Core
                     }
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
+                DiagnosticLog.Error("app.update.check", ex, "update check timed out");
                 SetPhase(AppUpdatePhase.Failed, "检查更新超时，请稍后重试");
             }
             catch (Exception ex)
             {
+                DiagnosticLog.Error("app.update.check", ex);
                 SetPhase(AppUpdatePhase.Failed, "检查更新失败 · " + UserFacingError(ex));
             }
             finally
@@ -288,6 +290,7 @@ namespace YTray.Core
             catch (Exception ex)
             {
                 if (partialPath != null) TryDelete(partialPath);
+                DiagnosticLog.Error("app.update.download", ex);
                 SetPhase(AppUpdatePhase.Failed, "下载更新失败 · " + UserFacingError(ex));
                 return false;
             }
@@ -313,6 +316,7 @@ namespace YTray.Core
             }
             catch (Exception ex)
             {
+                DiagnosticLog.Error("app.update.install", ex);
                 SetPhase(AppUpdatePhase.Failed, "无法安装更新 · " + UserFacingError(ex));
                 return false;
             }
@@ -538,6 +542,7 @@ namespace YTray.Core
         {
             _phase = phase;
             _statusText = status;
+            DiagnosticLog.Info("app.update", $"phase={phase}; status={status}");
             OnPropertyChanged(nameof(Phase));
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(IsBusy));

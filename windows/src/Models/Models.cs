@@ -454,6 +454,10 @@ namespace YTray.Models
 
     public class MirrorManifest
     {
+        [JsonProperty("schema_version")]
+        public int SchemaVersion { get; set; }
+        public string Product { get; set; } = "";
+        public string Channel { get; set; } = "";
         [JsonProperty("generated_at")]
         public string GeneratedAt { get; set; } = "";
         public List<MirrorVersion> Versions { get; set; } = new List<MirrorVersion>();
@@ -541,6 +545,7 @@ namespace YTray.Models
         InvalidProxy,
         InvalidFlag,
         LaunchFailed,
+        RuntimeManifestFailed,
         DownloadFailed,
         ExtensionInstallFailed,
         ScreenshotFailed,
@@ -550,6 +555,8 @@ namespace YTray.Models
     {
         public YTrayError Error { get; }
         public YTrayException(YTrayError error, string? message) : base(Message(error, message)) { Error = error; }
+        public YTrayException(YTrayError error, string? message, Exception innerException)
+            : base(Message(error, message), innerException) { Error = error; }
 
         public static new string Message(YTrayError error, string? detail) => error switch
         {
@@ -560,6 +567,7 @@ namespace YTray.Models
             YTrayError.InvalidProxy => $"HTTP 代理地址无效：{detail}（例如 http://127.0.0.1:8083）",
             YTrayError.InvalidFlag => $"不允许覆盖实例隔离或调试参数：{detail}",
             YTrayError.LaunchFailed => $"浏览器启动失败：{detail}",
+            YTrayError.RuntimeManifestFailed => $"获取浏览器版本失败：{detail}",
             YTrayError.DownloadFailed => $"运行时安装失败：{detail}",
             YTrayError.ExtensionInstallFailed => $"插件下载失败：{detail}",
             YTrayError.ScreenshotFailed => $"快速截图失败：{detail}",

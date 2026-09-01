@@ -106,6 +106,8 @@ namespace YTray.Core
             };
             _persistenceTimer.Tick += OnPersistenceTick;
             _timer.Start();
+            DiagnosticLog.Info("store.ready",
+                $"state loaded; runtimes={Runtimes.Count}; plugins={Plugins.Count}; instances={Instances.Count}");
         }
 
         private void OnMaintenanceTick(object sender, EventArgs e)
@@ -152,6 +154,7 @@ namespace YTray.Core
                     : ExtensionInstaller.CompareVersions(version, previous.Version) > 0
                         ? $"已从内置包升级 Yakit 插件 {previous.Version} → {version}"
                         : $"已重新准备内置 Yakit 插件 {version}";
+                DiagnosticLog.Info("extension.bundled", ExtensionStatusMessage);
                 return true;
             }
             catch (Exception ex)
@@ -293,6 +296,8 @@ namespace YTray.Core
             if (!Runtimes.Any(r => r.Id == runtime.Id)) return;
             Settings.DefaultRuntimeID = runtime.Id;
             Save();
+            DiagnosticLog.Info("runtime.default",
+                $"selected {runtime.DisplayTitle}; version={runtime.VersionLabel}; source={runtime.Source}");
         }
 
         public BrowserRuntime? RuntimeFor(BrowserInstance? instance) =>
@@ -353,6 +358,7 @@ namespace YTray.Core
                     throw new YTrayException(YTrayError.LaunchFailed, "浏览器进程没有响应停止请求");
 
                 MarkStopped(current.Id);
+                DiagnosticLog.Info("instance.stop", $"stopped instance={current.Id}; pid={current.ProcessID}");
                 return true;
             }
             catch (Exception ex)
@@ -435,6 +441,7 @@ namespace YTray.Core
                     i.PreviewError = null;
                 }
                 Save();
+                DiagnosticLog.Info("instance.capture", $"captured instance={current.Id}; output={output}");
                 return output;
             }
             catch (Exception ex)
@@ -526,6 +533,9 @@ namespace YTray.Core
             var runtime = Runtimes.First(r => r.Id == runtimeID);
             var selectedIDs = customPluginIDs ?? configuration.DefaultPluginIDs;
             var selectedPlugins = Plugins.Where(p => selectedIDs.Contains(p.Id) && p.Enabled).ToList();
+            DiagnosticLog.Info("instance.launch",
+                $"requested runtime={runtime.DisplayTitle}; version={runtime.VersionLabel}; mode={mode}; " +
+                $"proxy={!string.IsNullOrWhiteSpace(configuration.ProxyServer)}; plugins={selectedPlugins.Count}; restoring={restoring != null}");
 
             try
             {
@@ -565,6 +575,8 @@ namespace YTray.Core
                 LaunchingInstanceID = result.Instance.Id;
                 LaunchMessage = $"正在启动 {runtime.DisplayTitle}…";
                 LaunchPhase = BrowserLaunchPhase.Waiting;
+                DiagnosticLog.Info("instance.launch",
+                    $"process created; instance={result.Instance.Id}; pid={result.Instance.ProcessID}; debugPort={result.Instance.DebugPort}");
 
                 CrashGuard.Observe(WaitForBrowserAsync(result.Instance, token), "wait-for-browser");
                 return true;
@@ -701,6 +713,8 @@ namespace YTray.Core
 
             LaunchMessage = $"{instance.RuntimeName} 已启动";
             LaunchPhase = BrowserLaunchPhase.Succeeded;
+            DiagnosticLog.Info("instance.ready",
+                $"instance ready; instance={instance.Id}; pid={instance.ProcessID}; debugPort={instance.DebugPort}");
             LaunchingMode = null;
             LaunchingUsesProxy = null;
             LaunchingInstanceID = null;
@@ -877,6 +891,7 @@ namespace YTray.Core
 
         public async Task RefreshManifestAsync()
         {
+            ErrorMessage = null;
             try { AvailableVersions = await RuntimeInstaller.FetchVersionsAsync(); }
             catch (Exception ex) { Report(ex); }
             OnPropertyChanged(string.Empty);
@@ -1021,6 +1036,7 @@ namespace YTray.Core
                 Upsert(rt);
                 InstallProgressPercent = 100;
                 ActivityMessage = $"已安装 {version.Version}";
+                DiagnosticLog.Info("runtime.install", $"installed Chrome for Testing {version.Version}");
             }
             catch (Exception ex)
             {
@@ -1093,9 +1109,12 @@ namespace YTray.Core
             var i = Instances.FirstOrDefault(x => x.Id == id);
             if (i != null)
             {
+                var wasRunning = i.Status == InstanceStatus.Running;
                 i.Status = InstanceStatus.Stopped;
                 ConsolidateHistoryBadges();
                 Save();
+                if (wasRunning)
+                    DiagnosticLog.Info("instance.exit", $"browser exited; instance={i.Id}; pid={i.ProcessID}");
             }
         }
 
@@ -1329,6 +1348,7 @@ namespace YTray.Core
 
         private void Report(Exception ex)
         {
+            DiagnosticLog.Error("store.error", ex);
             ErrorMessage = ex is YTrayException ye ? ((Exception)ye).Message : ex.Message;
             OnPropertyChanged(nameof(ErrorMessage));
         }

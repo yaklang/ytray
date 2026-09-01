@@ -12,6 +12,7 @@ final class InstanceStore: NSObject, ObservableObject {
     @Published var availableVersions: [MirrorVersion] = []
     @Published var isInstalling = false
     @Published var activityMessage = ""
+    @Published var runtimeInstallProgress: RuntimeInstallProgress?
     @Published var errorMessage: String?
     @Published var extensionManifest: ExtensionManifest?
     @Published var isInstallingExtension = false
@@ -80,6 +81,10 @@ final class InstanceStore: NSObject, ObservableObject {
                                                name: .ytrayProcessDidTerminate, object: nil)
         timer = Timer.scheduledTimer(timeInterval: 2, target: self,
                                      selector: #selector(refreshTimerFired), userInfo: nil, repeats: true)
+        DiagnosticLog.info(
+            "store.ready",
+            "state loaded; runtimes=\(runtimes.count); plugins=\(plugins.count); instances=\(instances.count)"
+        )
     }
 
     private static func moveLegacyApplicationDirectoryIfNeeded(from legacy: URL, to current: URL) {
@@ -96,6 +101,7 @@ final class InstanceStore: NSObject, ObservableObject {
         } catch {
             // Keep startup usable even if a preview-version directory cannot be moved.
             // The new directory will be created below and the original data remains untouched.
+            DiagnosticLog.error("state.migration", error)
         }
     }
 
@@ -151,10 +157,27 @@ final class InstanceStore: NSObject, ObservableObject {
 
     func install(version: MirrorVersion) async {
         isInstalling = true
-        activityMessage = "正在下载并校验 \(version.version)…"
-        defer { isInstalling = false; activityMessage = "" }
-        do { _ = upsert(try await RuntimeInstaller.install(version: version, into: applicationDirectory)) }
-        catch { report(error) }
+        errorMessage = nil
+        runtimeInstallProgress = nil
+        activityMessage = "正在连接下载镜像…"
+        defer { isInstalling = false }
+        do {
+            let runtime = try await RuntimeInstaller.install(
+                version: version,
+                into: applicationDirectory
+            ) { [weak self] value in
+                Task { @MainActor in
+                    guard let self, self.isInstalling else { return }
+                    self.runtimeInstallProgress = value
+                    self.activityMessage = value.message
+                }
+            }
+            _ = upsert(runtime)
+            activityMessage = "Chrome for Testing \(version.version) 安装完成"
+        } catch {
+            report(error)
+            activityMessage = error.localizedDescription
+        }
     }
 
     /// The managed Yakit extension, if installed under the application's Plugins root.
@@ -204,6 +227,7 @@ final class InstanceStore: NSObject, ObservableObject {
             ExtensionInstaller.clearManagedExtensionRemoved(applicationDirectory: applicationDirectory)
             ExtensionInstaller.cleanupOldVersions(applicationDirectory: applicationDirectory, installedVersion: target.version)
             extensionStatusMessage = "Yakit 插件 \(target.version) 安装完成"
+            DiagnosticLog.info("extension.install", "installed Yakit Browser Agent \(target.version)")
         } catch {
             report(error)
             extensionStatusMessage = error.localizedDescription
@@ -325,6 +349,7 @@ final class InstanceStore: NSObject, ObservableObject {
             } else {
                 extensionStatusMessage = "已准备内置 Yakit 插件 \(bundled.version)"
             }
+            DiagnosticLog.info("extension.bundled", extensionStatusMessage)
             return true
         } catch {
             report(error)
@@ -382,6 +407,10 @@ final class InstanceStore: NSObject, ObservableObject {
         }
         let selectedIDs = customPluginIDs ?? configuration.defaultPluginIDs
         let selectedPlugins = plugins.filter { selectedIDs.contains($0.id) && $0.enabled }
+        DiagnosticLog.info(
+            "instance.launch",
+            "requested runtime=\(runtime.displayTitle); version=\(runtime.versionLabel); mode=\(mode); proxy=\(!configuration.proxyServer.isEmpty); plugins=\(selectedPlugins.count); restoring=\(history != nil)"
+        )
         do {
             let requestedBadge = (history?.dockBadge ?? configuration.dockBadge)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -415,6 +444,10 @@ final class InstanceStore: NSObject, ObservableObject {
             launchingInstanceID = result.instance.id
             launchMessage = "正在启动 \(runtime.displayTitle)…"
             launchPhase = .waiting
+            DiagnosticLog.info(
+                "instance.launch",
+                "process created; instance=\(result.instance.id.uuidString); pid=\(result.instance.processID); debugPort=\(result.instance.debugPort)"
+            )
             Task { await waitForBrowser(instance: result.instance, token: token) }
         } catch {
             finishLaunchFailure(error, token: token)
@@ -435,6 +468,10 @@ final class InstanceStore: NSObject, ObservableObject {
         guard runtimes.contains(where: { $0.id == runtime.id }) else { return }
         settings.defaultRuntimeID = runtime.id
         save()
+        DiagnosticLog.info(
+            "runtime.default",
+            "selected \(runtime.displayTitle); version=\(runtime.versionLabel); source=\(runtime.source)"
+        )
     }
 
     func updatePresetProxyServer(_ value: String) {
@@ -671,6 +708,10 @@ final class InstanceStore: NSObject, ObservableObject {
                 instances[index].lastScreenshotPath = output.path
             }
             save()
+            DiagnosticLog.info(
+                "instance.capture",
+                "captured instance=\(instance.id.uuidString); output=\(output.path)"
+            )
             NSWorkspace.shared.activateFileViewerSelecting([output])
         } catch { report(error) }
     }
@@ -684,6 +725,20 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     func saveSettings() { save() }
+
+    var diagnosticLogPath: String {
+        applicationDirectory
+            .appendingPathComponent("Logs/ytray.log")
+            .path
+    }
+
+    func openDiagnosticLog() {
+        do {
+            try DiagnosticLog.openMainLog(applicationDirectory: applicationDirectory)
+        } catch {
+            report(error)
+        }
+    }
 
     private func syncPresetProxyServer() {
         if let server = try? HTTPProxyAddress.build(
@@ -720,17 +775,22 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: stateURL) else { return }
+        guard FileManager.default.fileExists(atPath: stateURL.path) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let state = try? decoder.decode(PersistedState.self, from: data) else { return }
-        runtimes = state.runtimes
-        plugins = state.plugins
-        instances = state.instances
-        settings = state.settings
-        synchronizeDefaultPluginIDs()
-        consolidateHistoryBadges()
-        save()
+        do {
+            let data = try Data(contentsOf: stateURL)
+            let state = try decoder.decode(PersistedState.self, from: data)
+            runtimes = state.runtimes
+            plugins = state.plugins
+            instances = state.instances
+            settings = state.settings
+            synchronizeDefaultPluginIDs()
+            consolidateHistoryBadges()
+            save()
+        } catch {
+            DiagnosticLog.error("state.load", error)
+        }
     }
 
     private func save() {
@@ -738,15 +798,15 @@ final class InstanceStore: NSObject, ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(state) else { return }
         do {
+            let data = try encoder.encode(state)
             try data.write(to: stateURL, options: .atomic)
             try FileManager.default.setAttributes(
                 [.posixPermissions: NSNumber(value: Int16(0o600))],
                 ofItemAtPath: stateURL.path
             )
         } catch {
-            return
+            DiagnosticLog.error("state.save", error)
         }
     }
 
@@ -755,6 +815,10 @@ final class InstanceStore: NSObject, ObservableObject {
         for index in instances.indices where instances[index].status == .running {
             let pid = instances[index].processID
             if pid <= 0 || Darwin.kill(pid, 0) != 0 {
+                DiagnosticLog.warning(
+                    "instance.exit",
+                    "browser process is no longer running; instance=\(instances[index].id.uuidString); pid=\(pid)"
+                )
                 instances[index].status = .stopped
                 BrowserProcessIcon.remove(
                     instanceID: instances[index].id,
@@ -795,9 +859,17 @@ final class InstanceStore: NSObject, ObservableObject {
             )
         }
         guard let index = instances.firstIndex(where: { $0.id == id }) else { return }
+        let wasRunning = instances[index].status == .running
+        let processID = instances[index].processID
         instances[index].status = .stopped
         consolidateHistoryBadges()
         save()
+        if wasRunning {
+            DiagnosticLog.info(
+                "instance.exit",
+                "browser exited; instance=\(id.uuidString); pid=\(processID)"
+            )
+        }
     }
 
     private func consolidateHistoryBadges() {
@@ -825,6 +897,10 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     private func archiveAndStop(_ instance: BrowserInstance) async {
+        DiagnosticLog.info(
+            "instance.stop",
+            "stop requested; instance=\(instance.id.uuidString); pid=\(instance.processID)"
+        )
         await captureAndStoreThumbnail(instance)
         await refreshPageTitle(for: instance)
         if let process = processes[instance.id], process.isRunning { process.terminate() }
@@ -923,6 +999,7 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     private func report(_ error: Error) {
+        DiagnosticLog.error("store.error", error)
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
@@ -956,6 +1033,10 @@ final class InstanceStore: NSObject, ObservableObject {
         }
         launchMessage = "\(instance.runtimeName) 已启动"
         launchPhase = .succeeded
+        DiagnosticLog.info(
+            "instance.ready",
+            "instance ready; instance=\(instance.id.uuidString); pid=\(instance.processID); debugPort=\(instance.debugPort)"
+        )
         launchingMode = nil
         launchingUsesProxy = nil
         launchingInstanceID = nil

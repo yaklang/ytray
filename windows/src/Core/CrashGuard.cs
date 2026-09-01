@@ -1,7 +1,5 @@
 #nullable enable
 using System;
-using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -16,14 +14,12 @@ namespace YTray.Core
     /// </summary>
     internal static class CrashGuard
     {
-        private static readonly object LogLock = new object();
-        private static string? _logDirectory;
         private static int _installed;
 
         internal static void Install(Application application, string applicationDirectory)
         {
             if (application == null) throw new ArgumentNullException(nameof(application));
-            _logDirectory = Path.Combine(applicationDirectory, "Logs");
+            DiagnosticLog.Initialize(applicationDirectory);
             if (Interlocked.Exchange(ref _installed, 1) != 0) return;
             application.DispatcherUnhandledException += OnDispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
@@ -85,23 +81,7 @@ namespace YTray.Core
 
         private static void Write(string category, Exception exception)
         {
-            try
-            {
-                var directory = string.IsNullOrWhiteSpace(_logDirectory)
-                    ? Path.Combine(StatePersistence.DefaultApplicationDirectory, "Logs")
-                    : _logDirectory;
-                lock (LogLock)
-                {
-                    Directory.CreateDirectory(directory);
-                    var text = new StringBuilder()
-                        .AppendLine($"[{DateTime.Now:O}] {category}")
-                        .AppendLine(exception.ToString())
-                        .AppendLine()
-                        .ToString();
-                    File.AppendAllText(Path.Combine(directory, "ytray-errors.log"), text);
-                }
-            }
-            catch { }
+            DiagnosticLog.Error(category, exception);
         }
     }
 }

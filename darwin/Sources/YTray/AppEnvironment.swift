@@ -19,6 +19,11 @@ enum AppEnvironment {
         isDevelopmentBuild ? "YTrayDev" : "YTray"
     }
 
+    static var defaultApplicationDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(applicationDirectoryName, isDirectory: true)
+    }
+
     static var instanceColorThemesEnabled: Bool {
         if isDevelopmentBuild {
             return Bundle.main.object(forInfoDictionaryKey: "YTrayInstanceColorThemes") as? Bool ?? false

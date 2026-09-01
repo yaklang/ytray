@@ -31,6 +31,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let edgeWidgetSmoke = CommandLine.arguments.contains("--smoke-edge-widget-focus")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DiagnosticLog.info("app.ready", "application finished launching")
         EdgeDockPreferences.migrateLegacyIfNeeded()
         configureStatusItem()
         edgeDock.update()
@@ -50,6 +51,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        DiagnosticLog.info("app.exit", "application will terminate")
+    }
 
     private func configureStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -111,6 +116,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         proxyItem.isEnabled = !store.isLaunching
         menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "") .target = self
         menu.addItem(withTitle: "全部管理", action: #selector(showManagerAction), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "打开诊断日志", action: #selector(openLogsAction), keyEquivalent: "").target = self
         let updateTitle = appUpdater.isUpdateAvailable
             ? "安装 \(AppEnvironment.displayName) v\(appUpdater.availableVersion ?? "最新版")…"
             : "检查 \(AppEnvironment.displayName) 更新…"
@@ -133,6 +139,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func proxyLaunch() { store.launchConfigured(usePresetProxy: true) }
     @objc private func showWidgetAction() { showWidget() }
     @objc private func showManagerAction() { showManager(section: .quick) }
+    @objc private func openLogsAction() { store.openDiagnosticLog() }
     @objc private func showUpdateAction() {
         showManager(section: .settings)
         if !appUpdater.isUpdateAvailable && !appUpdater.isBusy {

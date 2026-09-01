@@ -143,8 +143,10 @@ final class AppUpdateManager: ObservableObject {
                 setPhase(.upToDate, "YTray v\(currentVersion) 已是最新版本")
             }
         } catch let urlError as URLError where urlError.code == .timedOut {
+            DiagnosticLog.error("app.update.check", urlError, message: "update check timed out")
             setPhase(.failed, "检查更新超时，请稍后重试")
         } catch {
+            DiagnosticLog.error("app.update.check", error)
             setPhase(.failed, "检查更新失败 · \(Self.userFacing(error))")
         }
     }
@@ -188,6 +190,7 @@ final class AppUpdateManager: ObservableObject {
             setPhase(.downloaded, "YTray v\(release.version) 下载完成，校验已通过")
             return true
         } catch {
+            DiagnosticLog.error("app.update.download", error)
             setPhase(.failed, "下载更新失败 · \(Self.userFacing(error))")
             return false
         }
@@ -218,6 +221,7 @@ final class AppUpdateManager: ObservableObject {
             NSApplication.shared.terminate(nil)
             return true
         } catch {
+            DiagnosticLog.error("app.update.install", error)
             setPhase(.failed, "无法安装更新 · \(Self.userFacing(error))")
             return false
         }
@@ -351,6 +355,7 @@ final class AppUpdateManager: ObservableObject {
     private func setPhase(_ phase: AppUpdatePhase, _ status: String) {
         self.phase = phase
         statusText = status
+        DiagnosticLog.info("app.update", "phase=\(phase); status=\(status)")
     }
 
     nonisolated private static func userFacing(_ error: Error) -> String {

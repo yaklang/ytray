@@ -4,9 +4,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -32,15 +34,160 @@ namespace YTray.Core
         public static string Architecture => Environment.Is64BitOperatingSystem ? "x64" : "x86";
         public static string Platform => "windows-" + Architecture;
 
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        private const int MaximumManifestBytes = 4 * 1024 * 1024;
+        private static readonly TimeSpan ManifestTimeout = TimeSpan.FromSeconds(15);
+        private static readonly HttpClient Http = CreateHttpClient();
 
         public static async Task<List<MirrorVersion>> FetchVersionsAsync()
         {
-            using (var resp = await Http.GetAsync(ManifestURL))
+            var requestUrl = new UriBuilder(ManifestURL)
             {
-                if (!resp.IsSuccessStatusCode) throw new YTrayException(YTrayError.DownloadFailed, "镜像清单返回异常");
-                var json = await resp.Content.ReadAsStringAsync();
-                return JsonConvert.DeserializeObject<MirrorManifest>(json)?.Versions ?? new List<MirrorVersion>();
+                Query = "ytray_runtime=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            }.Uri;
+            DiagnosticLog.Info("runtime.manifest", $"requesting {ManifestURL.Host}{ManifestURL.AbsolutePath}");
+            try
+            {
+                using (var timeout = new CancellationTokenSource(ManifestTimeout))
+                {
+                    var versions = await FetchVersionsAsync(Http, requestUrl, timeout.Token).ConfigureAwait(false);
+                    DiagnosticLog.Info("runtime.manifest",
+                        $"loaded {versions.Count} versions; latest={versions.FirstOrDefault()?.Version ?? "none"}");
+                    return versions;
+                }
+            }
+            catch (OperationCanceledException ex)
+            {
+                DiagnosticLog.Error("runtime.manifest", ex, "manifest request timed out");
+                throw new YTrayException(YTrayError.RuntimeManifestFailed, "请求超时，请稍后重试");
+            }
+            catch (YTrayException ex)
+            {
+                DiagnosticLog.Error("runtime.manifest", ex);
+                throw;
+            }
+            catch (HttpRequestException ex)
+            {
+                DiagnosticLog.Error("runtime.manifest", ex);
+                throw new YTrayException(YTrayError.RuntimeManifestFailed, "无法获取版本清单，请检查网络后重试");
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Error("runtime.manifest", ex);
+                throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单暂时不可用，请稍后重试");
+            }
+        }
+
+        internal static async Task<List<MirrorVersion>> FetchVersionsAsync(
+            HttpClient http, Uri manifestUrl, CancellationToken cancellationToken)
+        {
+            if (http == null) throw new ArgumentNullException(nameof(http));
+            if (manifestUrl == null) throw new ArgumentNullException(nameof(manifestUrl));
+            using (var request = new HttpRequestMessage(HttpMethod.Get, manifestUrl))
+            {
+                request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue
+                {
+                    NoCache = true,
+                    NoStore = true,
+                };
+                request.Headers.UserAgent.ParseAdd("YTray/" + YTrayBuildInfo.Version);
+                using (var response = await http.SendAsync(
+                    request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode)
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed,
+                            $"浏览器版本清单请求失败（HTTP {(int)response.StatusCode}）");
+                    if (response.Content.Headers.ContentLength > MaximumManifestBytes)
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单内容异常（文件过大）");
+
+                    var payload = await ReadLimitedAsync(
+                        response.Content, MaximumManifestBytes, cancellationToken).ConfigureAwait(false);
+                    payload = DecodeCompressedPayload(payload, MaximumManifestBytes);
+                    var json = Encoding.UTF8.GetString(payload).TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
+                    if (json.Length == 0 || json[0] != '{')
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed,
+                            "版本服务返回了无法识别的内容，请稍后重试");
+
+                    MirrorManifest manifest;
+                    try
+                    {
+                        manifest = JsonConvert.DeserializeObject<MirrorManifest>(json)
+                            ?? throw new JsonSerializationException("Manifest is empty.");
+                    }
+                    catch (JsonException ex)
+                    {
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed,
+                            "版本清单格式无效，请稍后重试", ex);
+                    }
+                    if (manifest.SchemaVersion != 0 && manifest.SchemaVersion != 1)
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单版本不受支持");
+                    if (!string.IsNullOrWhiteSpace(manifest.Product)
+                        && !string.Equals(manifest.Product, "chrome-for-testing", StringComparison.OrdinalIgnoreCase))
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单产品不匹配");
+
+                    var versions = (manifest.Versions ?? new List<MirrorVersion>())
+                        .Where(version => version != null && !string.IsNullOrWhiteSpace(version.Version))
+                        .ToList();
+                    foreach (var version in versions)
+                        version.Artifacts = version.Artifacts ?? new List<MirrorArtifact>();
+                    if (versions.Count == 0)
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单中没有可用版本");
+                    return versions;
+                }
+            }
+        }
+
+        internal static HttpClientHandler CreateDefaultHandler() => new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+        };
+
+        private static HttpClient CreateHttpClient()
+        {
+            return new HttpClient(CreateDefaultHandler()) { Timeout = TimeSpan.FromMinutes(10) };
+        }
+
+        private static async Task<byte[]> ReadLimitedAsync(
+            HttpContent content, int maximumBytes, CancellationToken cancellationToken)
+        {
+            using (var source = await content.ReadAsStreamAsync().ConfigureAwait(false))
+            using (var output = new MemoryStream())
+            {
+                var buffer = new byte[16 * 1024];
+                int read;
+                while ((read = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false)) > 0)
+                {
+                    if (output.Length + read > maximumBytes)
+                        throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单内容异常（文件过大）");
+                    output.Write(buffer, 0, read);
+                }
+                return output.ToArray();
+            }
+        }
+
+        private static byte[] DecodeCompressedPayload(byte[] payload, int maximumBytes)
+        {
+            if (payload.Length < 2 || payload[0] != 0x1f || payload[1] != 0x8b) return payload;
+            try
+            {
+                using (var source = new MemoryStream(payload, false))
+                using (var gzip = new GZipStream(source, CompressionMode.Decompress))
+                using (var output = new MemoryStream())
+                {
+                    var buffer = new byte[16 * 1024];
+                    int read;
+                    while ((read = gzip.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        if (output.Length + read > maximumBytes)
+                            throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单内容异常（解压后过大）");
+                        output.Write(buffer, 0, read);
+                    }
+                    return output.ToArray();
+                }
+            }
+            catch (YTrayException) { throw; }
+            catch (InvalidDataException ex)
+            {
+                throw new YTrayException(YTrayError.RuntimeManifestFailed, "版本清单压缩格式无效", ex);
             }
         }
 

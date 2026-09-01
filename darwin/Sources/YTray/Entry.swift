@@ -88,6 +88,7 @@ enum YTrayMain {
             smokeLaunchState(application: application, executablePath: CommandLine.arguments[index + 1])
             return
         }
+        DiagnosticLog.initialize(applicationDirectory: AppEnvironment.defaultApplicationDirectory)
         let controller = AppController()
         application.delegate = controller
         application.setActivationPolicy(.accessory)

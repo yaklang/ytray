@@ -20,6 +20,9 @@ namespace YTray
         {
             base.OnStartup(e);
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            // Install diagnostics before argument parsing and store construction so even an early
+            // startup failure leaves an actionable log under %LOCALAPPDATA%\YTray\Logs.
+            CrashGuard.Install(this, StatePersistence.DefaultApplicationDirectory);
 
             var args = Environment.GetCommandLineArgs();
             string? designCaptureDirectory = null;
@@ -65,7 +68,6 @@ namespace YTray
             }
 
             _store = new InstanceStore();
-            CrashGuard.Install(this, _store.ApplicationDirectory);
             if (!string.IsNullOrWhiteSpace(designCaptureDirectory))
             {
                 ThemeManager.Initialize(AppThemePreference.Light);
@@ -184,6 +186,7 @@ namespace YTray
 
         protected override void OnExit(ExitEventArgs e)
         {
+            DiagnosticLog.Info("app.exit", $"application exiting; code={e.ApplicationExitCode}");
             _tray?.Dispose();
             _launchAtLogin = null;
             _store?.Dispose();

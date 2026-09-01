@@ -39,6 +39,28 @@ struct ManagerView: View {
             }
             .navigationTitle("YTray")
             .tint(Brand.orange)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button { store.openDiagnosticLog() } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("诊断日志").font(.caption)
+                            Spacer()
+                        }
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
+                    .help("打开诊断日志 · \(store.diagnosticLogPath)")
+                    .accessibilityLabel("打开诊断日志")
+                }
+                .background(.regularMaterial)
+            }
         } detail: {
             Group {
                 switch navigation.selection ?? .quick {
@@ -271,7 +293,39 @@ struct RuntimePage: View {
                 .disabled(selectedVersion.isEmpty || store.isInstalling)
                 Spacer()
             }
-            if store.isInstalling { ProgressView(store.activityMessage).controlSize(.small) }
+            if store.isInstalling {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 8) {
+                        Text(store.runtimeInstallProgress?.message ?? store.activityMessage)
+                            .font(.caption).fontWeight(.medium)
+                        Spacer()
+                        if let progress = store.runtimeInstallProgress,
+                           progress.phase == .downloading,
+                           progress.totalBytes != nil {
+                            Text("\(progress.percent)%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    ProgressView(
+                        value: Double(store.runtimeInstallProgress?.percent ?? 0),
+                        total: 100
+                    )
+                    .progressViewStyle(.linear)
+                    .tint(Brand.orange)
+                    HStack {
+                        Text(runtimeInstallDetail)
+                        Spacer()
+                        Text(runtimeInstallStage)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
             List {
                 ForEach(store.runtimes) { runtime in
                     HStack(spacing: 12) {
@@ -297,6 +351,27 @@ struct RuntimePage: View {
                 }
             }.overlay { if store.runtimes.isEmpty { ContentUnavailableView("未发现浏览器", systemImage: "globe", description: Text("选择本地浏览器，或安装一个 Chrome for Testing 版本")) } }
         }.padding(28).task { if store.availableVersions.isEmpty { await store.refreshManifest() } }
+        .animation(.easeOut(duration: 0.16), value: store.isInstalling)
+    }
+
+    private var runtimeInstallStage: String {
+        switch store.runtimeInstallProgress?.phase {
+        case .connecting, .none: return "连接镜像"
+        case .downloading: return "下载中"
+        case .verifying: return "校验文件"
+        case .extracting: return "解压安装"
+        case .completed: return "安装完成"
+        }
+    }
+
+    private var runtimeInstallDetail: String {
+        if let summary = store.runtimeInstallProgress?.byteSummary { return summary }
+        switch store.runtimeInstallProgress?.phase {
+        case .verifying: return "下载已完成"
+        case .extracting: return "文件校验已通过"
+        case .completed: return "已写入浏览器目录"
+        case .connecting, .downloading, .none: return "正在准备下载…"
+        }
     }
 
     private func chooseRuntime() {

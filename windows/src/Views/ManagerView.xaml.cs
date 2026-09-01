@@ -86,6 +86,7 @@ namespace YTray.Views
             if (string.IsNullOrWhiteSpace(proxy)) proxy = LaunchSettings.DefaultPresetProxyServer;
             StatusProxy.Text = "HTTP 代理 " + proxy.Replace("http://", "").Replace("https://", "");
             StatusDebug.Text = "调试基址 127.0.0.1";
+            StatusLogsButton.ToolTip = "打开诊断日志\n" + DiagnosticLog.MainLogPath;
             RefreshThemeControls();
         }
 
@@ -176,6 +177,20 @@ namespace YTray.Views
         {
             NavSettings.IsSelected = true;
             ShowPage("settings");
+        }
+
+        private void StatusLogs_Click(object sender, RoutedEventArgs e)
+        {
+            if (DiagnosticLog.TryOpen(out var openedPath, out var error))
+            {
+                StatusLogsButton.ToolTip = "已打开\n" + openedPath;
+                return;
+            }
+            MessageBox.Show(
+                error ?? "无法打开诊断日志。",
+                "YTray 诊断日志",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
     }
 }
