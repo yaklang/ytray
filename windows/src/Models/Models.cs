@@ -57,15 +57,41 @@ namespace YTray.Models
             _ => "\uE774", // globe
         };
 
-        public static BrowserKind Infer(string? name, string? path)
+        public static BrowserKind Infer(string? name, string? path) =>
+            Infer(name, path, null, null, null);
+
+        public static BrowserKind Infer(string? name, string? path,
+            string? productName, string? fileDescription, BrowserKind? fallbackKind = null)
         {
+            // The official Chrome for Testing Windows archive is normally extracted as
+            // chrome-win64\chrome.exe. Neither component contains "for testing", while
+            // the executable's ProductName and FileDescription both do. Prefer those
+            // embedded version-resource fields before falling back to path heuristics.
+            var metadata = ((productName ?? "") + " " + (fileDescription ?? "")).ToLowerInvariant();
+            if (metadata.Contains("chrome for testing")) return BrowserKind.ChromeForTesting;
+            if (metadata.Contains("microsoft edge")) return BrowserKind.Edge;
+            if (metadata.Contains("chromium")) return BrowserKind.Chromium;
+            if (metadata.Contains("canary")) return BrowserKind.ChromeCanary;
+            if (metadata.Contains("beta")) return BrowserKind.ChromeBeta;
+
             var value = ((name ?? "") + " " + (path ?? "")).ToLowerInvariant();
+            // A known regular Google Chrome product resource is authoritative for the
+            // testing-vs-stable distinction. Keep an explicit channel supplied by the
+            // scanner, otherwise treat it as stable Chrome.
+            if (metadata.Contains("google chrome"))
+            {
+                if (fallbackKind == BrowserKind.ChromeBeta || fallbackKind == BrowserKind.ChromeCanary)
+                    return fallbackKind.Value;
+                if (value.Contains("canary")) return BrowserKind.ChromeCanary;
+                if (value.Contains("beta")) return BrowserKind.ChromeBeta;
+                return BrowserKind.Chrome;
+            }
             if (value.Contains("for testing")) return BrowserKind.ChromeForTesting;
             if (value.Contains("microsoft edge") || value.Contains("\\edge") || value.Contains("/edge")) return BrowserKind.Edge;
             if (value.Contains("canary")) return BrowserKind.ChromeCanary;
             if (value.Contains("beta")) return BrowserKind.ChromeBeta;
             if (value.Contains("chromium")) return BrowserKind.Chromium;
-            return BrowserKind.Chrome;
+            return fallbackKind ?? BrowserKind.Chrome;
         }
     }
 

@@ -41,14 +41,17 @@ namespace YTray.Core
                 {
                     if (!File.Exists(exe)) continue;
                     if (found.ContainsKey(exe)) continue;
+                    var versionInfo = ReadVersionInfo(exe);
+                    var kind = BrowserKindExtensions.Infer(c.DisplayName, exe,
+                        versionInfo?.ProductName, versionInfo?.FileDescription, c.Kind);
                     found[exe] = new BrowserRuntime
                     {
-                        Name = c.DisplayName,
-                        Version = ReadVersion(exe) ?? "版本未知",
+                        Name = kind.Title(),
+                        Version = ReadVersion(versionInfo) ?? "版本未知",
                         Architecture = ReadArchitecture(exe),
                         ExecutablePath = exe,
                         Source = RuntimeSource.System,
-                        BrowserKind = c.Kind,
+                        BrowserKind = kind,
                     };
                 }
             }
@@ -59,18 +62,52 @@ namespace YTray.Core
         {
             if (string.IsNullOrEmpty(selectedPath) || !File.Exists(selectedPath)) return null;
             var name = Path.GetFileNameWithoutExtension(selectedPath);
-            var kind = BrowserKindExtensions.Infer(name, selectedPath);
+            var versionInfo = ReadVersionInfo(selectedPath);
+            var kind = BrowserKindExtensions.Infer(name, selectedPath,
+                versionInfo?.ProductName, versionInfo?.FileDescription);
             var isSystem = selectedPath.StartsWith(@"C:\Program Files\", StringComparison.OrdinalIgnoreCase)
                 || selectedPath.StartsWith(@"C:\Program Files (x86)\", StringComparison.OrdinalIgnoreCase);
             return new BrowserRuntime
             {
                 Name = kind.Title(),
-                Version = ReadVersion(selectedPath) ?? "版本未知",
+                Version = ReadVersion(versionInfo) ?? "版本未知",
                 Architecture = ReadArchitecture(selectedPath),
                 ExecutablePath = selectedPath,
                 Source = isSystem ? RuntimeSource.System : RuntimeSource.Local,
                 BrowserKind = kind,
             };
+        }
+
+        /// <summary>
+        /// Repairs an identity persisted by older YTray versions. In particular, user-downloaded
+        /// Chrome for Testing was previously saved as regular Chrome because its official
+        /// chrome-win64\chrome.exe path does not contain the product name.
+        /// </summary>
+        internal static bool NormalizeIdentity(BrowserRuntime runtime)
+        {
+            if (runtime == null || string.IsNullOrWhiteSpace(runtime.ExecutablePath)
+                || !File.Exists(runtime.ExecutablePath)) return false;
+            var versionInfo = ReadVersionInfo(runtime.ExecutablePath);
+            return NormalizeIdentity(runtime, versionInfo?.ProductName, versionInfo?.FileDescription);
+        }
+
+        internal static bool NormalizeIdentity(BrowserRuntime runtime,
+            string? productName, string? fileDescription)
+        {
+            if (runtime == null) return false;
+            // State migration is deliberately monotonic: only upgrade an unknown/regular
+            // Chrome identity when the executable positively identifies as Testing. Never
+            // downgrade an explicitly persisted Testing/Beta/Canary/Edge/Chromium runtime
+            // because a damaged or localized version resource could not be read.
+            var previousKind = runtime.Kind;
+            if (runtime.BrowserKind != null && previousKind != BrowserKind.Chrome) return false;
+            var kind = BrowserKindExtensions.Infer(runtime.Name, runtime.ExecutablePath,
+                productName, fileDescription, runtime.BrowserKind);
+            if (kind != BrowserKind.ChromeForTesting || kind == previousKind) return false;
+
+            runtime.BrowserKind = kind;
+            runtime.Name = kind.Title();
+            return true;
         }
 
         private static IEnumerable<string> ResolveExecutablePaths(Candidate c)
@@ -120,20 +157,27 @@ namespace YTray.Core
             return null;
         }
 
-        private static string? ReadVersion(string executable)
+        private static FileVersionInfo? ReadVersionInfo(string executable)
+        {
+            try
+            {
+                return FileVersionInfo.GetVersionInfo(executable);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? ReadVersion(FileVersionInfo? info)
         {
             // On Windows, launching chrome.exe --version pops up a browser window and
             // doesn't write to stdout (unlike macOS). Read the version from the file's
             // embedded version info instead — no process is started.
-            try
-            {
-                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(executable);
-                if (!string.IsNullOrEmpty(info.FileVersion)) return info.FileVersion.Trim();
-                if (!string.IsNullOrEmpty(info.ProductVersion)) return info.ProductVersion.Trim();
-            }
-            catch
-            {
-            }
+            var fileVersion = info?.FileVersion;
+            if (!string.IsNullOrEmpty(fileVersion)) return fileVersion!.Trim();
+            var productVersion = info?.ProductVersion;
+            if (!string.IsNullOrEmpty(productVersion)) return productVersion!.Trim();
             return null;
         }
 

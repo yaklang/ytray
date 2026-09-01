@@ -78,6 +78,83 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void ChromeForTestingIdentityComesFromWindowsProductMetadata()
+        {
+            const string testingPath = @"C:\Users\yak\Downloads\chrome-win64\chrome.exe";
+
+            Assert.AreEqual(BrowserKind.ChromeForTesting, BrowserKindExtensions.Infer(
+                "chrome", testingPath,
+                "Google Chrome for Testing", "Google Chrome for Testing"),
+                "The official archive path does not contain 'for testing'; its executable metadata must win.");
+            Assert.AreEqual(BrowserKind.ChromeForTesting, BrowserKindExtensions.Infer(
+                "Google Chrome", testingPath,
+                "Google Chrome for Testing", "Google Chrome for Testing", BrowserKind.Chrome),
+                "Product metadata must override the regular-Chrome scanner candidate.");
+            Assert.AreEqual(BrowserKind.Chrome, BrowserKindExtensions.Infer(
+                "chrome", testingPath,
+                "Google Chrome", "Google Chrome"),
+                "A regular Chrome executable must not be upgraded merely because of its folder name.");
+            Assert.AreEqual(BrowserKind.ChromeBeta, BrowserKindExtensions.Infer(
+                "Google Chrome Beta", @"C:\Program Files\Google\Chrome Beta\Application\chrome.exe",
+                "Google Chrome", "Google Chrome", BrowserKind.ChromeBeta));
+        }
+
+        [TestMethod]
+        public void PersistedMisclassifiedTestingRuntimeAndHistoryAreMigrated()
+        {
+            var runtime = new BrowserRuntime
+            {
+                Id = Guid.NewGuid(),
+                Name = "Google Chrome",
+                ExecutablePath = @"C:\Browsers\chrome-win64\chrome.exe",
+                Source = RuntimeSource.Local,
+                BrowserKind = BrowserKind.Chrome,
+            };
+            var matchingLegacy = new BrowserInstance
+            {
+                RuntimeID = runtime.Id,
+                RuntimeName = "Google Chrome",
+                RuntimeKind = BrowserKind.Chrome,
+            };
+            var matchingKindless = new BrowserInstance
+            {
+                RuntimeID = runtime.Id,
+                RuntimeName = "Google Chrome",
+                RuntimeKind = null,
+            };
+            var conflicting = new BrowserInstance
+            {
+                RuntimeID = runtime.Id,
+                RuntimeName = "Microsoft Edge",
+                RuntimeKind = BrowserKind.Edge,
+            };
+            var unrelated = new BrowserInstance
+            {
+                RuntimeID = Guid.NewGuid(),
+                RuntimeName = "Google Chrome",
+                RuntimeKind = BrowserKind.Chrome,
+            };
+
+            Assert.IsTrue(SystemBrowserDiscovery.NormalizeIdentity(runtime,
+                "Google Chrome for Testing", "Google Chrome for Testing"));
+            Assert.AreEqual(BrowserKind.ChromeForTesting, runtime.BrowserKind);
+            Assert.AreEqual("Chrome for Testing", runtime.Name);
+
+            var migrated = InstanceStore.MigrateAssociatedInstanceRuntimeIdentity(runtime,
+                BrowserKind.Chrome, new[] { matchingLegacy, matchingKindless, conflicting, unrelated });
+
+            Assert.AreEqual(2, migrated);
+            Assert.AreEqual(BrowserKind.ChromeForTesting, matchingLegacy.RuntimeKind);
+            Assert.AreEqual("Chrome for Testing", matchingLegacy.RuntimeName);
+            Assert.AreEqual(BrowserKind.ChromeForTesting, matchingKindless.RuntimeKind);
+            Assert.AreEqual(BrowserKind.Edge, conflicting.RuntimeKind);
+            Assert.AreEqual(BrowserKind.Chrome, unrelated.RuntimeKind);
+            Assert.IsFalse(SystemBrowserDiscovery.NormalizeIdentity(runtime,
+                "Google Chrome for Testing", "Google Chrome for Testing"),
+                "The migration must be idempotent on every later startup.");
+        }
+
+        [TestMethod]
         public void BrowserExecutableArchitectureComesFromPeHeader()
         {
             var executable = typeof(BrowserLauncherTests).Assembly.Location;

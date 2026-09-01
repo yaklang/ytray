@@ -1323,6 +1323,15 @@ namespace YTray.Core
                 runtime.Version = runtime.Version ?? "";
                 runtime.Architecture = runtime.Architecture ?? "";
                 runtime.ExecutablePath = runtime.ExecutablePath ?? "";
+                var previousKind = runtime.Kind;
+                if (SystemBrowserDiscovery.NormalizeIdentity(runtime) && runtime.Kind != previousKind)
+                {
+                    var migratedInstances = MigrateAssociatedInstanceRuntimeIdentity(
+                        runtime, previousKind, Instances);
+                    DiagnosticLog.Info("runtime.identity",
+                        $"reclassified {previousKind.Title()} -> {runtime.DisplayTitle}; " +
+                        $"path={runtime.ExecutablePath}; history={migratedInstances}");
+                }
             }
             foreach (var plugin in Plugins)
             {
@@ -1344,6 +1353,21 @@ namespace YTray.Core
                 if (instance.Status == InstanceStatus.Running && !IsExpectedInstanceProcess(instance))
                     instance.Status = InstanceStatus.Stopped;
             }
+        }
+
+        internal static int MigrateAssociatedInstanceRuntimeIdentity(BrowserRuntime runtime,
+            BrowserKind previousKind, IEnumerable<BrowserInstance> instances)
+        {
+            if (runtime == null || instances == null || runtime.Kind == previousKind) return 0;
+            var migrated = 0;
+            foreach (var instance in instances.Where(item => item != null && item.RuntimeID == runtime.Id))
+            {
+                if (instance.RuntimeKind != null && instance.RuntimeKind != previousKind) continue;
+                instance.RuntimeKind = runtime.Kind;
+                instance.RuntimeName = runtime.DisplayTitle;
+                migrated++;
+            }
+            return migrated;
         }
 
         private void Report(Exception ex)
