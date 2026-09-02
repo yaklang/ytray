@@ -118,6 +118,7 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertFalse(store.settings.defaultPluginIDs.contains(managed.id))
     }
 
+    @MainActor
     func testPluginRootScanFindsDirectAndBrowserProfileExtensions() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ytray-plugin-scan-test-\(UUID().uuidString)", isDirectory: true)
@@ -150,14 +151,15 @@ final class BrowserLauncherTests: XCTestCase {
         )
         try Data("test".utf8).write(to: executable)
         let store = InstanceStore(applicationDirectory: root, discoverSystemBrowsers: false)
-        let runtime = store.upsert(BrowserRuntime(
+        let runtime = BrowserRuntime(
             name: "Chrome for Testing 1.2.3",
             version: "1.2.3",
             architecture: RuntimeInstaller.platform,
             executablePath: executable.path,
             source: .managed,
             browserKind: .chromeForTesting
-        ))
+        )
+        store.runtimes.append(runtime)
 
         XCTAssertTrue(store.uninstallRuntime(runtime))
         XCTAssertFalse(FileManager.default.fileExists(atPath: installation.path))
