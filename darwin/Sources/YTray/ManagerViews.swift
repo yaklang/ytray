@@ -265,6 +265,7 @@ struct LaunchModeCard: View {
 struct RuntimePage: View {
     @ObservedObject var store: InstanceStore
     @State private var selectedVersion = ""
+    @State private var runtimePendingRemoval: BrowserRuntime?
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             PageHeader(title: "浏览器来源", subtitle: "系统浏览器会自动识别并可直接使用；安装 Chrome for Testing 只是可选项。")
@@ -344,7 +345,10 @@ struct RuntimePage: View {
                         Button("设为默认") { store.selectDefaultRuntime(runtime) }
                             .buttonStyle(SmallSecondaryButtonStyle())
                         if runtime.source != .system {
-                            Button(role: .destructive) { store.removeRuntime(runtime) } label: { Image(systemName: "trash") }
+                            Button(role: .destructive) {
+                                if runtime.source == .managed { runtimePendingRemoval = runtime }
+                                else { store.removeRuntime(runtime) }
+                            } label: { Image(systemName: "trash") }
                                 .buttonStyle(IconButtonStyle())
                         }
                     }.padding(.vertical, 5)
@@ -352,6 +356,15 @@ struct RuntimePage: View {
             }.overlay { if store.runtimes.isEmpty { ContentUnavailableView("未发现浏览器", systemImage: "globe", description: Text("选择本地浏览器，或安装一个 Chrome for Testing 版本")) } }
         }.padding(28).task { if store.availableVersions.isEmpty { await store.refreshManifest() } }
         .animation(.easeOut(duration: 0.16), value: store.isInstalling)
+        .alert("卸载 Chrome for Testing？", isPresented: Binding(
+            get: { runtimePendingRemoval != nil },
+            set: { if !$0 { runtimePendingRemoval = nil } }
+        ), presenting: runtimePendingRemoval) { runtime in
+            Button("卸载", role: .destructive) { store.uninstallRuntime(runtime); runtimePendingRemoval = nil }
+            Button("取消", role: .cancel) { runtimePendingRemoval = nil }
+        } message: { runtime in
+            Text("将删除 Chrome for Testing \(runtime.versionLabel) 的程序文件；实例历史和用户数据会保留。")
+        }
     }
 
     private var runtimeInstallStage: String {
@@ -627,7 +640,7 @@ struct PluginsPage: View {
         VStack(alignment: .leading, spacing: 18) {
             PageHeader(title: "插件管理", subtitle: "启用的本地插件会自动加载到新实例；自定义启动仍可临时调整。")
             yakitExtensionSection
-            HStack { Button("添加本地插件目录…") { choosePlugin() }.buttonStyle(FilledOrangeButtonStyle()); Spacer() }
+            HStack { Button("添加或扫描插件目录…") { choosePlugin() }.buttonStyle(FilledOrangeButtonStyle()); Spacer() }
             List {
                 ForEach(store.plugins.sorted { left, right in
                     let leftIsManaged = left.id == store.managedExtension?.id
@@ -707,10 +720,11 @@ struct PluginsPage: View {
 
     private func choosePlugin() {
         let panel = NSOpenPanel()
-        panel.title = "选择已解压 Chrome 插件目录"
+        panel.title = "选择插件目录或浏览器扩展根目录"
+        panel.message = "可以多选；根目录下包含的有效 Chrome 插件会被自动识别。"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url { store.addPlugin(directory: url) }
+        panel.allowsMultipleSelection = true
+        if panel.runModal() == .OK { store.addPlugins(directories: panel.urls) }
     }
 }

@@ -10,7 +10,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using YTray.Core;
 using YTray.Models;
-using WinForms = System.Windows.Forms;
+using YTray.Native;
 
 namespace YTray.Views.Pages
 {
@@ -154,9 +154,21 @@ namespace YTray.Views.Pages
 
         private void Add_Click(object s, RoutedEventArgs e)
         {
-            using (var dlg = new WinForms.FolderBrowserDialog { Description = "选择已解压 Chrome 插件目录" })
+            try
             {
-                if (dlg.ShowDialog() == WinForms.DialogResult.OK) _store.AddPlugin(dlg.SelectedPath);
+                var directories = FolderPicker.PickMultiple(Window.GetWindow(this),
+                    "选择插件目录或浏览器扩展根目录（可多选）");
+                if (directories.Count == 0) return;
+                if (_store.AddPlugins(directories) == 0)
+                    MessageBox.Show(_store.ErrorMessage ?? "没有找到有效的 Chrome 插件。",
+                        "YTray", MessageBoxButton.OK, MessageBoxImage.Information);
+                Refresh();
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("pick-plugin-folders", ex);
+                MessageBox.Show("无法打开目录选择器：" + ex.Message,
+                    "YTray", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 

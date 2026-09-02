@@ -118,6 +118,52 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertFalse(store.settings.defaultPluginIDs.contains(managed.id))
     }
 
+    func testPluginRootScanFindsDirectAndBrowserProfileExtensions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-plugin-scan-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let direct = root.appendingPathComponent("direct", isDirectory: true)
+        let nested = root.appendingPathComponent("Default/Extensions/extension-id/1.0_0", isDirectory: true)
+        try FileManager.default.createDirectory(at: direct, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: direct.appendingPathComponent("manifest.json"))
+        try Data("{}".utf8).write(to: nested.appendingPathComponent("manifest.json"))
+
+        let found = Set(InstanceStore.discoverPluginDirectories(in: [root]).map(\.path))
+
+        XCTAssertEqual(found, Set([direct.path, nested.path]))
+    }
+
+    @MainActor
+    func testManagedRuntimeUninstallDeletesValidatedInstallDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-runtime-uninstall-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let installation = root.appendingPathComponent(
+            "Runtimes/1.2.3/\(RuntimeInstaller.platform)", isDirectory: true
+        )
+        let executable = installation.appendingPathComponent(
+            "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+        )
+        try FileManager.default.createDirectory(
+            at: executable.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data("test".utf8).write(to: executable)
+        let store = InstanceStore(applicationDirectory: root, discoverSystemBrowsers: false)
+        let runtime = store.upsert(BrowserRuntime(
+            name: "Chrome for Testing 1.2.3",
+            version: "1.2.3",
+            architecture: RuntimeInstaller.platform,
+            executablePath: executable.path,
+            source: .managed,
+            browserKind: .chromeForTesting
+        ))
+
+        XCTAssertTrue(store.uninstallRuntime(runtime))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installation.path))
+        XCTAssertFalse(store.runtimes.contains(where: { $0.id == runtime.id }))
+    }
+
     func testDockBadgeSequenceAndValidation() throws {
         XCTAssertEqual(DockBadgeLabel.defaultLabel(for: 1), "A")
         XCTAssertEqual(DockBadgeLabel.defaultLabel(for: 26), "Z")

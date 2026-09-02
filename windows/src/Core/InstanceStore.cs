@@ -222,41 +222,89 @@ namespace YTray.Core
             Save();
         }
 
-        public void AddPlugin(string directory)
+        public bool UninstallRuntime(BrowserRuntime runtime)
         {
+            if (runtime == null || runtime.Source != RuntimeSource.Managed) return false;
+            if (RunningInstances.Any(i => i.RuntimeID == runtime.Id))
+            {
+                Report(new InvalidOperationException("该浏览器仍有实例正在运行，请先停止实例"));
+                return false;
+            }
             try
             {
-                if (string.IsNullOrWhiteSpace(directory))
-                    throw new YTrayException(YTrayError.InvalidPlugin, "未选择插件目录");
-                var manifestPath = Path.Combine(directory, "manifest.json");
-                var json = File.ReadAllText(manifestPath);
-                var manifest = Newtonsoft.Json.JsonConvert.DeserializeObject<PluginManifest>(json);
-                if (manifest == null || string.IsNullOrWhiteSpace(manifest.Name))
-                    throw new YTrayException(YTrayError.InvalidPlugin, directory);
-                var fullDirectory = Path.GetFullPath(directory)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var existing = Plugins.FirstOrDefault(p => string.Equals(
-                    (p.Path ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    fullDirectory, StringComparison.OrdinalIgnoreCase));
-                var plugin = new BrowserPlugin
-                {
-                    Id = existing?.Id ?? Guid.NewGuid(),
-                    Name = manifest.Name, Version = manifest.Version,
-                    Path = fullDirectory,
-                    IconPath = PluginIconSource.ResolveIconPath(fullDirectory),
-                    ManifestVersion = manifest.ManifestVersion,
-                    Enabled = existing?.Enabled ?? true,
-                    CreatedAt = existing?.CreatedAt ?? DateTime.Now,
-                };
-                if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
-                else Plugins.Add(plugin);
-                SynchronizeDefaultPluginIDs();
-                Save();
+                var runtimesRoot = Path.GetFullPath(Path.Combine(ApplicationDirectory, "Runtimes"))
+                    .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                var installation = Path.GetFullPath(Path.Combine(
+                    ApplicationDirectory, "Runtimes", runtime.Version, RuntimeInstaller.Platform));
+                var executable = Path.GetFullPath(runtime.ExecutablePath);
+                if (!installation.StartsWith(runtimesRoot, StringComparison.OrdinalIgnoreCase)
+                    || !executable.StartsWith(installation.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("浏览器不在 YTray 管理的安装目录中");
+
+                if (Directory.Exists(installation)) Directory.Delete(installation, true);
+                var versionDirectory = Directory.GetParent(installation)?.FullName;
+                if (versionDirectory != null && Directory.Exists(versionDirectory)
+                    && !Directory.EnumerateFileSystemEntries(versionDirectory).Any())
+                    Directory.Delete(versionDirectory);
+                RemoveRuntime(runtime);
+                DiagnosticLog.Info("runtime.uninstall", $"uninstalled Chrome for Testing {runtime.Version}");
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
-                Report(new YTrayException(YTrayError.InvalidPlugin, directory));
+                Report(new InvalidOperationException("卸载 Chrome for Testing 失败：" + ex.Message, ex));
+                return false;
             }
+        }
+
+        public void AddPlugin(string directory)
+        {
+            AddPlugins(new[] { directory });
+        }
+
+        public int AddPlugins(IEnumerable<string> roots)
+        {
+            var selectedRoots = (roots ?? Enumerable.Empty<string>()).ToList();
+            var count = 0;
+            var discovered = PluginDiscovery.FindDirectories(selectedRoots);
+            foreach (var directory in discovered)
+            {
+                try
+                {
+                    var manifestPath = Path.Combine(directory, "manifest.json");
+                    var manifest = Newtonsoft.Json.JsonConvert.DeserializeObject<PluginManifest>(
+                        File.ReadAllText(manifestPath));
+                    if (manifest == null || string.IsNullOrWhiteSpace(manifest.Name)) continue;
+                    var existing = Plugins.FirstOrDefault(p => string.Equals(
+                        (p.Path ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                        directory, StringComparison.OrdinalIgnoreCase));
+                    var plugin = new BrowserPlugin
+                    {
+                        Id = existing?.Id ?? Guid.NewGuid(),
+                        Name = manifest.Name, Version = manifest.Version,
+                        Path = directory,
+                        IconPath = PluginIconSource.ResolveIconPath(directory),
+                        ManifestVersion = manifest.ManifestVersion,
+                        Enabled = existing?.Enabled ?? true,
+                        CreatedAt = existing?.CreatedAt ?? DateTime.Now,
+                    };
+                    if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
+                    else Plugins.Add(plugin);
+                    count++;
+                }
+                catch { }
+            }
+            if (count == 0)
+            {
+                var selected = selectedRoots.FirstOrDefault() ?? "未选择目录";
+                Report(new YTrayException(YTrayError.InvalidPlugin, selected));
+                return 0;
+            }
+            ErrorMessage = null;
+            SynchronizeDefaultPluginIDs();
+            Save();
+            return count;
         }
 
         public void UpdatePlugin(BrowserPlugin plugin)

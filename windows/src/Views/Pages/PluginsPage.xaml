@@ -32,8 +32,8 @@
         <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel><TextBlock Text="本地插件" Style="{StaticResource PageTitle}" FontSize="27"/><TextBlock Text="启用的插件会默认加载到所有新建的 Chromium 实例" Style="{StaticResource PageSubtitle}" FontSize="13" Margin="0,5,0,0"/><StackPanel Orientation="Horizontal" Margin="0,9,0,0"><Ellipse x:Name="PluginCountDot" Width="8" Height="8" Fill="{DynamicResource SuccessBrush}" Margin="0,0,9,0"/><TextBlock x:Name="PluginCountLabel" Text="0 个插件" FontSize="12.5" Foreground="{DynamicResource TextSecondaryBrush}"/></StackPanel></StackPanel>
-            <Button Grid.Column="1" Click="Add_Click" Height="40" MinWidth="142" Style="{StaticResource YTrayPrimaryButton}" VerticalAlignment="Top" Margin="0,18,0,0">
-                <StackPanel Orientation="Horizontal"><Path Data="M 8 2 L 8 14 M 2 8 L 14 8" Width="14" Height="14" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.5"/><TextBlock Text="添加插件目录…" Margin="8,0,0,0"/></StackPanel>
+            <Button Grid.Column="1" Click="Add_Click" Height="40" MinWidth="166" Style="{StaticResource YTrayPrimaryButton}" VerticalAlignment="Top" Margin="0,18,0,0" ToolTip="支持多选；选择浏览器扩展根目录时会自动扫描">
+                <StackPanel Orientation="Horizontal"><Path Data="M 8 2 L 8 14 M 2 8 L 14 8" Width="14" Height="14" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.5"/><TextBlock Text="添加或扫描插件…" Margin="8,0,0,0"/></StackPanel>
             </Button>
         </Grid>
         <Border Grid.Row="1" Style="{StaticResource SurfaceBorder}" Padding="16,0">
@@ -41,7 +41,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal">
                     <Border Width="20" Height="20" CornerRadius="10" BorderBrush="{DynamicResource TextSecondaryBrush}" BorderThickness="1.2"><TextBlock Text="i" FontFamily="Georgia" FontWeight="Bold" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-                    <TextBlock Text="目录根部必须包含 manifest.json" Margin="14,0,0,0" FontSize="12.5" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text="可多选目录；插件根目录会自动扫描 manifest.json" Margin="14,0,0,0" FontSize="12.5" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                     <Border x:Name="ExtensionUpdateBadge" Margin="14,0,0,0" Padding="8,3" CornerRadius="9" Background="{DynamicResource BrandPaleBrush}" Visibility="Collapsed" VerticalAlignment="Center">
                         <TextBlock Text="Yakit 插件有新版本" FontSize="10.5" Foreground="{DynamicResource BrandOrangeBrush}"/>
                     </Border>

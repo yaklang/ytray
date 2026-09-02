@@ -458,7 +458,7 @@ enum YTrayError: LocalizedError {
         switch self {
         case .noRuntime: return "没有可用浏览器；请选择本机浏览器，或安装一个 Chrome for Testing 版本"
         case .invalidExecutable(let value): return "找不到可执行的 Chrome：\(value)"
-        case .invalidPlugin(let value): return "插件目录无效：\(value)（目录根部必须包含 manifest.json）"
+        case .invalidPlugin(let value): return "插件目录无效：\(value)（所选目录或其子目录中必须包含 manifest.json）"
         case .invalidURL(let value): return "启动地址无效：\(value)"
         case .invalidProxy(let value): return "HTTP 代理地址无效：\(value)（例如 http://127.0.0.1:8083）"
         case .invalidFlag(let value): return "不允许覆盖实例隔离或调试参数：\(value)"

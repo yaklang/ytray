@@ -453,6 +453,62 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void PluginRootScanFindsDirectAndBrowserProfileExtensions()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "YTrayPluginScanTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var direct = Path.Combine(root, "direct");
+                var nested = Path.Combine(root, "Default", "Extensions", "extension-id", "1.0_0");
+                Directory.CreateDirectory(direct);
+                Directory.CreateDirectory(nested);
+                File.WriteAllText(Path.Combine(direct, "manifest.json"), "{}");
+                File.WriteAllText(Path.Combine(nested, "manifest.json"), "{}");
+
+                var found = PluginDiscovery.FindDirectories(new[] { root });
+
+                CollectionAssert.AreEquivalent(new[] { direct, nested }, found.ToArray());
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [TestMethod]
+        public void ManagedRuntimeUninstallOnlyDeletesItsValidatedInstallDirectory()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "YTrayRuntimeUninstallTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var installation = Path.Combine(root, "Runtimes", "1.2.3", RuntimeInstaller.Platform);
+                var executable = Path.Combine(installation, "chrome-win64", "chrome.exe");
+                Directory.CreateDirectory(Path.GetDirectoryName(executable));
+                File.WriteAllText(executable, "test");
+                using (var store = new InstanceStore(root, discoverSystemBrowsers: false))
+                {
+                    var runtime = store.Upsert(new BrowserRuntime
+                    {
+                        Name = "Chrome for Testing 1.2.3",
+                        Version = "1.2.3",
+                        Architecture = RuntimeInstaller.Platform,
+                        ExecutablePath = executable,
+                        Source = RuntimeSource.Managed,
+                        BrowserKind = BrowserKind.ChromeForTesting,
+                    });
+
+                    Assert.IsTrue(store.UninstallRuntime(runtime));
+                    Assert.IsFalse(Directory.Exists(installation));
+                    Assert.IsFalse(store.Runtimes.Any(item => item.Id == runtime.Id));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [TestMethod]
         public void ChromeForTestingBannerDisabledOnlyForTestingRuntime()
         {
             var settings = new LaunchSettings();

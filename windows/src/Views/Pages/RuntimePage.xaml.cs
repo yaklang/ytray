@@ -26,6 +26,8 @@ namespace YTray.Views.Pages
             public string SourceTitle => Runtime.Source.Title();
             public ImageSource? IconSource => BrowserIconSource.FromExecutable(Runtime.ExecutablePath);
             public Visibility DefaultVisibility => IsDefault ? Visibility.Visible : Visibility.Collapsed;
+            public Visibility ManagedVisibility => Runtime.Source == RuntimeSource.Managed
+                ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private readonly InstanceStore _store;
@@ -203,6 +205,17 @@ namespace YTray.Views.Pages
             _store.SelectDefaultRuntime(runtime);
             Refresh();
             ShowFeedback($"{runtime.DisplayTitle} 已设为默认");
+        }
+
+        private void Uninstall_Click(object sender, RoutedEventArgs e)
+        {
+            if (!(((FrameworkElement)sender).Tag is BrowserRuntime runtime)) return;
+            if (MessageBox.Show($"卸载 Chrome for Testing {runtime.VersionLabel}？\n\n浏览器程序文件会被删除，实例历史和用户数据不会删除。",
+                    "YTray", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+            ShowFeedback(_store.UninstallRuntime(runtime)
+                ? $"Chrome for Testing {runtime.VersionLabel} 已卸载"
+                : (_store.ErrorMessage ?? "卸载失败"));
+            Refresh();
         }
 
         private void OpenFolder_Click(object sender, RoutedEventArgs e)

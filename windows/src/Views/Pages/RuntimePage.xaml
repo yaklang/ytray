@@ -119,7 +119,7 @@
 
                 <Border Grid.Row="1" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1">
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="174"/></Grid.ColumnDefinitions>
                         <Border Padding="14,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="浏览器" Style="{StaticResource RuntimeTableHeader}"/></Border>
                         <Border Grid.Column="1" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="来源" Style="{StaticResource RuntimeTableHeader}"/></Border>
                         <Border Grid.Column="2" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="版本" Style="{StaticResource RuntimeTableHeader}"/></Border>
@@ -165,7 +165,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="174"/></Grid.ColumnDefinitions>
                                     <Border Padding="14,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Image Source="{Binding IconSource}" Width="36" Height="36" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
@@ -200,6 +200,11 @@
                                                         <Style.Triggers><DataTrigger Binding="{Binding IsDefault}" Value="True"><Setter Property="Content" Value="当前默认"/><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers>
                                                     </Style>
                                                 </Button.Style>
+                                            </Button>
+                                            <Button Tag="{Binding Runtime}" Click="Uninstall_Click" Margin="7,0,0,0"
+                                                    Style="{StaticResource YTrayDangerIconButton}" ToolTip="卸载 Chrome for Testing"
+                                                    Visibility="{Binding ManagedVisibility}">
+                                                <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets"/>
                                             </Button>
                                         </StackPanel>
                                     </Border>

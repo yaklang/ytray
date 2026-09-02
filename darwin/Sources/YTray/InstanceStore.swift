@@ -297,27 +297,107 @@ final class InstanceStore: NSObject, ObservableObject {
         save()
     }
 
-    func addPlugin(directory: URL) {
+    @discardableResult
+    func uninstallRuntime(_ runtime: BrowserRuntime) -> Bool {
+        guard runtime.source == .managed else { return false }
+        guard !runningInstances.contains(where: { $0.runtimeID == runtime.id }) else {
+            report(NSError(domain: "YTray", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "该浏览器仍有实例正在运行，请先停止实例"
+            ])); return false
+        }
         do {
-            let data = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
-            let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
-            let normalizedPath = directory.standardizedFileURL.path
-            let existing = plugins.first { URL(fileURLWithPath: $0.path).standardizedFileURL.path == normalizedPath }
-            var plugin = BrowserPlugin(name: manifest.name, version: manifest.version, path: normalizedPath,
-                                       manifestVersion: manifest.manifestVersion)
-            if let existing {
-                plugin.id = existing.id
-                plugin.enabled = existing.enabled
-                plugin.createdAt = existing.createdAt
-                if let index = plugins.firstIndex(where: { $0.id == existing.id }) {
-                    plugins[index] = plugin
-                }
-            } else {
-                plugins.append(plugin)
+            let runtimesRoot = applicationDirectory.appendingPathComponent("Runtimes", isDirectory: true)
+                .standardizedFileURL.path + "/"
+            let installation = applicationDirectory
+                .appendingPathComponent("Runtimes/\(runtime.version)/\(RuntimeInstaller.platform)", isDirectory: true)
+                .standardizedFileURL
+            let installationPrefix = installation.path + "/"
+            guard installationPrefix.hasPrefix(runtimesRoot),
+                  URL(fileURLWithPath: runtime.executablePath).standardizedFileURL.path.hasPrefix(installationPrefix) else {
+                throw NSError(domain: "YTray", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "浏览器不在 YTray 管理的安装目录中"
+                ])
             }
-            synchronizeDefaultPluginIDs()
-            save()
-        } catch { report(YTrayError.invalidPlugin(directory.path)) }
+            if FileManager.default.fileExists(atPath: installation.path) {
+                try FileManager.default.removeItem(at: installation)
+            }
+            let versionDirectory = installation.deletingLastPathComponent()
+            if (try? FileManager.default.contentsOfDirectory(atPath: versionDirectory.path).isEmpty) == true {
+                try? FileManager.default.removeItem(at: versionDirectory)
+            }
+            removeRuntime(runtime)
+            DiagnosticLog.info("runtime.uninstall", "uninstalled Chrome for Testing \(runtime.version)")
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    func addPlugin(directory: URL) {
+        _ = addPlugins(directories: [directory])
+    }
+
+    @discardableResult
+    func addPlugins(directories roots: [URL]) -> Int {
+        var count = 0
+        for directory in Self.discoverPluginDirectories(in: roots) {
+            do {
+                let data = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
+                let manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
+                let normalizedPath = directory.standardizedFileURL.path
+                let existing = plugins.first { URL(fileURLWithPath: $0.path).standardizedFileURL.path == normalizedPath }
+                var plugin = BrowserPlugin(name: manifest.name, version: manifest.version, path: normalizedPath,
+                                           manifestVersion: manifest.manifestVersion)
+                if let existing {
+                    plugin.id = existing.id
+                    plugin.enabled = existing.enabled
+                    plugin.createdAt = existing.createdAt
+                    if let index = plugins.firstIndex(where: { $0.id == existing.id }) {
+                        plugins[index] = plugin
+                    }
+                } else {
+                    plugins.append(plugin)
+                }
+                count += 1
+            } catch { continue }
+        }
+        guard count > 0 else {
+            report(YTrayError.invalidPlugin(roots.first?.path ?? "未选择目录")); return 0
+        }
+        errorMessage = nil
+        synchronizeDefaultPluginIDs()
+        save()
+        return count
+    }
+
+    static func discoverPluginDirectories(in roots: [URL]) -> [URL] {
+        var pending = roots.map { ($0.standardizedFileURL, 0) }
+        var visited = Set<String>()
+        var found: [URL] = []
+        while !pending.isEmpty && found.count < 256 && visited.count < 4_096 {
+            let (directory, depth) = pending.removeFirst()
+            guard visited.insert(directory.path).inserted else { continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { continue }
+            if FileManager.default.fileExists(atPath: directory.appendingPathComponent("manifest.json").path) {
+                found.append(directory); continue
+            }
+            guard depth < 5, let children = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for child in children {
+                guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                      values.isDirectory == true, values.isSymbolicLink != true else { continue }
+                pending.append((child.standardizedFileURL, depth + 1))
+            }
+        }
+        // ponytail: 4,096 directories / five levels / 256 extensions covers browser profile roots and prevents
+        // an accidental whole-disk scan; raise only if a real profile exceeds the ceiling.
+        return found
     }
 
     @discardableResult

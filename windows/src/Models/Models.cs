@@ -588,7 +588,7 @@ namespace YTray.Models
         {
             YTrayError.NoRuntime => "没有可用浏览器；请选择本机浏览器，或安装一个 Chrome for Testing 版本",
             YTrayError.InvalidExecutable => $"找不到可执行的 Chrome：{detail}",
-            YTrayError.InvalidPlugin => $"插件目录无效：{detail}（目录根部必须包含 manifest.json）",
+            YTrayError.InvalidPlugin => $"插件目录无效：{detail}（所选目录或其子目录中必须包含 manifest.json）",
             YTrayError.InvalidURL => $"启动地址无效：{detail}",
             YTrayError.InvalidProxy => $"HTTP 代理地址无效：{detail}（例如 http://127.0.0.1:8083）",
             YTrayError.InvalidFlag => $"不允许覆盖实例隔离或调试参数：{detail}",
