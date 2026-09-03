@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.13 — 2026-09-03
+
+- 本地插件新增“固定到工具栏”开关；内置 Yakit Browser Agent 默认开启，普通导入插件默认关闭，并在下次启动实例时生效。
+- 启动实例前仅更新该实例 Profile 的固定插件列表，不写系统 Chrome 企业策略，也不影响其他 Chrome 配置。
+- 支持按 manifest 公钥或 Chromium 路径规则计算扩展 ID，关闭开关时会清理 YTray 管理的旧固定项，同时保留用户原有固定插件。
+- 启动时向 Yakit Browser Agent 传递当前实例标识，并增加跨平台迁移与回归测试。
+
 ## 0.1.12 — 2026-09-02
 
 - 修复从外部路径扫描到的 Chrome for Testing 被误识别为普通 Google Chrome、进而错误禁用本地插件的问题。
