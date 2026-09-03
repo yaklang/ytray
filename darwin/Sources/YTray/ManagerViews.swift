@@ -638,7 +638,7 @@ struct PluginsPage: View {
     @ObservedObject var store: InstanceStore
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            PageHeader(title: "插件管理", subtitle: "启用的本地插件会自动加载到新实例；自定义启动仍可临时调整。")
+            PageHeader(title: "插件管理", subtitle: "可分别设置默认加载和工具栏固定；修改将在下次启动实例时生效。")
             yakitExtensionSection
             HStack { Button("添加或扫描插件目录…") { choosePlugin() }.buttonStyle(FilledOrangeButtonStyle()); Spacer() }
             List {
@@ -659,6 +659,9 @@ struct PluginsPage: View {
                         Toggle("新实例加载", isOn: Binding(get: { plugin.enabled }, set: { enabled in
                             var changed = plugin; changed.enabled = enabled; store.updatePlugin(changed)
                         })).toggleStyle(.switch)
+                        Toggle("固定", isOn: Binding(get: { plugin.pinToToolbar == true }, set: { pinned in
+                            var changed = plugin; changed.pinToToolbar = pinned; store.updatePlugin(changed)
+                        })).toggleStyle(.switch).help("固定到浏览器工具栏；下次启动实例生效")
                         if plugin.id != store.managedExtension?.id {
                             Button(role: .destructive) { store.removePlugin(plugin) } label: { Image(systemName: "trash") }
                                 .buttonStyle(HistoryDeleteButtonStyle())

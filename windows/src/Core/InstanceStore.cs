@@ -287,6 +287,9 @@ namespace YTray.Core
                         IconPath = PluginIconSource.ResolveIconPath(directory),
                         ManifestVersion = manifest.ManifestVersion,
                         Enabled = existing?.Enabled ?? true,
+                        PinToToolbar = existing?.PinToToolbar ?? (manifest.Name == ExtensionInstaller.ExtensionName
+                            && directory.StartsWith(ExtensionInstaller.PluginsRoot(ApplicationDirectory),
+                                StringComparison.OrdinalIgnoreCase)),
                         CreatedAt = existing?.CreatedAt ?? DateTime.Now,
                     };
                     if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
@@ -593,7 +596,8 @@ namespace YTray.Core
                     throw new YTrayException(YTrayError.LaunchFailed, $"Dock 角标 {badge} 已被运行中的实例使用");
 
                 var result = BrowserLauncher.Launch(runtime, mode, configuration, selectedPlugins,
-                    ApplicationDirectory, Instances.Count + 1, badge, restoring);
+                    ApplicationDirectory, Instances.Count + 1, badge, restoring,
+                    configuredPlugins: Plugins.ToList());
                 if (_launches.TryGetValue(result.Instance.Id, out var previousLaunch))
                 {
                     _launches.Remove(result.Instance.Id);
@@ -1053,6 +1057,7 @@ namespace YTray.Core
                 IconPath = PluginIconSource.ResolveIconPath(fullDirectory),
                 ManifestVersion = manifest.ManifestVersion,
                 Enabled = existing?.Enabled ?? enabled,
+                PinToToolbar = existing?.PinToToolbar ?? true,
                 CreatedAt = existing?.CreatedAt ?? DateTime.Now,
             };
             if (existing != null) Plugins[Plugins.IndexOf(existing)] = plugin;
@@ -1390,6 +1395,9 @@ namespace YTray.Core
                 if (string.IsNullOrWhiteSpace(plugin.IconPath) || !File.Exists(plugin.IconPath))
                     plugin.IconPath = PluginIconSource.ResolveIconPath(plugin.Path);
             }
+            var managedPluginId = ManagedExtension?.Id;
+            foreach (var plugin in Plugins.Where(plugin => !plugin.PinToToolbar.HasValue))
+                plugin.PinToToolbar = plugin.Id == managedPluginId;
             SynchronizeDefaultPluginIDs();
             foreach (var instance in Instances)
             {

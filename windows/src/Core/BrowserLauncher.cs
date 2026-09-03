@@ -6,8 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Net;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using YTray.Models;
 
 namespace YTray.Core
@@ -113,7 +116,8 @@ namespace YTray.Core
         public static List<string> BuildArguments(LaunchMode mode, LaunchSettings settings,
             string profilePath, int debugPort, List<BrowserPlugin> plugins,
             BrowserKind? runtimeKind = null, List<string>? internalExtensionPaths = null,
-            bool restoreLastSession = false)
+            bool restoreLastSession = false, Guid? managedInstanceId = null,
+            string? instanceBadge = null)
         {
             var arguments = new List<string>
             {
@@ -174,17 +178,83 @@ namespace YTray.Core
                 }
             }
 
-            if (restoreLastSession)
-            {
-                arguments.Add("--restore-last-session");
-                return arguments;
-            }
-
             var target = (settings.HomeURL ?? "").Trim();
             if (string.IsNullOrEmpty(target) || (!target.StartsWith("chrome://") && !Uri.IsWellFormedUriString(target, UriKind.Absolute)))
                 throw new YTrayException(YTrayError.InvalidURL, target);
-            arguments.Add(target);
+            var managedExtensionId = plugins
+                .Where(plugin => plugin.Enabled && plugin.Name == ExtensionInstaller.ExtensionName)
+                .Select(ExtensionInstaller.ChromiumExtensionId)
+                .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+            var managedExtensionLoaded = mode != LaunchMode.Isolated && managedInstanceId.HasValue
+                && !string.IsNullOrWhiteSpace(instanceBadge) && managedExtensionId != null;
+            if (restoreLastSession)
+            {
+                arguments.Add("--restore-last-session");
+                if (managedExtensionLoaded)
+                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true));
+                return arguments;
+            }
+            arguments.Add(managedExtensionLoaded
+                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false)
+                : target);
             return arguments;
+        }
+
+        internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target, bool restore)
+        {
+            return $"chrome-extension://{extensionId}/ytray-bootstrap.html" +
+                $"?manager=ytray&instanceId={Uri.EscapeDataString(instanceId.ToString())}" +
+                $"&badge={Uri.EscapeDataString(DockBadgeLabel.Normalize(badge))}" +
+                $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}";
+        }
+
+        internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,
+            IEnumerable<BrowserPlugin>? configuredPlugins = null)
+        {
+            var loaded = (loadedPlugins ?? Enumerable.Empty<BrowserPlugin>())
+                .Select(plugin => new { Plugin = plugin, Id = ExtensionInstaller.ChromiumExtensionId(plugin) })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                .ToList();
+            var controlled = new HashSet<string>(
+                (configuredPlugins ?? loadedPlugins ?? Enumerable.Empty<BrowserPlugin>())
+                    .Select(ExtensionInstaller.ChromiumExtensionId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Select(id => id!),
+                StringComparer.Ordinal);
+            if (controlled.Count == 0) return;
+
+            var defaultProfile = Path.Combine(profilePath, "Default");
+            var preferencesPath = Path.Combine(defaultProfile, "Preferences");
+            Directory.CreateDirectory(defaultProfile);
+            var preferences = File.Exists(preferencesPath)
+                ? JObject.Parse(File.ReadAllText(preferencesPath))
+                : new JObject();
+            var extensions = preferences["extensions"] as JObject;
+            if (extensions == null)
+            {
+                extensions = new JObject();
+                preferences["extensions"] = extensions;
+            }
+            var pinned = (extensions["pinned_extensions"] as JArray)?.Values<string>()
+                .Where(id => !string.IsNullOrWhiteSpace(id) && !controlled.Contains(id!))
+                .Select(id => id!)
+                .Distinct(StringComparer.Ordinal)
+                .ToList() ?? new List<string>();
+            foreach (var item in loaded.Where(item => item.Plugin.PinToToolbar == true))
+                if (!pinned.Contains(item.Id!, StringComparer.Ordinal)) pinned.Add(item.Id!);
+            extensions["pinned_extensions"] = new JArray(pinned);
+
+            var temporary = preferencesPath + ".ytray.tmp";
+            try
+            {
+                File.WriteAllText(temporary, preferences.ToString(Formatting.None), new UTF8Encoding(false));
+                if (File.Exists(preferencesPath)) File.Replace(temporary, preferencesPath, null);
+                else File.Move(temporary, preferencesPath);
+            }
+            finally
+            {
+                try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+            }
         }
 
         public static int NextAvailablePort(int startingAt)
@@ -211,7 +281,8 @@ namespace YTray.Core
 
         public static LaunchResult Launch(BrowserRuntime runtime, LaunchMode mode, LaunchSettings settings,
             List<BrowserPlugin> plugins, string applicationDirectory, int ordinal, string dockBadge,
-            BrowserInstance? restoring = null, Func<int, Task>? onWindowReady = null)
+            BrowserInstance? restoring = null, Func<int, Task>? onWindowReady = null,
+            IEnumerable<BrowserPlugin>? configuredPlugins = null)
         {
             if (runtime == null) throw new ArgumentNullException(nameof(runtime));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
@@ -247,7 +318,8 @@ namespace YTray.Core
             try
             {
                 arguments = BuildArguments(mode, launchSettings, profile, port, plugins, runtime.Kind,
-                    internalPaths, restoring != null && !usesProxyAuth);
+                    internalPaths, restoring != null && !usesProxyAuth, id, normalizedBadge);
+                if (mode != LaunchMode.Isolated) PreparePinnedExtensions(profile, plugins, configuredPlugins);
             }
             catch (Exception)
             {

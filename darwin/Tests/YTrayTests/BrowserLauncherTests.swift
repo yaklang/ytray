@@ -91,6 +91,7 @@ final class BrowserLauncherTests: XCTestCase {
         let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
         store.addPlugin(directory: pluginDirectory)
         var plugin = try XCTUnwrap(store.plugins.first)
+        XCTAssertEqual(plugin.pinToToolbar, false)
         XCTAssertEqual(store.settings.defaultPluginIDs, [plugin.id])
 
         plugin.enabled = false
@@ -110,6 +111,7 @@ final class BrowserLauncherTests: XCTestCase {
             .write(to: managedDirectory.appendingPathComponent("manifest.json"))
         store.addPlugin(directory: managedDirectory)
         var managed = try XCTUnwrap(store.managedExtension)
+        XCTAssertEqual(managed.pinToToolbar, true)
         store.removePlugin(managed)
         XCTAssertTrue(store.plugins.contains(where: { $0.id == managed.id }))
 
@@ -1310,6 +1312,80 @@ final class BrowserLauncherTests: XCTestCase {
         )
         XCTAssertTrue(arguments.contains("--load-extension=/tmp/local-extension"))
         XCTAssertTrue(arguments.contains("--disable-extensions-except=/tmp/local-extension"))
+    }
+
+    func testToolbarPinsUseChromiumIDsAndPreserveUnrelatedPreferences() throws {
+        let key = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1bj9d0jEOY87aT9nk4Ov7svZVnrFPD0dJsS39exzqMIJGMkGmqQ7J4TfFLlAV3Ckm9uszkMyw1oKKM/5ejd662B2uTcolHcSzmEVKLTGLvwUylWE6YJWcb3b5G88bzkcQepnNdz3gg3JvMhwPBNMk4qeSAHtX7u6S5zjoX4AyvQg5/qs29zViUTZoPcSEprJidaMilKwGxsJ5VpgtUXCE7JoKgadm/CK4iwJF5yCmKrkCi6xFwrt/qfrLAd6qXae7d5PDztxNyU+KSHX6FUHFfvJx9cmeIjIIJiZ35RHV78oT2beATSrU70uxg6in2JMy0z9SnpoV4euJ4Xyh6f/cwIDAQAB"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-pin-test-\(UUID().uuidString)", isDirectory: true)
+        let extensionURL = root.appendingPathComponent("extension", isDirectory: true)
+        let profile = root.appendingPathComponent("profile", isDirectory: true)
+        let preferencesURL = profile.appendingPathComponent("Default/Preferences")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: extensionURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: preferencesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"name\":\"Pinned\",\"version\":\"1\",\"manifest_version\":3,\"key\":\"\(key)\"}".utf8)
+            .write(to: extensionURL.appendingPathComponent("manifest.json"))
+        try JSONSerialization.data(withJSONObject: [
+            "browser": ["check_default_browser": false],
+            "extensions": ["pinned_extensions": ["unrelated"]],
+        ]).write(to: preferencesURL)
+        var plugin = BrowserPlugin(name: "Pinned", version: "1", path: extensionURL.path, manifestVersion: 3)
+        plugin.pinToToolbar = true
+
+        XCTAssertEqual(ExtensionInstaller.chromiumExtensionID(for: plugin), "mcnaombmlombekhbonfndagbcfhmoail")
+        XCTAssertEqual(ExtensionInstaller.chromiumExtensionID(
+            extensionPath: "/tmp/ytray-extension", manifestKey: nil
+        ), "odmgfgfejpmnoccolgbojlnldbjmlmnl")
+        try BrowserLauncher.preparePinnedExtensions(profile: profile, loadedPlugins: [plugin])
+        var preferences = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: preferencesURL)
+        ) as? [String: Any])
+        var extensions = try XCTUnwrap(preferences["extensions"] as? [String: Any])
+        XCTAssertEqual(extensions["pinned_extensions"] as? [String], ["unrelated", "mcnaombmlombekhbonfndagbcfhmoail"])
+        XCTAssertEqual((preferences["browser"] as? [String: Any])?["check_default_browser"] as? Bool, false)
+
+        plugin.pinToToolbar = false
+        try BrowserLauncher.preparePinnedExtensions(
+            profile: profile, loadedPlugins: [], configuredPlugins: [plugin]
+        )
+        preferences = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: preferencesURL)
+        ) as? [String: Any])
+        extensions = try XCTUnwrap(preferences["extensions"] as? [String: Any])
+        XCTAssertEqual(extensions["pinned_extensions"] as? [String], ["unrelated"])
+    }
+
+    func testManagedExtensionReceivesTheYTrayInstanceBadgeAtStartup() throws {
+        var settings = LaunchSettings()
+        settings.homeURL = "https://example.test/account"
+        let plugin = BrowserPlugin(
+            name: ExtensionInstaller.extensionName,
+            version: "1.0",
+            path: "/tmp/yakit-extension",
+            manifestVersion: 3
+        )
+        let instanceID = try XCTUnwrap(UUID(uuidString: "00000000-0000-4000-8000-000000000003"))
+        let arguments = try BrowserLauncher.buildArguments(
+            mode: .quick,
+            settings: settings,
+            profilePath: "/tmp/profile-c",
+            debugPort: 9667,
+            plugins: [plugin],
+            runtimeKind: .chromeForTesting,
+            managedInstanceID: instanceID,
+            instanceBadge: "C"
+        )
+
+        let bootstrap = try XCTUnwrap(arguments.first { $0.contains("/ytray-bootstrap.html") })
+        XCTAssertTrue(bootstrap.contains("manager=ytray"))
+        XCTAssertTrue(bootstrap.contains("instanceId=00000000-0000-4000-8000-000000000003"))
+        XCTAssertTrue(bootstrap.contains("badge=C"))
+        XCTAssertEqual(
+            URLComponents(string: bootstrap)?.queryItems?.first { $0.name == "target" }?.value,
+            settings.homeURL
+        )
+        XCTAssertFalse(arguments.contains(settings.homeURL))
     }
 
     @MainActor

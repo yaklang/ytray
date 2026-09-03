@@ -25,6 +25,35 @@ enum ExtensionInstaller {
             .appendingPathComponent("yakit-browser-agent/\(version)", isDirectory: true)
     }
 
+    static func chromiumExtensionID(for plugin: BrowserPlugin) -> String? {
+        let directory = URL(fileURLWithPath: plugin.path, isDirectory: true).standardizedFileURL
+        let manifestURL = directory.appendingPathComponent("manifest.json")
+        var key: String?
+        if FileManager.default.fileExists(atPath: manifestURL.path) {
+            guard let data = try? Data(contentsOf: manifestURL),
+                  let manifest = try? JSONDecoder().decode(PluginManifest.self, from: data) else { return nil }
+            key = manifest.key
+        }
+        return chromiumExtensionID(extensionPath: directory.path, manifestKey: key)
+    }
+
+    static func chromiumExtensionID(extensionPath: String, manifestKey: String?) -> String? {
+        let identity: Data
+        if let manifestKey, !manifestKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let decoded = Data(base64Encoded: manifestKey) else { return nil }
+            identity = decoded
+        } else {
+            identity = Data(extensionPath.utf8)
+        }
+        let digest = SHA256.hash(data: identity)
+        var id = ""
+        for byte in digest.prefix(16) {
+            id.append(Character(UnicodeScalar(97 + Int(byte >> 4))!))
+            id.append(Character(UnicodeScalar(97 + Int(byte & 15))!))
+        }
+        return id
+    }
+
     private static func managedExtensionOptOutURL(applicationDirectory: URL) -> URL {
         pluginsRoot(applicationDirectory: applicationDirectory)
             .appendingPathComponent(".yakit-browser-agent-removed")

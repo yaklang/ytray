@@ -134,6 +134,7 @@ namespace YTray.Models
         public string IconPath { get; set; } = "";
         public int ManifestVersion { get; set; }
         public bool Enabled { get; set; } = true;
+        public bool? PinToToolbar { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
         public bool Equals(BrowserPlugin? other) => other != null && Id == other.Id;
@@ -526,6 +527,7 @@ namespace YTray.Models
     {
         public string Name { get; set; } = "";
         public string Version { get; set; } = "";
+        public string? Key { get; set; }
         [JsonProperty("manifest_version")]
         public int ManifestVersion { get; set; }
     }

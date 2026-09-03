@@ -59,6 +59,38 @@ namespace YTray.Core
         public static string PluginDirectory(string applicationDirectory, string version) =>
             Path.Combine(PluginsRoot(applicationDirectory), "yakit-browser-agent", version);
 
+        public static string? ChromiumExtensionId(BrowserPlugin plugin)
+        {
+            if (plugin == null || string.IsNullOrWhiteSpace(plugin.Path)) return null;
+            try
+            {
+                string? key = null;
+                var manifestPath = Path.Combine(plugin.Path, "manifest.json");
+                if (File.Exists(manifestPath))
+                    key = JsonConvert.DeserializeObject<PluginManifest>(File.ReadAllText(manifestPath))?.Key;
+                return ChromiumExtensionId(plugin.Path, key);
+            }
+            catch { return null; }
+        }
+
+        internal static string ChromiumExtensionId(string extensionPath, string? manifestKey)
+        {
+            var identity = string.IsNullOrWhiteSpace(manifestKey)
+                ? Encoding.Unicode.GetBytes(Path.GetFullPath(extensionPath))
+                : Convert.FromBase64String(manifestKey);
+            using (var sha = SHA256.Create())
+            {
+                var digest = sha.ComputeHash(identity);
+                var id = new StringBuilder(32);
+                for (var i = 0; i < 16; i++)
+                {
+                    id.Append((char)('a' + (digest[i] >> 4)));
+                    id.Append((char)('a' + (digest[i] & 15)));
+                }
+                return id.ToString();
+            }
+        }
+
         private static string ManagedExtensionOptOutPath(string applicationDirectory) =>
             Path.Combine(PluginsRoot(applicationDirectory), ".yakit-browser-agent-removed");
 

@@ -78,6 +78,7 @@ struct BrowserPlugin: Identifiable, Codable, Equatable, Hashable {
     var path: String
     var manifestVersion: Int
     var enabled = true
+    var pinToToolbar: Bool? = nil
     var createdAt = Date()
 }
 
@@ -398,9 +399,10 @@ struct MirrorArtifact: Decodable {
 struct PluginManifest: Decodable {
     let name: String
     let version: String
+    let key: String?
     let manifestVersion: Int
     enum CodingKeys: String, CodingKey {
-        case name, version
+        case name, version, key
         case manifestVersion = "manifest_version"
     }
 }

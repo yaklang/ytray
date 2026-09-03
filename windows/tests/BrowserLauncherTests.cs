@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 using YTray.Core;
 using YTray.Models;
 using YTray.Native;
@@ -371,6 +372,63 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void ToolbarPinsUseChromiumIdsAndPreserveUnrelatedPreferences()
+        {
+            const string key = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1bj9d0jEOY87aT9nk4Ov7svZVnrFPD0dJsS39exzqMIJGMkGmqQ7J4TfFLlAV3Ckm9uszkMyw1oKKM/5ejd662B2uTcolHcSzmEVKLTGLvwUylWE6YJWcb3b5G88bzkcQepnNdz3gg3JvMhwPBNMk4qeSAHtX7u6S5zjoX4AyvQg5/qs29zViUTZoPcSEprJidaMilKwGxsJ5VpgtUXCE7JoKgadm/CK4iwJF5yCmKrkCi6xFwrt/qfrLAd6qXae7d5PDztxNyU+KSHX6FUHFfvJx9cmeIjIIJiZ35RHV78oT2beATSrU70uxg6in2JMy0z9SnpoV4euJ4Xyh6f/cwIDAQAB";
+            var root = Path.Combine(Path.GetTempPath(), "YTrayPinTests", Guid.NewGuid().ToString("N"));
+            var extension = Path.Combine(root, "extension");
+            var profile = Path.Combine(root, "profile");
+            var preferences = Path.Combine(profile, "Default", "Preferences");
+            try
+            {
+                Directory.CreateDirectory(extension);
+                Directory.CreateDirectory(Path.GetDirectoryName(preferences));
+                File.WriteAllText(Path.Combine(extension, "manifest.json"),
+                    $"{{\"name\":\"Pinned\",\"version\":\"1\",\"manifest_version\":3,\"key\":\"{key}\"}}");
+                File.WriteAllText(preferences,
+                    "{\"browser\":{\"check_default_browser\":false},\"extensions\":{\"pinned_extensions\":[\"unrelated\"]}}");
+                var plugin = new BrowserPlugin { Path = extension, PinToToolbar = true };
+
+                Assert.AreEqual("mcnaombmlombekhbonfndagbcfhmoail", ExtensionInstaller.ChromiumExtensionId(plugin));
+                Assert.AreEqual("kehclgnhmijdkcociffpmmnfhimpjolo",
+                    ExtensionInstaller.ChromiumExtensionId(@"C:\YTray\Extension", null));
+                BrowserLauncher.PreparePinnedExtensions(profile, new[] { plugin });
+                var written = JObject.Parse(File.ReadAllText(preferences));
+                Assert.AreEqual("unrelated,mcnaombmlombekhbonfndagbcfhmoail", string.Join(",",
+                    written["extensions"]!["pinned_extensions"]!.Values<string>()));
+                Assert.AreEqual(false, written["browser"]!["check_default_browser"]!.Value<bool>());
+
+                plugin.PinToToolbar = false;
+                BrowserLauncher.PreparePinnedExtensions(profile, Array.Empty<BrowserPlugin>(), new[] { plugin });
+                written = JObject.Parse(File.ReadAllText(preferences));
+                Assert.AreEqual("unrelated", string.Join(",",
+                    written["extensions"]!["pinned_extensions"]!.Values<string>()));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [TestMethod]
+        public void ManagedExtensionReceivesTheYTrayInstanceBadgeAtStartup()
+        {
+            var instanceId = Guid.Parse("00000000-0000-4000-8000-000000000003");
+            var settings = new LaunchSettings { HomeURL = "https://example.test/account" };
+            var plugin = new BrowserPlugin { Name = ExtensionInstaller.ExtensionName, Path = "/tmp/yakit-extension" };
+            var args = BrowserLauncher.BuildArguments(
+                LaunchMode.Quick, settings, "/tmp/profile-c", 9667, new List<BrowserPlugin> { plugin },
+                BrowserKind.ChromeForTesting, managedInstanceId: instanceId, instanceBadge: "C");
+
+            var bootstrap = args.Single(arg => arg.Contains("/ytray-bootstrap.html"));
+            StringAssert.Contains(bootstrap, "manager=ytray");
+            StringAssert.Contains(bootstrap, "instanceId=00000000-0000-4000-8000-000000000003");
+            StringAssert.Contains(bootstrap, "badge=C");
+            StringAssert.Contains(bootstrap, "target=https%3A%2F%2Fexample.test%2Faccount");
+            Assert.IsFalse(args.Contains(settings.HomeURL));
+        }
+
+        [TestMethod]
         public void PluginManifestIconUsesTheLargestSafeDeclaredBitmap()
         {
             var directory = Path.Combine(Path.GetTempPath(), "YTrayPluginIconTests", Guid.NewGuid().ToString("N"));
@@ -409,6 +467,7 @@ namespace YTray.Tests
                 {
                     store.AddPlugin(extension);
                     var original = store.Plugins.Single();
+                    Assert.AreEqual(false, original.PinToToolbar);
                     Assert.AreEqual(1, store.Settings.DefaultPluginIDs.Count);
                     Assert.AreEqual(original.Id, store.Settings.DefaultPluginIDs[0]);
                     var quick = store.QuickLaunchConfiguration(usePresetProxy: false);
@@ -438,6 +497,7 @@ namespace YTray.Tests
                         "{\"name\":\"Yakit Browser Agent\",\"version\":\"1.0\",\"manifest_version\":3}");
                     store.AddPlugin(managedDirectory);
                     var managed = store.ManagedExtension!;
+                    Assert.AreEqual(true, managed.PinToToolbar);
                     store.RemovePlugin(managed);
                     Assert.IsTrue(store.Plugins.Any(plugin => plugin.Id == managed.Id));
 

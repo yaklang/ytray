@@ -249,6 +249,7 @@ final class InstanceStore: NSObject, ObservableObject {
             if let previous {
                 plugin.id = previous.id
                 plugin.enabled = previous.enabled
+                plugin.pinToToolbar = previous.pinToToolbar ?? true
                 plugin.createdAt = previous.createdAt
                 if let index = plugins.firstIndex(where: { $0.id == previous.id }) {
                     plugins[index] = plugin
@@ -256,6 +257,7 @@ final class InstanceStore: NSObject, ObservableObject {
                     plugins.append(plugin)
                 }
             } else {
+                plugin.pinToToolbar = true
                 plugins.removeAll { $0.path == directory.path }
                 plugins.append(plugin)
             }
@@ -352,11 +354,16 @@ final class InstanceStore: NSObject, ObservableObject {
                 if let existing {
                     plugin.id = existing.id
                     plugin.enabled = existing.enabled
+                    plugin.pinToToolbar = existing.pinToToolbar
                     plugin.createdAt = existing.createdAt
                     if let index = plugins.firstIndex(where: { $0.id == existing.id }) {
                         plugins[index] = plugin
                     }
                 } else {
+                    let managedRoot = ExtensionInstaller.pluginsRoot(applicationDirectory: applicationDirectory)
+                        .standardizedFileURL.path + "/"
+                    plugin.pinToToolbar = manifest.name == ExtensionInstaller.extensionName
+                        && (normalizedPath + "/").hasPrefix(managedRoot)
                     plugins.append(plugin)
                 }
                 count += 1
@@ -506,7 +513,8 @@ final class InstanceStore: NSObject, ObservableObject {
                 applicationDirectory: applicationDirectory,
                 ordinal: instances.count + 1,
                 dockBadge: badge,
-                restoring: history
+                restoring: history,
+                configuredPlugins: plugins
             )
             processes[result.instance.id] = result.process
             let instanceID = result.instance.id.uuidString
@@ -865,6 +873,10 @@ final class InstanceStore: NSObject, ObservableObject {
             plugins = state.plugins
             instances = state.instances
             settings = state.settings
+            let managedID = managedExtension?.id
+            for index in plugins.indices where plugins[index].pinToToolbar == nil {
+                plugins[index].pinToToolbar = plugins[index].id == managedID
+            }
             synchronizeDefaultPluginIDs()
             consolidateHistoryBadges()
             save()

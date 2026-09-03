@@ -177,6 +177,11 @@ namespace YTray.Views.Pages
             if (((FrameworkElement)sender).Tag is BrowserPlugin plugin) _store.UpdatePlugin(plugin);
         }
 
+        private void PinToToolbar_Click(object sender, RoutedEventArgs e)
+        {
+            if (((FrameworkElement)sender).Tag is BrowserPlugin plugin) _store.UpdatePlugin(plugin);
+        }
+
         private void PluginSelection_Changed(object sender, SelectionChangedEventArgs e)
         {
             _selected = (PluginList.SelectedItem as PluginRow)?.Plugin;

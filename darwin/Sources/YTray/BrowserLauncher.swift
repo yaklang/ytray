@@ -54,7 +54,9 @@ enum BrowserLauncher {
                                runtimeKind: BrowserKind? = nil,
                                internalExtensionPaths: [String] = [],
                                identityColor: BrowserIdentityColor? = nil,
-                               restoreLastSession: Bool = false) throws -> [String] {
+                               restoreLastSession: Bool = false,
+                               managedInstanceID: UUID? = nil,
+                               instanceBadge: String? = nil) throws -> [String] {
         var arguments = [
             "--user-data-dir=\(profilePath)",
             "--remote-debugging-address=127.0.0.1",
@@ -107,21 +109,93 @@ enum BrowserLauncher {
                 arguments.append(flag)
             }
         }
-        if restoreLastSession {
-            arguments.append("--restore-last-session")
-            return arguments
-        }
         let target = settings.homeURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard target.hasPrefix("chrome://") || URL(string: target)?.scheme != nil else {
             throw YTrayError.invalidURL(target)
         }
-        arguments.append(target)
+        let managedExtensionID = plugins.lazy
+            .filter { $0.enabled && $0.name == ExtensionInstaller.extensionName }
+            .compactMap { ExtensionInstaller.chromiumExtensionID(for: $0) }
+            .first
+        let managedExtensionLoaded = mode != .isolated && managedInstanceID != nil
+            && instanceBadge != nil && managedExtensionID != nil
+        if restoreLastSession {
+            arguments.append("--restore-last-session")
+            if managedExtensionLoaded {
+                arguments.append(try managedBrowserBootstrapURL(
+                    extensionID: managedExtensionID!, instanceID: managedInstanceID!,
+                    badge: instanceBadge!, target: target, restore: true
+                ))
+            }
+            return arguments
+        }
+        if managedExtensionLoaded {
+            arguments.append(try managedBrowserBootstrapURL(
+                extensionID: managedExtensionID!, instanceID: managedInstanceID!,
+                badge: instanceBadge!, target: target, restore: false
+            ))
+        } else {
+            arguments.append(target)
+        }
         return arguments
+    }
+
+    static func managedBrowserBootstrapURL(
+        extensionID: String, instanceID: UUID, badge: String, target: String, restore: Bool
+    ) throws -> String {
+        var components = URLComponents()
+        components.scheme = "chrome-extension"
+        components.host = extensionID
+        components.path = "/ytray-bootstrap.html"
+        components.queryItems = [
+            URLQueryItem(name: "manager", value: "ytray"),
+            URLQueryItem(name: "instanceId", value: instanceID.uuidString),
+            URLQueryItem(name: "badge", value: try DockBadgeLabel.normalize(badge)),
+            URLQueryItem(name: "target", value: target),
+            URLQueryItem(name: "restore", value: restore ? "1" : "0"),
+        ]
+        guard let value = components.string else { throw YTrayError.invalidURL(target) }
+        return value
+    }
+
+    static func preparePinnedExtensions(
+        profile: URL, loadedPlugins: [BrowserPlugin], configuredPlugins: [BrowserPlugin]? = nil
+    ) throws {
+        let loaded = loadedPlugins.compactMap { plugin in
+            ExtensionInstaller.chromiumExtensionID(for: plugin).map { (plugin: plugin, id: $0) }
+        }
+        let controlledIDs = Set((configuredPlugins ?? loadedPlugins).compactMap {
+            ExtensionInstaller.chromiumExtensionID(for: $0)
+        })
+        guard !controlledIDs.isEmpty else { return }
+
+        let defaultProfile = profile.appendingPathComponent("Default", isDirectory: true)
+        let preferencesURL = defaultProfile.appendingPathComponent("Preferences")
+        try FileManager.default.createDirectory(at: defaultProfile, withIntermediateDirectories: true)
+        var preferences: [String: Any] = [:]
+        if FileManager.default.fileExists(atPath: preferencesURL.path) {
+            let object = try JSONSerialization.jsonObject(with: Data(contentsOf: preferencesURL))
+            guard let decoded = object as? [String: Any] else {
+                throw YTrayError.launchFailed("浏览器 Preferences 格式无效")
+            }
+            preferences = decoded
+        }
+        var extensions = preferences["extensions"] as? [String: Any] ?? [:]
+        var pinned = (extensions["pinned_extensions"] as? [String] ?? [])
+            .filter { !controlledIDs.contains($0) }
+        for item in loaded where item.plugin.pinToToolbar == true && !pinned.contains(item.id) {
+            pinned.append(item.id)
+        }
+        extensions["pinned_extensions"] = pinned
+        preferences["extensions"] = extensions
+        let data = try JSONSerialization.data(withJSONObject: preferences)
+        try data.write(to: preferencesURL, options: .atomic)
     }
 
     static func launch(runtime: BrowserRuntime, mode: LaunchMode, settings: LaunchSettings,
                        plugins: [BrowserPlugin], applicationDirectory: URL, ordinal: Int,
-                       dockBadge: String, restoring history: BrowserInstance? = nil) throws -> LaunchResult {
+                       dockBadge: String, restoring history: BrowserInstance? = nil,
+                       configuredPlugins: [BrowserPlugin]? = nil) throws -> LaunchResult {
         let executable = URL(fileURLWithPath: runtime.executablePath)
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw YTrayError.invalidExecutable(executable.path)
@@ -171,8 +245,15 @@ enum BrowserLauncher {
                 runtimeKind: runtime.kind,
                 internalExtensionPaths: proxyAuthExtension.map { [$0.path] } ?? [],
                 identityColor: history == nil ? themeIdentityColor : nil,
-                restoreLastSession: history != nil && !usesProxyAuthentication
+                restoreLastSession: history != nil && !usesProxyAuthentication,
+                managedInstanceID: id,
+                instanceBadge: normalizedBadge
             )
+            if mode != .isolated {
+                try preparePinnedExtensions(
+                    profile: profile, loadedPlugins: plugins, configuredPlugins: configuredPlugins
+                )
+            }
         } catch {
             ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
             throw error
