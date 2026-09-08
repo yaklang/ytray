@@ -1422,6 +1422,34 @@ final class BrowserLauncherTests: XCTestCase {
         ))
         XCTAssertEqual(selected.filename, "arm.dmg")
     }
+
+    func testPluginIconUsesLargestSafeDeclaredBitmap() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-plugin-icon-\(UUID().uuidString)", isDirectory: true)
+        let icons = root.appendingPathComponent("icons", isDirectory: true)
+        let outside = root.deletingLastPathComponent()
+            .appendingPathComponent("ytray-outside-icon-\(UUID().uuidString).png")
+        try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+        }
+
+        try Data([1]).write(to: icons.appendingPathComponent("16.png"))
+        try Data([2]).write(to: icons.appendingPathComponent("128.png"))
+        try Data([3]).write(to: outside)
+        let manifest = """
+        {"name":"Test","version":"1","manifest_version":3,"icons":{
+          "16":"icons/16.png","128":"icons/128.png","512":"../\(outside.lastPathComponent)"
+        }}
+        """
+        try Data(manifest.utf8).write(to: root.appendingPathComponent("manifest.json"))
+
+        XCTAssertEqual(
+            PluginIconSource.resolveIconPath(pluginDirectory: root.path),
+            icons.appendingPathComponent("128.png").resolvingSymlinksInPath().path
+        )
+    }
 }
 
 private final class TestLaunchAtLoginBackend: LaunchAtLoginBackend {
