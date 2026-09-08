@@ -470,6 +470,23 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertEqual(appKitTray, NSRect(x: 2_527, y: 1_416, width: 54, height: 24))
     }
 
+    func testTrayWindowIDRejectsValuesOutsideCGWindowIDRange() {
+        XCTAssertNil(WidgetPositioning.windowID(exactly: 0))
+        XCTAssertEqual(WidgetPositioning.windowID(exactly: Int(UInt32.max)), UInt32.max)
+        XCTAssertNil(WidgetPositioning.windowID(exactly: Int(UInt32.max) + 1))
+    }
+
+    func testManagerWindowUsesAvailableScreenWithoutStartingAtMinimumWidth() {
+        XCTAssertEqual(
+            ManagerWindowMetrics.contentSize(for: NSRect(x: 0, y: 0, width: 1_440, height: 900)),
+            NSSize(width: 1_180, height: 760)
+        )
+        XCTAssertEqual(
+            ManagerWindowMetrics.contentSize(for: NSRect(x: 0, y: 0, width: 1_024, height: 700)),
+            NSSize(width: 976, height: 652)
+        )
+    }
+
     func testEdgeDockDefaultsAboveCapTrayAndClampsInsideScreen() {
         XCTAssertEqual(EdgeDockPreferences.defaultYPercent, 58)
         let screen = NSRect(x: 0, y: 0, width: 1_440, height: 900)

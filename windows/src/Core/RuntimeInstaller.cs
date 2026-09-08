@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -208,6 +209,8 @@ namespace YTray.Core
                 && string.Equals(a.Arch, Architecture, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(a.Format, "zip", StringComparison.OrdinalIgnoreCase))
                 ?? throw new YTrayException(YTrayError.DownloadFailed, $"版本 {version.Version} 没有 {Platform} ZIP");
+            var dest = Path.Combine(applicationDirectory, "Runtimes", version.Version, Platform);
+            EnsureInstallationIsIdle(dest, version.Version);
             var tmpZip = Path.Combine(Path.GetTempPath(), "ytray-" + Guid.NewGuid() + ".zip");
             try
             {
@@ -219,28 +222,108 @@ namespace YTray.Core
                 if (!string.Equals(actualHash, artifact.Sha256, StringComparison.OrdinalIgnoreCase))
                     throw new YTrayException(YTrayError.DownloadFailed, "SHA-256 校验失败");
 
-                var dest = Path.Combine(applicationDirectory, "Runtimes", version.Version, Platform);
-                if (Directory.Exists(dest)) try { Directory.Delete(dest, true); } catch { }
-                Directory.CreateDirectory(dest);
-                progress?.Report(new InstallProgress { Percent = 84, Message = "正在解压浏览器…" });
-                await ExtractAsync(tmpZip, dest, progress, cancellationToken);
-
-                var exe = LocateChrome(dest) ?? throw new YTrayException(YTrayError.DownloadFailed, "ZIP 内未找到 Chrome 可执行文件");
-                progress?.Report(new InstallProgress { Percent = 100, Message = $"Chrome for Testing {version.Version} 安装完成" });
-                return new BrowserRuntime
+                var staging = dest + ".installing-" + Guid.NewGuid().ToString("N");
+                try
                 {
-                    Name = "Chrome for Testing " + version.Version,
-                    Version = version.Version,
-                    Architecture = Platform,
-                    ExecutablePath = exe,
-                    Source = RuntimeSource.Managed,
-                    BrowserKind = BrowserKind.ChromeForTesting,
-                };
+                    progress?.Report(new InstallProgress { Percent = 84, Message = "正在解压浏览器…" });
+                    await ExtractAsync(tmpZip, staging, progress, cancellationToken);
+                    _ = LocateChrome(staging)
+                        ?? throw new YTrayException(YTrayError.DownloadFailed, "ZIP 内未找到 Chrome 可执行文件");
+                    cancellationToken.ThrowIfCancellationRequested();
+                    EnsureInstallationIsIdle(dest, version.Version);
+                    ReplaceInstallation(staging, dest, version.Version);
+
+                    var exe = LocateChrome(dest)
+                        ?? throw new YTrayException(YTrayError.DownloadFailed, "安装目录内未找到 Chrome 可执行文件");
+                    progress?.Report(new InstallProgress { Percent = 100, Message = $"Chrome for Testing {version.Version} 安装完成" });
+                    return new BrowserRuntime
+                    {
+                        Name = "Chrome for Testing " + version.Version,
+                        Version = version.Version,
+                        Architecture = Platform,
+                        ExecutablePath = exe,
+                        Source = RuntimeSource.Managed,
+                        BrowserKind = BrowserKind.ChromeForTesting,
+                    };
+                }
+                finally
+                {
+                    TryDeleteDirectory(staging);
+                }
             }
             finally
             {
                 try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
             }
+        }
+
+        private static void EnsureInstallationIsIdle(string destination, string version)
+        {
+            if (!Directory.Exists(destination)) return;
+            var root = Path.GetFullPath(destination).TrimEnd(Path.DirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            foreach (var process in Process.GetProcesses())
+            {
+                using (process)
+                {
+                    try
+                    {
+                        var executable = process.MainModule?.FileName;
+                        if (!string.IsNullOrWhiteSpace(executable)
+                            && Path.GetFullPath(executable).StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                            throw InstallationInUse(version);
+                    }
+                    catch (YTrayException) { throw; }
+                    catch { /* protected or already-exited processes cannot be inspected */ }
+                }
+            }
+        }
+
+        internal static void ReplaceInstallation(string staging, string destination, string version)
+        {
+            var parent = Path.GetDirectoryName(destination)
+                ?? throw new YTrayException(YTrayError.DownloadFailed, "安装目录无效");
+            var backup = destination + ".previous-" + Guid.NewGuid().ToString("N");
+            Directory.CreateDirectory(parent);
+            try
+            {
+                if (Directory.Exists(destination))
+                {
+                    try { Directory.Move(destination, backup); }
+                    catch (IOException ex) { throw InstallationInUse(version, ex); }
+                    catch (UnauthorizedAccessException ex) { throw InstallationInUse(version, ex); }
+                }
+
+                try { Directory.Move(staging, destination); }
+                catch
+                {
+                    if (!Directory.Exists(destination) && Directory.Exists(backup))
+                        Directory.Move(backup, destination);
+                    throw;
+                }
+            }
+            catch (YTrayException) { throw; }
+            catch (Exception ex)
+            {
+                throw new YTrayException(YTrayError.DownloadFailed, "无法替换现有 Chrome for Testing 安装", ex);
+            }
+            finally
+            {
+                if (Directory.Exists(destination)) TryDeleteDirectory(backup);
+            }
+        }
+
+        private static YTrayException InstallationInUse(string version, Exception? inner = null)
+        {
+            const string action = "正在被使用，请关闭使用该版本的浏览器实例后重试";
+            return inner == null
+                ? new YTrayException(YTrayError.DownloadFailed, $"Chrome for Testing {version} {action}")
+                : new YTrayException(YTrayError.DownloadFailed, $"Chrome for Testing {version} {action}", inner);
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            try { if (Directory.Exists(path)) Directory.Delete(path, true); } catch { }
         }
 
         public static string? NormalizeExecutable(string selected)

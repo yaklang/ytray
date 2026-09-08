@@ -702,7 +702,12 @@ namespace YTray.Core
             if (!ready)
             {
                 var stillRunning = instance.ProcessID > 0 && IsExpectedInstanceProcess(instance);
-                var detail = stillRunning ? "浏览器进程已经创建，但调试端口未在 15 秒内就绪" : "浏览器进程在完成启动前退出";
+                var runtime = RuntimeFor(instance);
+                var detail = stillRunning
+                    ? "浏览器进程已经创建，但调试端口未在 15 秒内就绪"
+                    : runtime?.Source == RuntimeSource.Managed
+                        ? $"Chrome for Testing {runtime.VersionLabel} 启动后异常退出；安装文件可能不完整，请在“浏览器”页重新安装此版本"
+                        : "浏览器进程在完成启动前退出";
                 FinishLaunchFailure(new YTrayException(YTrayError.LaunchFailed, detail), token);
                 return;
             }
@@ -784,6 +789,7 @@ namespace YTray.Core
         private void FinishLaunchFailure(Exception ex, Guid token)
         {
             if (LaunchToken != token) return;
+            var failedInstanceID = LaunchingInstanceID;
             LaunchPhase = BrowserLaunchPhase.Idle;
             LaunchMessage = "";
             LaunchingMode = null;
@@ -791,6 +797,12 @@ namespace YTray.Core
             LaunchingInstanceID = null;
             RestoringInstanceID = null;
             LaunchToken = null;
+            if (failedInstanceID is Guid id)
+            {
+                var failed = Instances.FirstOrDefault(instance => instance.Id == id);
+                if (failed != null && (failed.ProcessID <= 0 || !IsExpectedInstanceProcess(failed)))
+                    MarkStopped(id);
+            }
             Report(ex);
         }
 

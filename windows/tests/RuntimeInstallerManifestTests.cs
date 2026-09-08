@@ -56,6 +56,27 @@ namespace YTray.Tests
             }
         }
 
+        [TestMethod]
+        public void RuntimeReplacementRollsBackWhenTheStagedDirectoryCannotBeMoved()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "YTrayRuntimeReplaceTests", Guid.NewGuid().ToString("N"));
+            var destination = Path.Combine(root, "runtime");
+            Directory.CreateDirectory(destination);
+            File.WriteAllText(Path.Combine(destination, "original.txt"), "original");
+            try
+            {
+                var error = Assert.ThrowsException<YTrayException>(() =>
+                    RuntimeInstaller.ReplaceInstallation(Path.Combine(root, "missing"), destination, "152.0.0.0"));
+                Assert.IsInstanceOfType(error.InnerException, typeof(DirectoryNotFoundException));
+                Assert.AreEqual("original", File.ReadAllText(Path.Combine(destination, "original.txt")));
+                Assert.AreEqual(0, Directory.GetDirectories(root, "runtime.previous-*").Length);
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
         private static byte[] Gzip(byte[] bytes)
         {
             using (var output = new MemoryStream())

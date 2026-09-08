@@ -351,10 +351,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func actualWindowFrame(windowNumber: Int) -> NSRect? {
-        guard windowNumber > 0,
+        guard let windowID = WidgetPositioning.windowID(exactly: windowNumber),
               let rows = CGWindowListCopyWindowInfo(
                 [.optionIncludingWindow, .excludeDesktopElements],
-                CGWindowID(windowNumber)
+                windowID
               ) as? [[String: Any]],
               let row = rows.first,
               let bounds = row[kCGWindowBounds as String] as? [String: Any],
@@ -402,11 +402,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let window: NSWindow
         if let existing = managerWindow { window = existing }
         else {
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 720),
+            window = NSWindow(contentRect: NSRect(origin: .zero, size: ManagerWindowMetrics.preferredSize),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
             window.title = "YTray"
-            window.minSize = NSSize(width: 880, height: 600)
+            window.minSize = ManagerWindowMetrics.minimumSize
             window.isReleasedWhenClosed = false
             window.sharingType = .readOnly
             window.contentViewController = NSHostingController(rootView: ManagerView(
@@ -415,6 +415,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 launchAtLogin: launchAtLogin
             ))
             window.delegate = self
+            if let screen = statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first {
+                window.setContentSize(ManagerWindowMetrics.contentSize(for: screen.visibleFrame))
+            }
             window.center()
             managerWindow = window
         }
@@ -595,9 +598,27 @@ enum TrayIconRenderer {
     }
 }
 
+enum ManagerWindowMetrics {
+    static let minimumSize = NSSize(width: 880, height: 600)
+    static let preferredSize = NSSize(width: 1_180, height: 760)
+    static let screenMargin: CGFloat = 24
+
+    static func contentSize(for visibleFrame: NSRect) -> NSSize {
+        NSSize(
+            width: max(minimumSize.width, min(preferredSize.width, visibleFrame.width - screenMargin * 2)),
+            height: max(minimumSize.height, min(preferredSize.height, visibleFrame.height - screenMargin * 2))
+        )
+    }
+}
+
 enum WidgetPositioning {
     static let margin: CGFloat = 8
     static let trayGap: CGFloat = 6
+
+    static func windowID(exactly windowNumber: Int) -> CGWindowID? {
+        guard windowNumber > 0 else { return nil }
+        return CGWindowID(exactly: windowNumber)
+    }
 
     static func frame(size: NSSize, trayAnchor: NSRect, visibleFrame: NSRect) -> NSRect {
         let preferredX = trayAnchor.midX - size.width / 2
