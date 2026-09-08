@@ -940,8 +940,8 @@ private struct PluginArtwork: View {
             if let image = PluginIconSource.image(for: plugin) {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFit()
                     .interpolation(.high)
+                    .scaledToFit()
                     .padding(2)
             } else {
                 Image(systemName: "puzzlepiece.extension.fill")
