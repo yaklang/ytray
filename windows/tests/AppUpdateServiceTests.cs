@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
@@ -162,6 +163,7 @@ namespace YTray.Tests
             Assert.AreEqual(installer, startInfo.FileName);
             Assert.AreEqual(AppUpdateService.InstallerArguments, startInfo.Arguments);
             Assert.IsTrue(startInfo.UseShellExecute);
+            Assert.AreEqual(ProcessWindowStyle.Hidden, startInfo.WindowStyle);
             Assert.IsTrue(string.IsNullOrEmpty(startInfo.Verb),
                 "Pre-elevating Setup prevents Inno from relaunching YTray as the original user.");
 

@@ -112,8 +112,11 @@ enum YTrayMain {
 
         let application = NSApplication.shared
         application.setActivationPolicy(.regular)
-        application.applicationIconImage = icon
         application.finishLaunching()
+        // Newer macOS releases can restore the bundle icon while finishLaunching registers
+        // the Dock tile. Apply the per-instance icon only after that registration completes.
+        application.applicationIconImage = icon
+        application.dockTile.display()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + browserProcessBootstrapDelay) {
             let arguments = [browserPath] + browserArguments

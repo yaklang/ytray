@@ -526,84 +526,48 @@ struct SettingsPage: View {
     @State private var confirmUpdate = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            PageHeader(title: "启动设置", subtitle: "设置新实例的默认运行时、网络精简选项和 Chromium 附加参数。")
-                .padding(.horizontal, 24)
-                .padding(.top, 22)
-            Form {
-                Section {
-                    Picker("默认运行时", selection: $store.settings.defaultRuntimeID) {
-                        Text("未选择").tag(nil as UUID?)
-                        ForEach(store.runtimes) {
-                            Text("\($0.displayTitle) \($0.versionLabel) · \($0.source.title)").tag(Optional($0.id))
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 18) {
+                    PageHeader(title: "启动设置", subtitle: "设置新实例的默认运行时、网络行为与 Chromium 附加参数。")
+                    Button("保存设置") { store.saveSettings() }
+                        .buttonStyle(FilledOrangeButtonStyle())
+                }
+
+                updatePanel
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        startupPanel
+                            .frame(minWidth: 330, maxWidth: .infinity)
+                        browserBehaviorPanel
+                            .frame(minWidth: 330, maxWidth: .infinity)
                     }
-                    .pickerStyle(.menu)
-                    TextField("启动地址", text: $store.settings.homeURL)
-                    TextField("调试端口", value: $store.settings.debugPort, format: .number)
-                } header: { Text("启动") }
-                Section {
-                    Toggle("限制 WebRTC 非代理 UDP 与本地 IP 暴露", isOn: $store.settings.restrictWebRTC)
-                    Toggle("关闭浏览器通知", isOn: $store.settings.disableNotifications)
-                    Toggle("忽略证书错误（默认开启，适合本地网络调试）", isOn: $store.settings.ignoreCertificateErrors)
-                    if AppEnvironment.instanceColorThemesEnabled {
-                        Toggle("新实例按 A/B/C 使用独立主题色", isOn: $store.settings.colorizeBrowserInstances)
-                        Label("仅在创建新实例时设置 Chrome 顶栏颜色；恢复实例不会覆盖你手动选择的主题。关闭后只影响之后创建的实例。", systemImage: "paintpalette.fill")
+                    VStack(spacing: 16) {
+                        startupPanel
+                        browserBehaviorPanel
+                    }
+                }
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextEditor(text: $store.settings.additionalFlags)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 116)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.10)))
+                        Text("每行填写一个 --flag。实例隔离、调试端口、代理和插件参数由 YTray 管理，不能在这里覆盖。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                } header: { Text("浏览器精简与网络") }
-                Section {
-                    TextEditor(text: $store.settings.additionalFlags)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 104)
-                    Text("每行一个 --flag。实例隔离、调试端口和插件参数由 YTray 管理，不能在这里覆盖。")
-                        .font(.caption).foregroundStyle(.secondary)
-                } header: { Text("附加参数") }
-                Section {
-                    HStack(spacing: 14) {
-                        Image(systemName: updater.isUpdateAvailable ? "arrow.down.circle.fill" : "checkmark.circle")
-                            .font(.system(size: 24))
-                            .foregroundStyle(updater.isUpdateAvailable ? Brand.orange : Color.secondary)
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                Text("\(AppEnvironment.displayName) v\(updater.currentVersion)").font(.headline)
-                                if let version = updater.availableVersion, updater.isUpdateAvailable {
-                                    StatusBadge(text: "v\(version) 可用", color: Brand.orange)
-                                }
-                            }
-                            Text(updater.statusText)
-                                .font(.caption)
-                                .foregroundStyle(updater.phase == .failed ? Color.red : Color.secondary)
-                        }
-                        Spacer(minLength: 16)
-                        Button(updater.actionLabel) {
-                            if updater.isUpdateAvailable || updater.isDownloaded {
-                                confirmUpdate = true
-                            } else {
-                                Task { await updater.checkForUpdates() }
-                            }
-                        }
-                        .buttonStyle(FilledOrangeButtonStyle())
-                        .disabled(updater.isBusy || !updater.updatesEnabled)
-                    }
-                    if updater.phase == .downloading {
-                        ProgressView(value: Double(updater.downloadPercent), total: 100)
-                            .tint(Brand.orange)
-                        Text("正在下载并校验官方 DMG · \(updater.downloadPercent)%")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Text("更新包会在应用内完成下载、大小和 SHA-256 校验；安装时校验开发者签名，替换失败会自动恢复旧版本。")
-                        .font(.caption).foregroundStyle(.secondary)
-                } header: { Text("应用更新") }
-                HStack {
-                    Spacer()
-                    Button("保存默认设置") { store.saveSettings() }
-                        .buttonStyle(FilledOrangeButtonStyle())
+                    .padding(8)
+                } label: {
+                    Label("Chrome 高级参数", systemImage: "terminal")
                 }
             }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
+            .padding(24)
         }
         .tint(Brand.orange)
         .task {
@@ -623,6 +587,139 @@ struct SettingsPage: View {
         } message: {
             Text("YTray 会在本机下载并校验官方安装包，然后替换当前应用并自动重启。运行中的浏览器不会被关闭。")
         }
+    }
+
+    private var updatePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: updater.isUpdateAvailable ? "arrow.down.circle.fill" : "checkmark.circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(updater.isUpdateAvailable ? Brand.orange : Color.secondary)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text("YTray 更新").font(.headline)
+                        Text("当前 v\(updater.currentVersion)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        if let version = updater.availableVersion, updater.isUpdateAvailable {
+                            StatusBadge(text: "v\(version) 可用", color: Brand.orange)
+                        }
+                    }
+                    Text(updater.statusText)
+                        .font(.caption)
+                        .foregroundStyle(updater.phase == .failed ? Color.red : Color.secondary)
+                }
+                Spacer(minLength: 16)
+                Button(updater.actionLabel) {
+                    if updater.isUpdateAvailable || updater.isDownloaded {
+                        confirmUpdate = true
+                    } else {
+                        Task { await updater.checkForUpdates() }
+                    }
+                }
+                .buttonStyle(FilledOrangeButtonStyle())
+                .disabled(updater.isBusy || !updater.updatesEnabled)
+            }
+            if updater.phase == .downloading {
+                ProgressView(value: Double(updater.downloadPercent), total: 100)
+                    .tint(Brand.orange)
+                Text("正在下载并校验官方 DMG · \(updater.downloadPercent)%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 64)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))
+    }
+
+    private var startupPanel: some View {
+        GroupBox {
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 13) {
+                GridRow {
+                    Text("默认运行时").foregroundStyle(.secondary)
+                    Picker("", selection: $store.settings.defaultRuntimeID) {
+                        Text("未选择").tag(nil as UUID?)
+                        ForEach(store.runtimes) {
+                            Text("\($0.displayTitle) \($0.versionLabel) · \($0.source.title)")
+                                .tag(Optional($0.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                GridRow {
+                    Text("启动地址").foregroundStyle(.secondary)
+                    TextField("chrome://newtab", text: $store.settings.homeURL)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("调试端口").foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        TextField("9222", value: $store.settings.debugPort, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        Text("占用时自动递增")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .font(.callout)
+            .padding(8)
+        } label: {
+            Label("默认启动", systemImage: "play.circle")
+        }
+    }
+
+    private var browserBehaviorPanel: some View {
+        GroupBox {
+            VStack(spacing: 0) {
+                settingToggle(
+                    "限制 WebRTC 本地 IP 暴露",
+                    detail: "禁止非代理 UDP 连接",
+                    isOn: $store.settings.restrictWebRTC
+                )
+                Divider()
+                settingToggle(
+                    "关闭浏览器通知",
+                    detail: "减少测试过程中的系统提示",
+                    isOn: $store.settings.disableNotifications
+                )
+                Divider()
+                settingToggle(
+                    "忽略证书错误",
+                    detail: "适用于本地代理与网络调试",
+                    isOn: $store.settings.ignoreCertificateErrors
+                )
+                if AppEnvironment.instanceColorThemesEnabled {
+                    Divider()
+                    settingToggle(
+                        "使用 A/B/C 独立主题色",
+                        detail: "仅影响之后创建的新实例",
+                        isOn: $store.settings.colorizeBrowserInstances
+                    )
+                }
+            }
+            .padding(.horizontal, 8)
+        } label: {
+            Label("浏览器默认行为", systemImage: "switch.2")
+        }
+    }
+
+    private func settingToggle(_ title: String, detail: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .toggleStyle(.switch)
+        .tint(Brand.orange)
+        .padding(.vertical, 9)
     }
 }
 

@@ -330,6 +330,7 @@ namespace YTray.Core
                 FileName = installer,
                 Arguments = InstallerArguments,
                 UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
                 // Do not set Verb=runas here. The signed Inno Setup executable declares
                 // PrivilegesRequired=admin and performs its own UAC transition while retaining
                 // the original user's token. Pre-elevating Setup prevents runasoriginaluser
