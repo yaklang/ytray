@@ -30,6 +30,7 @@ namespace YTray.Views
                 RestrictWebRTC = store.Settings.RestrictWebRTC,
                 DisableNotifications = store.Settings.DisableNotifications,
                 IgnoreCertificateErrors = store.Settings.IgnoreCertificateErrors,
+                ColorizeBrowserInstances = store.Settings.ColorizeBrowserInstances,
                 AdditionalFlags = store.Settings.AdditionalFlags,
                 DockBadge = store.Settings.DockBadge,
             };
@@ -336,7 +337,7 @@ namespace YTray.Views
             sp.Children.Add(new TextBlock { Text = "确认本次启动配置", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 18) });
             var rt = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
             var grid = new Grid { Margin = new Thickness(18) };
-            for (int i = 0; i < 7; i++) grid.RowDefinitions.Add(new RowDefinition());
+            for (int i = 0; i < 8; i++) grid.RowDefinitions.Add(new RowDefinition());
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             AddReviewRow(grid, 0, "浏览器", rt != null ? $"{rt.DisplayTitle} {rt.VersionLabel} · {rt.Source.Title()}" : "未选择");
@@ -350,6 +351,7 @@ namespace YTray.Views
             AddReviewRow(grid, 5, "WebRTC", _draft.RestrictWebRTC ? "限制" : "不限制");
             var supportsPlugins = rt != null && BrowserLauncher.SupportsCommandLineExtensions(rt.Kind);
             AddReviewRow(grid, 6, "插件", supportsPlugins ? $"{_pluginIDs.Count} 个" : "不支持（本次不加载）");
+            AddReviewRow(grid, 7, "Profile 主题", _draft.ColorizeBrowserInstances ? "按角标分配独立主题色" : "使用浏览器默认主题");
             sp.Children.Add(grid);
             return sp;
         }

@@ -12,6 +12,10 @@ namespace YTray
 {
     public partial class App : Application
     {
+        private readonly bool _initializeServices;
+        public App() : this(true) { }
+        // The WPF test host uses the production resources without tray/startup/update services.
+        internal App(bool initializeServices) { _initializeServices = initializeServices; }
         private InstanceStore? _store;
         private TrayApp? _tray;
         private LaunchAtLoginManager? _launchAtLogin;
@@ -19,6 +23,7 @@ namespace YTray
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            if (!_initializeServices) return;
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             // Install diagnostics before argument parsing and store construction so even an early
             // startup failure leaves an actionable log under %LOCALAPPDATA%\YTray\Logs.
@@ -30,6 +35,23 @@ namespace YTray
             bool startupLaunch = false;
             for (int i = 0; i < args.Length; i++)
             {
+                if (args[i] == "--smoke-identities" && i + 2 < args.Length)
+                {
+                    var executable = args[i + 1];
+                    var output = args[i + 2];
+                    try
+                    {
+                        Task.Run(() => IdentitySmokeService.RunAsync(executable, output)).GetAwaiter().GetResult();
+                        Environment.Exit(0);
+                    }
+                    catch (Exception ex)
+                    {
+                        Directory.CreateDirectory(output);
+                        File.WriteAllText(Path.Combine(output, "smoke-error.txt"), ex.ToString());
+                        Environment.Exit(1);
+                    }
+                    return;
+                }
                 if (args[i] == "--verify-standalone" && i + 1 < args.Length)
                 {
                     VerifyStandalone(args[++i]);
@@ -67,13 +89,15 @@ namespace YTray
                 }
             }
 
-            _store = new InstanceStore();
             if (!string.IsNullOrWhiteSpace(designCaptureDirectory))
             {
+                _store = captureSitePreviewOnly ? new InstanceStore()
+                    : DesignCaptureService.CreateReviewStore(Path.Combine(Path.GetFullPath(designCaptureDirectory!), "fixture-state"));
                 ThemeManager.Initialize(AppThemePreference.Light);
                 CrashGuard.Observe(RunDesignCaptureAsync(designCaptureDirectory!, captureSitePreviewOnly), "design-capture");
                 return;
             }
+            _store = new InstanceStore();
             var initialTheme = _store.Settings.ThemePreference;
             // Non-persistent rendering override used by visual smoke tests and support diagnostics.
             foreach (var arg in e.Args)
@@ -164,6 +188,7 @@ namespace YTray
 
         private async Task RunDesignCaptureAsync(string outputDirectory, bool sitePreviewOnly)
         {
+            var exitCode = 0;
             try
             {
                 var store = _store ?? throw new InvalidOperationException("Instance store is not initialized.");
@@ -171,6 +196,7 @@ namespace YTray
             }
             catch (Exception ex)
             {
+                exitCode = 1;
                 try
                 {
                     Directory.CreateDirectory(outputDirectory);
@@ -180,7 +206,7 @@ namespace YTray
             }
             finally
             {
-                Shutdown();
+                Shutdown(exitCode);
             }
         }
 

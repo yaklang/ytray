@@ -304,6 +304,7 @@ namespace YTray.Models
         public bool RestrictWebRTC { get; set; } = true;
         public bool DisableNotifications { get; set; } = true;
         public bool IgnoreCertificateErrors { get; set; } = true;
+        public bool ColorizeBrowserInstances { get; set; } = true;
         public string AdditionalFlags { get; set; } = "";
         public List<Guid> DefaultPluginIDs { get; set; } = new List<Guid>();
         public string DockBadge { get; set; } = "";
@@ -363,6 +364,7 @@ namespace YTray.Models
                 RestrictWebRTC = RestrictWebRTC,
                 DisableNotifications = DisableNotifications,
                 IgnoreCertificateErrors = IgnoreCertificateErrors,
+                ColorizeBrowserInstances = ColorizeBrowserInstances,
                 AdditionalFlags = AdditionalFlags ?? "",
                 DefaultPluginIDs = (DefaultPluginIDs ?? new List<Guid>()).ToList(),
                 DockBadge = DockBadge ?? "",

@@ -6,7 +6,9 @@ Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`
 
 与 macOS 版本对等：
 
-- 托盘图标 + 左键弹出小组件、右键菜单
+- 托盘图标 + 左键弹出小组件、右键菜单，小组件与启动向导使用正式 YTray Logo
+- A/B/C/D 实例主题色：橙 / 蓝 / 绿 / 紫，继续使用 E 品红、F 青绿并循环（与 macOS 相同）
+- 任务栏角标、实例列表、Profile 详情与小组件历史使用一致的身份色；设置可关闭新 Profile 自动主题
 - 预设 HTTP 代理配置（协议/Host/端口/认证/检测/历史）
 - 无代理启动 / 使用 HTTP 代理启动 / 自定义启动向导
 - 每个 Chrome 实例使用独立 `--user-data-dir`，Cookie/缓存/登录态天然隔离
@@ -25,7 +27,7 @@ Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`
 macOS 版本通过 Dock 角标（A/B/C）区分实例图标。Windows 版本使用 **AppUserModelID (AUMID)**、窗口级 `RelaunchIconResource` 和启动前 WinEvent Hook 实现等价效果：
 
 1. **启动前生成稳定实例身份**：AUMID 由浏览器类型、Dock 角标和持久化实例 UUID 组成，例如 `YTray.Chrome.InstA.<uuid>`；同一历史实例恢复后保持不变，不同实例不会合并到同一个任务栏组。
-2. **启动前准备 ICO 和 `.lnk`**：`BrowserProcessIcon` 用 GDI+ 合成浏览器图标与橙色 A/B/C 角标，快捷方式提前写入相同 AUMID 和 ICO。
+2. **启动前准备 ICO 和 `.lnk`**：`BrowserProcessIcon` 用 GDI+ 合成浏览器图标与彩色字母角标，快捷方式提前写入相同 AUMID 和 ICO。沿用 Windows 左上角布局，保留 Chrome for Testing 的右下标记；为 16–256px 输出独立 ICO 帧，按底色选择对比度至少 4.5:1 的黑字或白字。
 3. **先启用 Hook，再启动 Chrome**：`BrowserWindowTaskbarController` 的独立 STA 线程先注册并运行 WinEvent 消息循环，确认 ready 后 `BrowserLauncher` 才调用 `Process.Start`，避免 Chrome 窗口抢在 Hook 前出现在任务栏。
 4. **暂存首次展示**：Chrome 创建顶层窗口时使用 DWM cloak 暂时阻止画面呈现，同时临时设置 `WS_EX_TOOLWINDOW` 取消任务栏资格。这里不使用 `SW_HIDE`，不会打断 Chromium 的 GPU/DWM 首次初始化。
 5. **写入并稳定窗口属性**：等待 Chrome 自己生成非空原生 AUMID 后，通过 `SHGetPropertyStoreForWindow` 写入实例 AUMID 和 `System.AppUserModel.RelaunchIconResource`。属性连续稳定 250ms 后恢复窗口样式并解除 cloak，因此第一枚任务栏图标就是带 A/B/C 角标的版本。
@@ -114,6 +116,20 @@ YTray.exe --probe-aumid "C:\Program Files\Google\Chrome\Application\chrome.exe"
 # 端到端冒烟：启动真实 Chrome 实例，验证 AUMID 解析 + CDP 截图
 YTray.exe --smoke-browser "C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
+
+## 实例主题与外观验证
+
+新 Profile 默认接收与角标相同的 Chromium 自动主题。设置中的“使用 A/B/C/D 独立主题色”只影响之后创建的 Profile；历史恢复（包括代理认证的启动流程）不会重新安装主题，因此保留用户已有的外观选择。关闭此选项也不会去掉任务栏和列表中的彩色身份标识。
+
+```powershell
+# 使用隔离的 A–F 测试数据，渲染所有页面、向导、明暗小组件、下拉菜单、历史、空状态和缩略图
+windows/src/bin/Release/YTray.exe --capture-design-review windows/artifacts/design-review
+
+# 本机 Chrome 真机验证：A–D 颜色落盘、窗口 AUMID/图标资源、CDP 页面及修改主题后的历史恢复
+windows/src/bin/Release/YTray.exe --smoke-identities "C:\Program Files\Google\Chrome\Application\chrome.exe" windows/artifacts/identity-smoke
+```
+
+设计验证输出 `capture-complete.txt`、截图索引与联系表；真机验证输出 `identity-smoke.json`、浏览器截图和 `smoke-complete.txt`。失败返回非零退出码并输出错误文件。两种模式的测试状态只保存在指定目录；真机模式会关闭自己启动的测试浏览器，保留测试 Profile 供复核。自动测试另外验证原有小组件在明暗/系统主题间切换后仍使用正确的文字、操作图标和输入框边框颜色。
 
 ## 数据位置
 

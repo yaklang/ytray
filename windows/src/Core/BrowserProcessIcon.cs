@@ -11,13 +11,12 @@ using YTray.Native;
 namespace YTray.Core
 {
     /// <summary>
-    /// Composites the Chrome process icon with an A/B/C badge (mirrors macOS BrowserProcessIcon),
+    /// Composites the browser process icon with a colored identity badge (macOS palette),
     /// writes a per-instance .ico, and creates a .lnk carrying the instance AUMID + icon so the
     /// taskbar shows a distinct, badged button per instance.
     /// </summary>
     public static class BrowserProcessIcon
     {
-        public static readonly Color BrandOrange = Color.FromArgb(0xF2, 0x8B, 0x44);
         private static readonly object IconHandleLock = new object();
         private static readonly Dictionary<Guid, List<SafeIconHandle>> LiveIconHandles =
             new Dictionary<Guid, List<SafeIconHandle>>();
@@ -144,7 +143,7 @@ namespace YTray.Core
             try { if (File.Exists(path)) File.Delete(path); } catch { }
         }
 
-        /// <summary>Composite the base icon with a high-contrast orange instance marker.</summary>
+        /// <summary>Composite the base icon with a high-contrast, consistently colored identity marker.</summary>
         public static Bitmap RenderIcon(Icon? baseIcon, string badge, int size = 256)
         {
             var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -175,9 +174,8 @@ namespace YTray.Core
                 float badgeRectY = inset;
                 var badgeRect = new RectangleF(badgeRectX, badgeRectY, badgeWidth, badgeHeight);
 
-                // Use a compact rounded square rather than another circular browser mark. Swift
-                // uses orange + white, but white on orange loses contrast at Windows' 16–32px
-                // taskbar sizes; the dark letter keeps the instance identity unmistakable.
+                // A compact rounded square preserves space for the browser's own brand mark.
+                // The white ring separates every identity color from either taskbar theme.
                 using (var shadowBrush = new SolidBrush(Color.FromArgb(105, 0, 0, 0)))
                 using (var shadowPath = RoundedRectangle(new RectangleF(
                         badgeRect.X + Math.Max(0.6f, size * 0.012f),
@@ -189,16 +187,16 @@ namespace YTray.Core
                     g.FillPath(borderBrush, borderPath);
                 var ring = Math.Max(1.2f, size * 0.035f);
                 var fillRect = RectangleF.Inflate(badgeRect, -ring, -ring);
-                using (var fillBrush = new SolidBrush(BrandOrange))
+                using (var fillBrush = new SolidBrush(BrowserIdentityColor.ForBadge(badge)))
                 using (var fillPath = RoundedRectangle(fillRect, fillRect.Height * 0.25f))
                     g.FillPath(fillBrush, fillPath);
 
-                // Near-black on orange has more than twice the contrast of white on orange.
+                // Keep each identity readable on both light and dark taskbars.
                 float fontSize = badge.Length == 1 ? badgeHeight * 0.68f : badgeHeight * 0.50f;
                 using (var font = new Font("Arial", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
-                using (var brush = new SolidBrush(Color.FromArgb(0x20, 0x21, 0x24)))
+                using (var brush = new SolidBrush(BrowserIdentityColor.Foreground(badge)))
+                using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
                 {
-                    var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                     var textRect = new RectangleF(badgeRectX, badgeRectY - size * 0.018f, badgeWidth, badgeHeight);
                     g.DrawString(badge, font, brush, textRect, sf);
                 }

@@ -252,6 +252,12 @@
                         <ScrollViewer x:Name="DetailContent" Grid.Row="1" Margin="0,15,0,0" Visibility="Collapsed"
                                       VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel>
+                                <DockPanel Margin="0,0,0,12" DataContext="{Binding Tag, ElementName=DetailContent}">
+                                    <Image Source="{Binding InstanceIconSource}" Width="38" Height="38" Margin="0,0,10,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <Border Background="{Binding IdentityBrush}" CornerRadius="6" Padding="9,4" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                        <TextBlock Text="{Binding DockBadge, StringFormat=Profile {0}}" Foreground="{Binding IdentityForegroundBrush}" FontWeight="SemiBold"/>
+                                    </Border>
+                                </DockPanel>
                                 <Border x:Name="DetailPreviewFrame" Height="155" CornerRadius="7" ClipToBounds="True"
                                         SizeChanged="RoundedPreview_SizeChanged" SnapsToDevicePixels="True"
                                         Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">

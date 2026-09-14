@@ -162,12 +162,14 @@ namespace YTray.Views
             if (_runningSignature != runningSignature)
             {
                 _runningSignature = runningSignature;
-                RunningList.ItemsSource = visibleRunning.Select(i => new BrowserInstancePresentation(i)).ToList();
+                RunningList.ItemsSource = visibleRunning.Select(i => new BrowserInstancePresentation(i,
+                    _store.Runtimes.FirstOrDefault(r => r.Id == i.RuntimeID))).ToList();
             }
             if (_historySignature != historySignature)
             {
                 _historySignature = historySignature;
-                HistoryList.ItemsSource = visibleHistory;
+                HistoryList.ItemsSource = visibleHistory.Select(i => new BrowserInstancePresentation(i,
+                    _store.Runtimes.FirstOrDefault(r => r.Id == i.RuntimeID))).ToList();
             }
             RunningCountLabel.Text = running.Count.ToString();
             HistoryCountLabel.Text = history.Count.ToString();

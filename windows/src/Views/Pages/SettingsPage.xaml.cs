@@ -66,6 +66,7 @@ namespace YTray.Views.Pages
             WebRTCCheck.IsChecked = _store.Settings.RestrictWebRTC;
             NotificationsCheck.IsChecked = _store.Settings.DisableNotifications;
             CertCheck.IsChecked = _store.Settings.IgnoreCertificateErrors;
+            ColorizeCheck.IsChecked = _store.Settings.ColorizeBrowserInstances;
             FlagsBox.Text = _store.Settings.AdditionalFlags;
             _loadingControls = true;
             UpdateThemeChoiceVisuals();
@@ -130,6 +131,7 @@ namespace YTray.Views.Pages
             _store.Settings.RestrictWebRTC = WebRTCCheck.IsChecked == true;
             _store.Settings.DisableNotifications = NotificationsCheck.IsChecked == true;
             _store.Settings.IgnoreCertificateErrors = CertCheck.IsChecked == true;
+            _store.Settings.ColorizeBrowserInstances = ColorizeCheck.IsChecked == true;
             _store.Settings.AdditionalFlags = FlagsBox.Text;
             _store.SaveSettings();
             ShowFeedback("设置已保存");
@@ -143,6 +145,7 @@ namespace YTray.Views.Pages
             WebRTCCheck.IsChecked = defaults.RestrictWebRTC;
             NotificationsCheck.IsChecked = defaults.DisableNotifications;
             CertCheck.IsChecked = defaults.IgnoreCertificateErrors;
+            ColorizeCheck.IsChecked = defaults.ColorizeBrowserInstances;
             FlagsBox.Text = defaults.AdditionalFlags;
             _store.SetThemePreference(AppThemePreference.System);
             ShowFeedback("已恢复默认值，点击保存生效");

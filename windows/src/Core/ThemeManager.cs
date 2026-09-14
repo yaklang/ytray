@@ -127,12 +127,19 @@ namespace YTray.Core
         {
             foreach (var pair in FloatingBrushKeys)
             {
-                if (!(resources[pair.Value] is SolidColorBrush brush) || brush.IsFrozen) continue;
-                brush.Color = (Color)ColorConverter.ConvertFromString(palette[pair.Key]);
+                if (!(resources[pair.Value] is SolidColorBrush brush)) continue;
+                var color = (Color)ColorConverter.ConvertFromString(palette[pair.Key]);
+                if (brush.IsFrozen) resources[pair.Value] = new SolidColorBrush(color);
+                else brush.Color = color;
             }
 
-            if (!(resources["WidgetSurfaceBrush"] is LinearGradientBrush surface) || surface.IsFrozen
+            if (!(resources["WidgetSurfaceBrush"] is LinearGradientBrush surface)
                 || surface.GradientStops.Count < 2) return;
+            if (surface.IsFrozen)
+            {
+                surface = surface.Clone();
+                resources["WidgetSurfaceBrush"] = surface;
+            }
             surface.GradientStops[0].Color = (Color)ColorConverter.ConvertFromString(palette["FloatingTopColor"]);
             surface.GradientStops[1].Color = (Color)ColorConverter.ConvertFromString(palette["FloatingBottomColor"]);
         }

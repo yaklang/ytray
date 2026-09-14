@@ -27,6 +27,49 @@ namespace YTray.Core
     /// </summary>
     internal static class DesignCaptureService
     {
+        // Dedicated fixture state makes CI review useful even without installed browsers or
+        // existing profiles. No live user state, startup registration or browser process is touched.
+        internal static InstanceStore CreateReviewStore(string directory)
+        {
+            var store = new InstanceStore(directory, discoverSystemBrowsers: false, runMaintenance: false);
+            store.Instances.Clear();
+            store.Runtimes.Clear();
+            var executable = SystemBrowserDiscovery.Discover().FirstOrDefault()?.ExecutablePath
+                ?? Process.GetCurrentProcess().MainModule!.FileName;
+            var runtime = new BrowserRuntime
+            {
+                Name = "Chrome for Testing", Version = "146.0.7680.0", Architecture = "windows",
+                ExecutablePath = executable, Source = RuntimeSource.Local, BrowserKind = BrowserKind.ChromeForTesting,
+            };
+            store.Runtimes.Add(runtime);
+            store.Settings.DefaultRuntimeID = runtime.Id;
+            store.Settings.RecentProxyPresets = new List<ProxyPreset>
+            {
+                new ProxyPreset("http://127.0.0.1:8083", "本地调试"),
+                new ProxyPreset("http://127.0.0.1:8080", "测试环境"),
+            };
+            for (var index = 0; index < 6; index++)
+            {
+                var badge = DockBadgeLabel.DefaultLabel(index + 1);
+                var snapshot = new LaunchSettings { ProxyServer = index % 2 == 0 ? "" : "http://127.0.0.1:8083" };
+                store.Instances.Add(new BrowserInstance
+                {
+                    Name = "Profile " + badge + (index == 3 ? " · 长名称与中文显示验证" : " · 独立身份"),
+                    DockBadge = badge, RuntimeID = runtime.Id, RuntimeName = runtime.Name,
+                    RuntimeVersion = runtime.Version, RuntimeKind = runtime.Kind,
+                    ProfilePath = Path.Combine(directory, "Profiles", badge),
+                    ProcessID = 4100 + index, DebugPort = 19222 + index,
+                    Status = index < 4 ? InstanceStatus.Running : InstanceStatus.Stopped,
+                    LastPageTitle = index == 2 ? null : "YTray · " + badge + " 身份工作区",
+                    LastPageURL = "https://example.com/profile/" + badge,
+                    SettingsSnapshot = snapshot, StartedAt = DateTime.Now.AddMinutes(-index * 17 - 1),
+                    IsCapturing = index == 1, IsStopping = index == 3,
+                    PreviewError = index == 2 ? "预览暂不可用 · 测试错误状态" : null,
+                });
+            }
+            return store;
+        }
+
         internal sealed class CaptureItem
         {
             public string RelativePath { get; set; } = "";
@@ -89,6 +132,7 @@ namespace YTray.Core
                     await CaptureManagerAsync(store, outputDirectory, captures);
                     await CaptureWizardAsync(store, outputDirectory, captures);
                     await CaptureFloatingAsync(store, outputDirectory, captures);
+                    CaptureIdentityIcons(outputDirectory, captures);
                     CaptureTrayContextMenu(outputDirectory, captures);
                 }
                 CreateContactSheet(outputDirectory, captures);
@@ -260,7 +304,7 @@ namespace YTray.Core
                             runtimePage.VersionCombo.IsDropDownOpen = true;
                             await SettleAsync(manager, 320);
                             relative = $"main/{themeName}-browser-sources-version-menu.png";
-                            CaptureWindow(manager, Path.Combine(root, relative));
+                            CaptureScreen(WindowBounds(manager), Path.Combine(root, relative));
                             captures.Add(new CaptureItem
                             {
                                 RelativePath = relative,
@@ -274,7 +318,7 @@ namespace YTray.Core
                 manager.ThemePopup.IsOpen = true;
                 await SettleAsync(manager, 300);
                 var popupRelative = $"main/{themeName}-theme-menu.png";
-                CaptureWindow(manager, Path.Combine(root, popupRelative));
+                CaptureScreen(WindowBounds(manager), Path.Combine(root, popupRelative));
                 captures.Add(new CaptureItem { RelativePath = popupRelative, Caption = $"标题栏主题菜单 · {ThemeCaption(theme)}" });
                 manager.ThemePopup.IsOpen = false;
             }
@@ -393,6 +437,29 @@ namespace YTray.Core
                 CaptureScreen(Inflate(WindowBounds(widget), 14, 14), Path.Combine(root, relative));
                 captures.Add(new CaptureItem { RelativePath = relative, Caption = $"普通悬浮面板 · {ThemeCaption(theme)}" });
 
+                widget.InstanceScroll.ScrollToBottom();
+                await SettleAsync(widget, 160);
+                relative = $"floating/{themeName}-floating-history.png";
+                CaptureWindow(widget, Path.Combine(root, relative));
+                captures.Add(new CaptureItem { RelativePath = relative, Caption = $"小组件 · 历史与滚动条 · {ThemeCaption(theme)}" });
+                widget.InstanceScroll.ScrollToTop();
+                widget.SchemeCombo.IsDropDownOpen = true;
+                await SettleAsync(widget, 160);
+                relative = $"floating/{themeName}-proxy-scheme-menu.png";
+                CaptureScreen(WindowBounds(widget), Path.Combine(root, relative));
+                captures.Add(new CaptureItem { RelativePath = relative, Caption = $"小组件 · 代理下拉 · {ThemeCaption(theme)}" });
+                widget.SchemeCombo.IsDropDownOpen = false;
+
+                var preview = new ThumbnailPreviewWindow();
+                preview.PreviewImage.Source = BrowserIconSource.FromExecutableWithBadge(store.DefaultRuntime!.ExecutablePath, "D");
+                preview.PreviewTitle.Text = "Profile D · 缩略图预览";
+                preview.Show();
+                await SettleAsync(preview, 200);
+                relative = $"floating/{themeName}-thumbnail-preview.png";
+                CaptureWindow(preview, Path.Combine(root, relative));
+                captures.Add(new CaptureItem { RelativePath = relative, Caption = $"缩略图悬浮窗 · {ThemeCaption(theme)}" });
+                preview.Close();
+
                 widget.PositionBeside(edge, onLeft: false);
                 widget.CancelPendingDismiss();
                 await SettleAsync(widget, 260);
@@ -406,6 +473,59 @@ namespace YTray.Core
             edge.Close();
             backdrop.Close();
             await Task.Delay(180);
+
+            var originalInstances = store.Instances.ToList();
+            store.Instances.Clear();
+            try
+            {
+                foreach (var theme in new[] { AppThemePreference.Light, AppThemePreference.Dark })
+                {
+                    ApplyPreviewTheme(store, theme);
+                    var empty = new WidgetView(store);
+                    empty.Show();
+                    empty.RefreshAndMeasure();
+                    empty.CancelPendingDismiss();
+                    await SettleAsync(empty, 250);
+                    var relative = $"floating/{(theme == AppThemePreference.Dark ? "dark" : "light")}-empty-panel.png";
+                    CaptureWindow(empty, Path.Combine(root, relative));
+                    captures.Add(new CaptureItem { RelativePath = relative, Caption = $"小组件 · 空状态 · {ThemeCaption(theme)}" });
+                    empty.Close();
+                }
+            }
+            finally { foreach (var instance in originalInstances) store.Instances.Add(instance); }
+        }
+
+        private static void CaptureIdentityIcons(string root, List<CaptureItem> captures)
+        {
+            const string relative = "floating/identity-icons.png";
+            using (var sheet = new Drawing.Bitmap(800, 460))
+            using (var graphics = Drawing.Graphics.FromImage(sheet))
+            using (var font = new Drawing.Font("Segoe UI", 11))
+            using (var baseIcon = BrowserProcessIcon.ExtractLargeIcon(
+                SystemBrowserDiscovery.Discover().FirstOrDefault()?.ExecutablePath
+                    ?? Process.GetCurrentProcess().MainModule!.FileName))
+            {
+                for (var theme = 0; theme < 2; theme++)
+                {
+                    using (var background = new Drawing.SolidBrush(theme == 0 ? Drawing.Color.White : Drawing.Color.FromArgb(26, 29, 32)))
+                        graphics.FillRectangle(background, 0, theme * 230, 800, 230);
+                    var labels = new[] { "A", "B", "C", "D", "E", "F", "AA", "ZZ" };
+                    for (var index = 0; index < labels.Length; index++)
+                    {
+                        using (var text = new Drawing.SolidBrush(theme == 0 ? Drawing.Color.Black : Drawing.Color.White))
+                            graphics.DrawString(labels[index] + " · 16/32/64", font, text, index * 100 + 4, theme * 230 + 12);
+                        var y = theme * 230 + 48;
+                        foreach (var size in new[] { 16, 32, 64 })
+                        using (var icon = BrowserProcessIcon.RenderIcon(baseIcon, labels[index], size))
+                        {
+                            graphics.DrawImageUnscaled(icon, index * 100 + 10, y);
+                            y += size + 14;
+                        }
+                    }
+                }
+                sheet.Save(Path.Combine(root, relative), ImageFormat.Png);
+            }
+            captures.Add(new CaptureItem { RelativePath = relative, Caption = "A–F / AA / ZZ · 16/32/64px · 明暗任务栏" });
         }
 
         private static void CaptureTrayContextMenu(string root, List<CaptureItem> captures)
@@ -551,6 +671,8 @@ namespace YTray.Core
         {
             try
             {
+                if (!window.IsVisible || window.ActualWidth < 2 || window.ActualHeight < 2)
+                    throw new InvalidOperationException("Cannot capture an unrendered window: " + window.Title);
                 window.UpdateLayout();
                 var dpi = VisualTreeHelper.GetDpi(window);
                 var pixelWidth = Math.Max(1, (int)Math.Round(window.ActualWidth * dpi.DpiScaleX));

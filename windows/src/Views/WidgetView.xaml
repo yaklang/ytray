@@ -27,20 +27,20 @@
 
         <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
-            <Setter Property="Foreground" Value="{StaticResource WidgetTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
         </Style>
 
         <Style x:Key="WidgetSectionTitle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="{StaticResource WidgetTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="WidgetCountBadge" TargetType="Border">
             <Setter Property="CornerRadius" Value="9"/>
-            <Setter Property="Background" Value="{StaticResource WidgetRaisedBrush}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource WidgetHairlineBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource WidgetRaisedBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource WidgetHairlineBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="7,1"/>
         </Style>
@@ -48,10 +48,10 @@
         <Style x:Key="WidgetButton" TargetType="Button">
             <Setter Property="Height" Value="34"/>
             <Setter Property="Padding" Value="12,0"/>
-            <Setter Property="Background" Value="{StaticResource WidgetRaisedBrush}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource WidgetBorderBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource WidgetRaisedBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource WidgetBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="{StaticResource WidgetTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
             <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
             <Setter Property="FontSize" Value="11.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -87,8 +87,8 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource WidgetHoverBrush}"/>
-                    <Setter Property="BorderBrush" Value="{StaticResource WidgetBorderBrush}"/>
+                    <Setter Property="Background" Value="{DynamicResource WidgetHoverBrush}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource WidgetBorderBrush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -124,10 +124,10 @@
         <Style x:Key="WidgetTextBox" TargetType="TextBox">
             <Setter Property="Height" Value="34"/>
             <Setter Property="Padding" Value="10,0"/>
-            <Setter Property="Background" Value="{StaticResource WidgetInputBrush}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource WidgetBorderBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource WidgetInputBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource WidgetBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="{StaticResource WidgetTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
             <Setter Property="CaretBrush" Value="{StaticResource BrandOrangeBrush}"/>
             <Setter Property="SelectionBrush" Value="{StaticResource BrandOrangeBrush}"/>
             <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
@@ -147,7 +147,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="InputChrome" Property="BorderBrush" Value="{StaticResource BrandOrangeBrush}"/>
-                                <Setter TargetName="InputChrome" Property="Background" Value="{StaticResource WidgetHoverBrush}"/>
+                                <Setter TargetName="InputChrome" Property="Background" Value="{DynamicResource WidgetHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="InputChrome" Property="Opacity" Value="0.45"/>
@@ -165,7 +165,7 @@
         </Style>
 
         <Style x:Key="WidgetComboItem" TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{StaticResource WidgetTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Padding" Value="10,7"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -178,11 +178,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource WidgetHoverBrush}"/>
+                                <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource WidgetHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource WidgetOrangePaleBrush}"/>
-                                <Setter Property="Foreground" Value="{StaticResource WidgetTextPrimaryBrush}"/>
+                                <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource WidgetOrangePaleBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -194,7 +194,7 @@
             <Setter Property="Height" Value="34"/>
             <Setter Property="Padding" Value="10,0"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource WidgetTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="FontSize" Value="11.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -207,7 +207,7 @@
                         <Grid>
                             <ToggleButton x:Name="DropDownToggle" Focusable="False" ClickMode="Press"
                                           Background="Transparent" BorderThickness="0"
-                                          Foreground="{StaticResource WidgetTextPrimaryBrush}"
+                                          Foreground="{DynamicResource WidgetTextPrimaryBrush}"
                                           IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="ToggleButton">
@@ -218,19 +218,19 @@
                                                     <ColumnDefinition Width="12"/>
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Text="{Binding SelectedItem, Mode=OneWay, RelativeSource={RelativeSource AncestorType=ComboBox}}"
-                                                           Foreground="{StaticResource WidgetTextPrimaryBrush}"
+                                                           Foreground="{DynamicResource WidgetTextPrimaryBrush}"
                                                            FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                                <Path Grid.Column="1" Data="M 1 2 L 5 6 L 9 2" Stroke="{StaticResource WidgetTextSecondaryBrush}"
+                                                <Path Grid.Column="1" Data="M 1 2 L 5 6 L 9 2" Stroke="{DynamicResource WidgetTextSecondaryBrush}"
                                                       StrokeThickness="1.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Grid>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="ToggleChrome" Property="Background" Value="{StaticResource WidgetHoverBrush}"/>
+                                                <Setter TargetName="ToggleChrome" Property="Background" Value="{DynamicResource WidgetHoverBrush}"/>
                                             </Trigger>
                                             <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="ToggleChrome" Property="Background" Value="{StaticResource WidgetHoverBrush}"/>
+                                                <Setter TargetName="ToggleChrome" Property="Background" Value="{DynamicResource WidgetHoverBrush}"/>
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -239,7 +239,7 @@
                             <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
                                    IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Fade">
                                 <Border Margin="0,5,0,0" Padding="5" MinWidth="92" CornerRadius="9"
-                                        Background="{StaticResource WidgetRaisedBrush}" BorderBrush="{StaticResource WidgetBorderBrush}" BorderThickness="1">
+                                        Background="{DynamicResource WidgetRaisedBrush}" BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1">
                                     <Border.Effect>
                                         <DropShadowEffect Color="#99000000" BlurRadius="16" ShadowDepth="3"/>
                                     </Border.Effect>
@@ -256,8 +256,8 @@
     </Window.Resources>
 
     <Border x:Name="RootBorder" Margin="10" CornerRadius="18"
-            Background="{StaticResource WidgetSurfaceBrush}"
-            BorderBrush="{StaticResource WidgetBorderBrush}" BorderThickness="1"
+            Background="{DynamicResource WidgetSurfaceBrush}"
+            BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1"
             RenderTransformOrigin="0.5,0.5">
         <Border.RenderTransform>
             <TranslateTransform x:Name="EntranceTransform"/>
@@ -277,49 +277,45 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Border Width="34" Height="34" CornerRadius="10" Background="{StaticResource WidgetOrangePaleBrush}"
-                            BorderBrush="#66F2823D" BorderThickness="1" HorizontalAlignment="Left">
-                        <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="16"
-                                   Foreground="{StaticResource BrandOrangeBrush}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
+                    <Image Source="pack://application:,,,/Assets/Icons/ytray-app.ico" Width="34" Height="34"
+                           HorizontalAlignment="Left" RenderOptions.BitmapScalingMode="HighQuality"/>
                     <StackPanel Grid.Column="1" Margin="1,0,8,0" VerticalAlignment="Center">
                         <TextBlock Text="浏览器实例" FontSize="17" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="DefaultRuntimeLabel" FontSize="10" Foreground="{StaticResource WidgetTextSecondaryBrush}"
+                        <TextBlock x:Name="DefaultRuntimeLabel" FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}"
                                    Text="正在读取默认浏览器…" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Style="{StaticResource WidgetIconButton}" Click="OpenManager_Click"
                                 ToolTip="打开全部管理" Margin="0,0,2,0">
                             <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="13"
-                                       Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                                       Foreground="{DynamicResource WidgetTextSecondaryBrush}"/>
                         </Button>
                         <Button Style="{StaticResource WidgetIconButton}" Click="Close_Click" ToolTip="关闭">
                             <TextBlock Text="×" FontFamily="Segoe UI" FontSize="16"
-                                       Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                                       Foreground="{DynamicResource WidgetTextSecondaryBrush}"/>
                         </Button>
                     </StackPanel>
                 </Grid>
 
                 <!-- Proxy is the primary work surface, not a generic form card. -->
-                <Border Background="{StaticResource WidgetDeepBrush}" CornerRadius="13" Padding="12" Margin="0,0,0,12"
+                <Border Background="{DynamicResource WidgetDeepBrush}" CornerRadius="13" Padding="12" Margin="0,0,0,12"
                         BorderBrush="#5CF2823D" BorderThickness="1">
                     <StackPanel>
                         <DockPanel Margin="0,0,0,10">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="预设代理" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <Border Margin="8,0,0,0" Padding="6,2" CornerRadius="7" Background="{StaticResource WidgetRaisedBrush}">
-                                    <TextBlock Text="本地调试" FontSize="9" Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                                <Border Margin="8,0,0,0" Padding="6,2" CornerRadius="7" Background="{DynamicResource WidgetRaisedBrush}">
+                                    <TextBlock Text="本地调试" FontSize="9" Foreground="{DynamicResource WidgetTextSecondaryBrush}"/>
                                 </Border>
                             </StackPanel>
                             <TextBlock x:Name="ProxyStatus" DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                       FontSize="9.5" Foreground="{StaticResource WidgetTextSecondaryBrush}"
+                                       FontSize="9.5" Foreground="{DynamicResource WidgetTextSecondaryBrush}"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="160"/>
                         </DockPanel>
 
-                        <TextBlock Text="代理地址" FontSize="9.5" Foreground="{StaticResource WidgetTextTertiaryBrush}" Margin="1,0,0,4"/>
-                        <Border Height="36" CornerRadius="8" Background="{StaticResource WidgetInputBrush}"
-                                BorderBrush="{StaticResource WidgetBorderBrush}" BorderThickness="1" Margin="0,0,0,8">
+                        <TextBlock Text="代理地址" FontSize="9.5" Foreground="{DynamicResource WidgetTextTertiaryBrush}" Margin="1,0,0,4"/>
+                        <Border Height="36" CornerRadius="8" Background="{DynamicResource WidgetInputBrush}"
+                                BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1" Margin="0,0,0,8">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="82"/>
@@ -332,9 +328,9 @@
                                     <sys:String>HTTP</sys:String>
                                     <sys:String>HTTPS</sys:String>
                                 </ComboBox>
-                                <Border Grid.Column="1" Width="1" Margin="0,7" Background="{StaticResource WidgetHairlineBrush}"/>
+                                <Border Grid.Column="1" Width="1" Margin="0,7" Background="{DynamicResource WidgetHairlineBrush}"/>
                                 <TextBox x:Name="HostBox" Grid.Column="2" Style="{StaticResource WidgetEmbeddedTextBox}"/>
-                                <Border Grid.Column="3" Width="1" Margin="0,7" Background="{StaticResource WidgetHairlineBrush}"/>
+                                <Border Grid.Column="3" Width="1" Margin="0,7" Background="{DynamicResource WidgetHairlineBrush}"/>
                                 <TextBox x:Name="PortBox" Grid.Column="4" Style="{StaticResource WidgetEmbeddedTextBox}" TextAlignment="Center"/>
                             </Grid>
                         </Border>
@@ -344,7 +340,7 @@
                                 <ColumnDefinition Width="44"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="备注" FontSize="9.5" Foreground="{StaticResource WidgetTextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="备注" FontSize="9.5" Foreground="{DynamicResource WidgetTextSecondaryBrush}" VerticalAlignment="Center"/>
                             <TextBox x:Name="RemarkBox" Grid.Column="1" Style="{StaticResource WidgetTextBox}"/>
                         </Grid>
 
@@ -366,15 +362,15 @@
                     </StackPanel>
                 </Border>
 
-                <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="InstanceScroll" MaxHeight="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
                         <!-- Running instances. -->
                         <DockPanel Margin="1,0,1,7">
                             <Border DockPanel.Dock="Right" Style="{StaticResource WidgetCountBadge}">
-                                <TextBlock x:Name="RunningCountLabel" Text="0" FontSize="9.5" Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                                <TextBlock x:Name="RunningCountLabel" Text="0" FontSize="9.5" Foreground="{DynamicResource WidgetTextSecondaryBrush}"/>
                             </Border>
                             <TextBlock x:Name="InstanceActionStatus" DockPanel.Dock="Right" Margin="0,0,8,0" MaxWidth="205"
-                                       FontSize="9" Foreground="{StaticResource WidgetTextSecondaryBrush}"
+                                       FontSize="9" Foreground="{DynamicResource WidgetTextSecondaryBrush}"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                             <StackPanel Orientation="Horizontal">
                                 <Ellipse Width="7" Height="7" Fill="{DynamicResource SuccessBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
@@ -382,25 +378,25 @@
                             </StackPanel>
                         </DockPanel>
 
-                        <Border x:Name="RunningEmpty" Background="{StaticResource WidgetRaisedBrush}" CornerRadius="10"
-                                BorderBrush="{StaticResource WidgetHairlineBrush}" BorderThickness="1" Padding="10" Margin="0,0,0,11">
+                        <Border x:Name="RunningEmpty" Background="{DynamicResource WidgetRaisedBrush}" CornerRadius="10"
+                                BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="1" Padding="10" Margin="0,0,0,11">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="39"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Width="32" Height="32" CornerRadius="9" Background="{StaticResource WidgetOrangePaleBrush}" HorizontalAlignment="Left">
+                                <Border Width="32" Height="32" CornerRadius="9" Background="{DynamicResource WidgetOrangePaleBrush}" HorizontalAlignment="Left">
                                     <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="{StaticResource BrandOrangeBrush}"
                                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="暂无运行中实例" FontSize="11.5" FontWeight="SemiBold"/>
-                                    <TextBlock Text="启动后可在这里聚焦、截图或停止" FontSize="9.5" Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                                    <TextBlock Text="启动后可在这里聚焦、截图或停止" FontSize="9.5" Foreground="{DynamicResource WidgetTextSecondaryBrush}"/>
                                 </StackPanel>
                                 <Button Grid.Column="2" Height="28" Padding="10,0"
                                         Style="{StaticResource WidgetGhostButton}" Click="OpenManager_Click">
-                                    <TextBlock Text="配置" Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                                    <TextBlock Text="配置" Foreground="{DynamicResource WidgetTextSecondaryBrush}"/>
                                 </Button>
                             </Grid>
                         </Border>
@@ -408,15 +404,15 @@
                         <ItemsControl x:Name="RunningList" Margin="0,0,0,8">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="{StaticResource WidgetRaisedBrush}" CornerRadius="10" Padding="9" Margin="0,0,0,6"
-                                            BorderBrush="{StaticResource WidgetHairlineBrush}" BorderThickness="1">
+                                    <Border Background="{DynamicResource WidgetRaisedBrush}" CornerRadius="10" Padding="9" Margin="0,0,0,6"
+                                            BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="1">
                                         <DockPanel LastChildFill="True">
-                                            <Border DockPanel.Dock="Left" Width="66" Height="44" CornerRadius="7" Background="{StaticResource WidgetOrangePaleBrush}" Margin="0,0,9,0"
+                                            <Border DockPanel.Dock="Left" Width="66" Height="44" CornerRadius="7" Background="{DynamicResource WidgetOrangePaleBrush}" Margin="0,0,9,0"
                                                     ClipToBounds="True" MouseEnter="Thumbnail_MouseEnter" MouseLeave="Thumbnail_MouseLeave"
                                                     Tag="{Binding}">
                                                 <Grid>
                                                     <Image Source="{Binding ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"/>
-                                                    <Border Background="{StaticResource WidgetDeepBrush}" ToolTip="{Binding PreviewMessage, Mode=OneWay}">
+                                                    <Border Background="{DynamicResource WidgetDeepBrush}" ToolTip="{Binding PreviewMessage, Mode=OneWay}">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
                                                                 <Setter Property="Visibility" Value="Visible"/>
@@ -429,14 +425,14 @@
                                                         </Border.Style>
                                                         <Viewbox Width="18" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center">
                                                             <Path Data="M 1.5 2.5 L 14.5 2.5 L 14.5 12.5 L 1.5 12.5 Z M 3.5 10 L 6.2 7.3 L 8.2 9.1 L 10.1 6.9 L 13 10"
-                                                                  Stroke="{StaticResource WidgetTextTertiaryBrush}" StrokeThickness="1.25"
+                                                                  Stroke="{DynamicResource WidgetTextTertiaryBrush}" StrokeThickness="1.25"
                                                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                                                         </Viewbox>
                                                     </Border>
                                                     <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,3,3"
                                                             MinWidth="17" Height="17" Padding="3,0" CornerRadius="6"
-                                                            Background="{DynamicResource BrandOrangeBrush}">
-                                                        <TextBlock Text="{Binding DockBadge, Mode=OneWay}" Foreground="White" FontSize="8.5" FontWeight="Bold"
+                                                            Background="{Binding IdentityBrush}">
+                                                        <TextBlock Text="{Binding DockBadge, Mode=OneWay}" Foreground="{Binding IdentityForegroundBrush}" FontSize="8.5" FontWeight="Bold"
                                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     </Border>
                                                 </Grid>
@@ -471,10 +467,10 @@
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Text="{Binding LastPageTitle, Mode=OneWay, TargetNullValue=正在读取页面标题}" FontSize="9.5"
-                                                           Foreground="{StaticResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                           Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Text="{Binding LastPageURL, Mode=OneWay, TargetNullValue=正在连接页面}" FontSize="8.5"
-                                                           Foreground="{StaticResource WidgetTextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock FontSize="8.5" Foreground="{StaticResource WidgetTextTertiaryBrush}">
+                                                           Foreground="{DynamicResource WidgetTextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock FontSize="8.5" Foreground="{DynamicResource WidgetTextTertiaryBrush}">
                                                     <Run Text="PID "/><Run Text="{Binding ProcessID, Mode=OneWay}"/><Run Text=" · Debug :"/><Run Text="{Binding DebugPort, Mode=OneWay}"/>
                                                 </TextBlock>
                                             </StackPanel>
@@ -487,39 +483,44 @@
                         <!-- History. -->
                         <DockPanel Margin="1,0,1,7">
                             <Border DockPanel.Dock="Right" Style="{StaticResource WidgetCountBadge}">
-                                <TextBlock x:Name="HistoryCountLabel" Text="0" FontSize="9.5" Foreground="{StaticResource WidgetTextSecondaryBrush}"/>
+                                <TextBlock x:Name="HistoryCountLabel" Text="0" FontSize="9.5" Foreground="{DynamicResource WidgetTextSecondaryBrush}"/>
                             </Border>
                             <TextBlock Text="历史" Style="{StaticResource WidgetSectionTitle}"/>
                         </DockPanel>
 
-                        <Border x:Name="HistoryEmpty" Height="40" Background="{StaticResource WidgetDeepBrush}" CornerRadius="9"
-                                BorderBrush="{StaticResource WidgetHairlineBrush}" BorderThickness="1" Margin="0,0,0,11">
+                        <Border x:Name="HistoryEmpty" Height="40" Background="{DynamicResource WidgetDeepBrush}" CornerRadius="9"
+                                BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="1" Margin="0,0,0,11">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{StaticResource WidgetTextTertiaryBrush}" Margin="0,0,7,0"/>
-                                <TextBlock Text="启动过的实例会保留在这里" FontSize="10" Foreground="{StaticResource WidgetTextTertiaryBrush}"/>
+                                <TextBlock Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{DynamicResource WidgetTextTertiaryBrush}" Margin="0,0,7,0"/>
+                                <TextBlock Text="启动过的实例会保留在这里" FontSize="10" Foreground="{DynamicResource WidgetTextTertiaryBrush}"/>
                             </StackPanel>
                         </Border>
 
                         <ItemsControl x:Name="HistoryList" Margin="0,0,0,8">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="{StaticResource WidgetRaisedBrush}" CornerRadius="10" Padding="9" Margin="0,0,0,6"
-                                            BorderBrush="{StaticResource WidgetHairlineBrush}" BorderThickness="1">
+                                    <Border Background="{DynamicResource WidgetRaisedBrush}" CornerRadius="10" Padding="9" Margin="0,0,0,6"
+                                            BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="1">
                                         <DockPanel LastChildFill="True">
                                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="6,0,0,0" VerticalAlignment="Center">
                                                 <Button Height="28" Padding="10,0" Margin="0,0,3,0"
-                                                        Click="Restore_Click" Tag="{Binding}" Style="{StaticResource WidgetPrimaryButton}">
+                                                        Click="Restore_Click" Tag="{Binding Instance}" Style="{StaticResource WidgetPrimaryButton}">
                                                     <TextBlock Text="打开" Foreground="White"/>
                                                 </Button>
-                                                <Button ToolTip="删除" Click="DeleteHistory_Click" Tag="{Binding}"
+                                                <Button ToolTip="删除" Click="DeleteHistory_Click" Tag="{Binding Instance}"
                                                         Style="{StaticResource WidgetDangerIconButton}">
                                                     <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource DangerBrush}"/>
                                                 </Button>
                                             </StackPanel>
                                             <StackPanel VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding LastPageTitle, Mode=OneWay, TargetNullValue=未记录页面标题}" FontWeight="SemiBold" FontSize="11"
+                                                <DockPanel>
+                                                    <Border DockPanel.Dock="Left" Background="{Binding IdentityBrush}" CornerRadius="5" MinWidth="20" Height="20" Padding="3,0" Margin="0,0,6,0">
+                                                        <TextBlock Text="{Binding DockBadge}" Foreground="{Binding IdentityForegroundBrush}" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                <TextBlock Text="{Binding LastPageTitle, Mode=OneWay, TargetNullValue=未记录页面标题}" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Name, Mode=OneWay}" FontSize="9.5" Foreground="{StaticResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                </DockPanel>
+                                                <TextBlock Text="{Binding Name, Mode=OneWay}" FontSize="9.5" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
                                         </DockPanel>
                                     </Border>

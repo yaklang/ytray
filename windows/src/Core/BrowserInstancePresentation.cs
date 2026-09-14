@@ -31,6 +31,8 @@ namespace YTray.Core
         public int DebugPort => Instance.DebugPort;
         public string? AppUserModelId => Instance.AppUserModelId;
         public string? DockBadge => Instance.DockBadge;
+        public SolidColorBrush IdentityBrush { get; }
+        public SolidColorBrush IdentityForegroundBrush { get; }
         public ImageSource? RuntimeIconSource { get; }
         public ImageSource? InstanceIconSource { get; }
         public string RuntimeTitle => !string.IsNullOrWhiteSpace(Instance.RuntimeName)
@@ -70,10 +72,11 @@ namespace YTray.Core
         public BrowserInstancePresentation(BrowserInstance instance, BrowserRuntime? runtime = null)
         {
             Instance = instance ?? throw new ArgumentNullException(nameof(instance));
+            IdentityBrush = BrowserIdentityColor.Brush(instance.DockBadge);
+            IdentityForegroundBrush = BrowserIdentityColor.Brush(instance.DockBadge, foreground: true);
             RuntimeIconSource = runtime == null ? null : BrowserIconSource.FromExecutable(runtime.ExecutablePath);
-            InstanceIconSource = runtime == null
-                ? RuntimeIconSource
-                : BrowserIconSource.FromExecutableWithBadge(runtime.ExecutablePath, instance.DockBadge);
+            InstanceIconSource = BrowserIconSource.FromExecutableWithBadge(
+                runtime?.ExecutablePath ?? "", instance.DockBadge);
             HasThumbnailArtifact = HasUsableThumbnailFile(instance.ThumbnailPath);
             ThumbnailSource = InstanceThumbnailImageSource.FromFile(instance.ThumbnailPath);
             IsThumbnailLoading = ThumbnailSource == null

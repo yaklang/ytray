@@ -84,12 +84,13 @@ namespace YTray.Core
             ?? SystemRuntimes.FirstOrDefault()
             ?? Runtimes.FirstOrDefault();
 
-        public InstanceStore(string? applicationDirectory = null, bool discoverSystemBrowsers = true)
+        public InstanceStore(string? applicationDirectory = null, bool discoverSystemBrowsers = true,
+            bool runMaintenance = true)
         {
             var usesDefaultApplicationDirectory = applicationDirectory == null;
             ApplicationDirectory = applicationDirectory ?? StatePersistence.DefaultApplicationDirectory;
             // Best-effort migration from the private pre-rebrand persistence directory to YTray.
-            MigrateLegacyDirectoryIfNeeded();
+            if (usesDefaultApplicationDirectory) MigrateLegacyDirectoryIfNeeded();
             try { Directory.CreateDirectory(ApplicationDirectory); } catch { }
 
             Load();
@@ -105,7 +106,7 @@ namespace YTray.Core
                 Interval = TimeSpan.FromMilliseconds(450),
             };
             _persistenceTimer.Tick += OnPersistenceTick;
-            _timer.Start();
+            if (runMaintenance) _timer.Start();
             DiagnosticLog.Info("store.ready",
                 $"state loaded; runtimes={Runtimes.Count}; plugins={Plugins.Count}; instances={Instances.Count}");
         }
@@ -567,7 +568,10 @@ namespace YTray.Core
             // mutations alias the live application settings or a historical snapshot.
             var configuration = (customSettings ?? Settings).Clone();
             if (mode == LaunchMode.Isolated)
-                configuration = new LaunchSettings(configuration.DefaultRuntimeID ?? Settings.DefaultRuntimeID);
+                configuration = new LaunchSettings(configuration.DefaultRuntimeID ?? Settings.DefaultRuntimeID)
+                {
+                    ColorizeBrowserInstances = configuration.ColorizeBrowserInstances,
+                };
             if (restoring != null)
             {
                 configuration.DefaultRuntimeID = restoring.RuntimeID;
@@ -657,6 +661,7 @@ namespace YTray.Core
                 RestrictWebRTC = Settings.RestrictWebRTC,
                 DisableNotifications = Settings.DisableNotifications,
                 IgnoreCertificateErrors = Settings.IgnoreCertificateErrors,
+                ColorizeBrowserInstances = Settings.ColorizeBrowserInstances,
                 AdditionalFlags = Settings.AdditionalFlags,
                 DefaultPluginIDs = Settings.DefaultPluginIDs.ToList(),
                 DockBadge = Settings.DockBadge,

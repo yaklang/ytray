@@ -117,7 +117,7 @@ namespace YTray.Core
             string profilePath, int debugPort, List<BrowserPlugin> plugins,
             BrowserKind? runtimeKind = null, List<string>? internalExtensionPaths = null,
             bool restoreLastSession = false, Guid? managedInstanceId = null,
-            string? instanceBadge = null)
+            string? instanceBadge = null, bool isNewProfile = true)
         {
             var arguments = new List<string>
             {
@@ -128,6 +128,12 @@ namespace YTray.Core
                 "--no-first-run",
                 "--no-default-browser-check",
             };
+
+            // Only initialize brand-new profiles. A restored profile may have a user-selected
+            // theme, including when proxy authentication suppresses --restore-last-session.
+            if (isNewProfile && !restoreLastSession && settings.ColorizeBrowserInstances
+                && !string.IsNullOrWhiteSpace(instanceBadge))
+                arguments.Add(BrowserIdentityColor.ThemeArgument(instanceBadge!));
 
             if (runtimeKind == BrowserKind.ChromeForTesting)
                 arguments.Add("--disable-infobars");
@@ -318,7 +324,8 @@ namespace YTray.Core
             try
             {
                 arguments = BuildArguments(mode, launchSettings, profile, port, plugins, runtime.Kind,
-                    internalPaths, restoring != null && !usesProxyAuth, id, normalizedBadge);
+                    internalPaths, restoring != null && !usesProxyAuth, id, normalizedBadge,
+                    isNewProfile: restoring == null);
                 if (mode != LaunchMode.Isolated) PreparePinnedExtensions(profile, plugins, configuredPlugins);
             }
             catch (Exception)
