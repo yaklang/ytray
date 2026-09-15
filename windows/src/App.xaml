@@ -88,6 +88,24 @@
             <Style TargetType="Page">
                 <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}"/>
             </Style>
+            <Style TargetType="ToolTip">
+                <Setter Property="Padding" Value="9,6"/>
+                <Setter Property="Background" Value="{DynamicResource SurfaceRaisedBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToolTip">
+                            <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="4" SnapsToDevicePixels="True">
+                                <ContentPresenter/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
             <Style x:Key="YTrayButton" TargetType="Button">
                 <Setter Property="MinHeight" Value="34"/>

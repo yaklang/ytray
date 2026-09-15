@@ -124,7 +124,7 @@ enum BrowserLauncher {
             if managedExtensionLoaded {
                 arguments.append(try managedBrowserBootstrapURL(
                     extensionID: managedExtensionID!, instanceID: managedInstanceID!,
-                    badge: instanceBadge!, target: target, restore: true
+                    badge: instanceBadge!, target: target, restore: true, proxyServer: settings.proxyServer
                 ))
             }
             return arguments
@@ -132,7 +132,7 @@ enum BrowserLauncher {
         if managedExtensionLoaded {
             arguments.append(try managedBrowserBootstrapURL(
                 extensionID: managedExtensionID!, instanceID: managedInstanceID!,
-                badge: instanceBadge!, target: target, restore: false
+                badge: instanceBadge!, target: target, restore: false, proxyServer: settings.proxyServer
             ))
         } else {
             arguments.append(target)
@@ -141,7 +141,7 @@ enum BrowserLauncher {
     }
 
     static func managedBrowserBootstrapURL(
-        extensionID: String, instanceID: UUID, badge: String, target: String, restore: Bool
+        extensionID: String, instanceID: UUID, badge: String, target: String, restore: Bool, proxyServer: String = ""
     ) throws -> String {
         var components = URLComponents()
         components.scheme = "chrome-extension"
@@ -153,6 +153,7 @@ enum BrowserLauncher {
             URLQueryItem(name: "badge", value: try DockBadgeLabel.normalize(badge)),
             URLQueryItem(name: "target", value: target),
             URLQueryItem(name: "restore", value: restore ? "1" : "0"),
+            URLQueryItem(name: "startupProxy", value: proxyServer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "direct" : try HTTPProxyAddress.normalize(proxyServer)),
         ]
         guard let value = components.string else { throw YTrayError.invalidURL(target) }
         return value
@@ -218,6 +219,7 @@ enum BrowserLauncher {
             instanceID: id,
             username: settings.proxyUsername,
             password: settings.proxyPassword,
+            proxyServer: settings.proxyServer,
             applicationDirectory: applicationDirectory
         )
         let usesProxyAuthentication = !settings.proxyUsername.isEmpty || !settings.proxyPassword.isEmpty

@@ -41,9 +41,9 @@ namespace YTray.Core
         public string PageUrl => string.IsNullOrWhiteSpace(Instance.LastPageURL)
             ? (string.IsNullOrWhiteSpace(Instance.StartURL) ? "chrome://newtab" : Instance.StartURL)
             : Instance.LastPageURL!;
-        public bool UsesProxy => !string.IsNullOrWhiteSpace(Instance.SettingsSnapshot?.ProxyServer);
-        public string NetworkMode => UsesProxy ? "HTTP 代理" : "无代理";
-        public string NetworkAddress => UsesProxy
+        public bool UsesProxy => Instance.Mode != LaunchMode.Isolated && !string.IsNullOrWhiteSpace(Instance.SettingsSnapshot?.ProxyServer);
+        public string NetworkMode => Instance.Mode == LaunchMode.Isolated || Instance.SettingsSnapshot == null ? "启动网络：默认" : UsesProxy ? "启动代理" : "启动配置：直连";
+        public string NetworkAddress => Instance.Mode == LaunchMode.Isolated || Instance.SettingsSnapshot == null ? "浏览器默认配置" : UsesProxy
             ? (Instance.SettingsSnapshot?.ProxyServer ?? "").Replace("http://", "").Replace("https://", "")
             : "直连";
         public string DebugAddress => "127.0.0.1:" + Instance.DebugPort;
