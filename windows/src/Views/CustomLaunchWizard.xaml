@@ -24,10 +24,8 @@
             <Border Background="{DynamicResource TitleBarBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1">
                 <Grid>
                     <StackPanel Orientation="Horizontal" Margin="13,0" VerticalAlignment="Center">
-                        <Border Width="19" Height="19" CornerRadius="6" Background="{DynamicResource BrandOrangeBrush}">
-                            <TextBlock Text="Y" Foreground="White" FontWeight="Bold" FontSize="10"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Image Source="pack://application:,,,/Assets/Icons/ytray-app.ico" Width="22" Height="22"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
                         <TextBlock Text="自定义启动" Margin="8,0,0,0" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Button HorizontalAlignment="Right" Style="{StaticResource WindowCloseButton}" Click="Cancel_Click"

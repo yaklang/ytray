@@ -245,6 +245,7 @@ struct LaunchSettings: Codable, Equatable {
     var restrictWebRTC = true
     var disableNotifications = true
     var ignoreCertificateErrors = true
+    var useTestType = true
     var colorizeBrowserInstances = true
     var additionalFlags = ""
     var defaultPluginIDs: [UUID] = []
@@ -264,7 +265,7 @@ struct LaunchSettings: Codable, Equatable {
         case presetProxyUsername, presetProxyPassword, presetProxyRemark, presetProxyCheckTarget
         case recentProxyPresets
         case debugPort, restrictWebRTC
-        case disableNotifications, ignoreCertificateErrors, colorizeBrowserInstances, additionalFlags
+        case disableNotifications, ignoreCertificateErrors, useTestType, colorizeBrowserInstances, additionalFlags
         case defaultPluginIDs, dockBadge
     }
 }
@@ -307,6 +308,7 @@ extension LaunchSettings {
         ignoreCertificateErrors = savedVersion < Self.certificateDefaultMigrationVersion
             ? true
             : try container.decodeIfPresent(Bool.self, forKey: .ignoreCertificateErrors) ?? true
+        useTestType = try container.decodeIfPresent(Bool.self, forKey: .useTestType) ?? true
         colorizeBrowserInstances = try container.decodeIfPresent(
             Bool.self,
             forKey: .colorizeBrowserInstances

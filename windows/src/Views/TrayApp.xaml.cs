@@ -140,7 +140,7 @@ namespace YTray
 
         private void LaunchFromTray(bool usePresetProxy)
         {
-            if (_store.LaunchConfigured(usePresetProxy)) return;
+            if (_store.LaunchConfigured(usePresetProxy) || _store.LaunchWasCancelled) return;
             _notify.ShowBalloonTip(
                 7000,
                 "无法启动实例",

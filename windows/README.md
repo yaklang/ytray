@@ -6,7 +6,9 @@ Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`
 
 与 macOS 版本对等：
 
-- 托盘图标 + 左键弹出小组件、右键菜单
+- 托盘图标 + 左键弹出小组件、右键菜单，小组件与启动向导使用正式 YTray Logo
+- A/B/C/D 实例主题色：橙 / 蓝 / 绿 / 紫，继续使用 E 品红、F 青绿并循环（与 macOS 相同）
+- 任务栏角标、实例列表、Profile 详情与小组件历史使用一致的身份色；设置可关闭新 Profile 自动主题
 - 预设 HTTP 代理配置（协议/Host/端口/认证/检测/历史）
 - 无代理启动 / 使用 HTTP 代理启动 / 自定义启动向导
 - 每个 Chrome 实例使用独立 `--user-data-dir`，Cookie/缓存/登录态天然隔离
@@ -25,7 +27,7 @@ Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`
 macOS 版本通过 Dock 角标（A/B/C）区分实例图标。Windows 版本使用 **AppUserModelID (AUMID)**、窗口级 `RelaunchIconResource` 和启动前 WinEvent Hook 实现等价效果：
 
 1. **启动前生成稳定实例身份**：AUMID 由浏览器类型、Dock 角标和持久化实例 UUID 组成，例如 `YTray.Chrome.InstA.<uuid>`；同一历史实例恢复后保持不变，不同实例不会合并到同一个任务栏组。
-2. **启动前准备 ICO 和 `.lnk`**：`BrowserProcessIcon` 用 GDI+ 合成浏览器图标与橙色 A/B/C 角标，快捷方式提前写入相同 AUMID 和 ICO。
+2. **启动前准备 ICO 和 `.lnk`**：`BrowserProcessIcon` 用 GDI+ 合成浏览器图标与彩色字母角标，快捷方式提前写入相同 AUMID 和 ICO。沿用 Windows 左上角布局，保留 Chrome for Testing 的右下标记；为 16–256px 输出独立 ICO 帧，按底色选择对比度至少 4.5:1 的黑字或白字。
 3. **先启用 Hook，再启动 Chrome**：`BrowserWindowTaskbarController` 的独立 STA 线程先注册并运行 WinEvent 消息循环，确认 ready 后 `BrowserLauncher` 才调用 `Process.Start`，避免 Chrome 窗口抢在 Hook 前出现在任务栏。
 4. **暂存首次展示**：Chrome 创建顶层窗口时使用 DWM cloak 暂时阻止画面呈现，同时临时设置 `WS_EX_TOOLWINDOW` 取消任务栏资格。这里不使用 `SW_HIDE`，不会打断 Chromium 的 GPU/DWM 首次初始化。
 5. **写入并稳定窗口属性**：等待 Chrome 自己生成非空原生 AUMID 后，通过 `SHGetPropertyStoreForWindow` 写入实例 AUMID 和 `System.AppUserModel.RelaunchIconResource`。属性连续稳定 250ms 后恢复窗口样式并解除 cloak，因此第一枚任务栏图标就是带 A/B/C 角标的版本。
@@ -114,6 +116,38 @@ YTray.exe --probe-aumid "C:\Program Files\Google\Chrome\Application\chrome.exe"
 # 端到端冒烟：启动真实 Chrome 实例，验证 AUMID 解析 + CDP 截图
 YTray.exe --smoke-browser "C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
+
+## 实例主题与外观验证
+
+新 Profile 默认接收与角标相同的 Chromium 自动主题。设置中的“使用 A/B/C/D 独立主题色”只影响之后创建的 Profile；历史恢复（包括代理认证的启动流程）不会重新安装主题，因此保留用户已有的外观选择。关闭此选项也不会去掉任务栏和列表中的彩色身份标识。
+
+```powershell
+# 使用隔离的 A–F 测试数据，渲染所有页面、向导、明暗小组件、下拉菜单、历史、空状态和缩略图
+windows/src/bin/Release/YTray.exe --capture-design-review windows/artifacts/design-review
+
+# 本机 Chrome 真机验证：A–D 颜色落盘、窗口 AUMID/图标资源、CDP 页面及修改主题后的历史恢复
+windows/src/bin/Release/YTray.exe --smoke-identities "C:\Program Files\Google\Chrome\Application\chrome.exe" windows/artifacts/identity-smoke
+```
+
+设计验证输出 `capture-complete.txt`、截图索引与联系表；真机验证输出 `identity-smoke.json`、浏览器截图和 `smoke-complete.txt`。失败返回非零退出码并输出错误文件。两种模式的测试状态只保存在指定目录；真机模式会关闭自己启动的测试浏览器，保留测试 Profile 供复核。自动测试另外验证原有小组件在明暗/系统主题间切换后仍使用正确的文字、操作图标和输入框边框颜色。
+
+## Chrome 插件加载与故障恢复
+
+YTray 不再按浏览器名称直接拒绝加载插件。启动后使用浏览器级 CDP `Extensions.getExtensions` 检查已启用的插件；缺失或禁用的插件通过 `Extensions.loadUnpacked` 加载，并核对返回的 ID、目录和启用状态。已加载插件不会重复加载。普通新版 Chrome 不再携带会干扰新接口的旧 `--disable-extensions-except` 参数；支持旧命令行方式的浏览器保留原有路径。
+
+启动期间先停留在空白页，插件就绪后再打开内置插件初始化页或目标页面。Chrome 的代理认证插件也使用同一加载机制。自定义向导允许普通 Chrome 选择插件，历史恢复保留现有 Profile 和主题。
+
+仅在实际加载失败后显示完整错误原因。选择“不加载插件并启动”会关闭未完成的浏览器，并重新启动本次配置；同时禁用该次运行中的扩展，避免旧 Profile 或部分成功加载的插件残留。全局插件设置不变。取消会清理未完成的实例、保留旧历史。代理认证插件未就绪时不允许跳过，防止认证失效后仍打开目标页。
+
+本地真实 Chrome 验证可在测试前设置以下环境变量（使用独立临时 Profile，并关闭自己创建的浏览器）：
+
+```powershell
+$env:YTRAY_TEST_CHROME = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+$env:YTRAY_TEST_CAPTURE = "$PWD\windows\artifacts\extension-fallback-review"
+pwsh -File windows/build.ps1 -Test
+```
+
+该验证实际点击小组件、向导和确认弹窗，检查直连、自定义启动、历史恢复的插件启用状态、页面脚本注入、内置插件的实例身份绑定及截图。代理测试使用不会向外转发的本地测试服务器，真实返回 HTTP 407 并核对 Chrome 提交的认证信息。还覆盖部分插件加载失败后的取消、重试、历史保留和认证阻断。输出包含明暗弹窗截图和 `extension-api-smoke.txt`。详情见 [接口验证说明](docs/chrome-extension-api-review.md)。
 
 ## 数据位置
 

@@ -30,6 +30,8 @@ namespace YTray.Views
                 RestrictWebRTC = store.Settings.RestrictWebRTC,
                 DisableNotifications = store.Settings.DisableNotifications,
                 IgnoreCertificateErrors = store.Settings.IgnoreCertificateErrors,
+                UseTestType = store.Settings.UseTestType,
+                ColorizeBrowserInstances = store.Settings.ColorizeBrowserInstances,
                 AdditionalFlags = store.Settings.AdditionalFlags,
                 DockBadge = store.Settings.DockBadge,
             };
@@ -199,8 +201,9 @@ namespace YTray.Views
             badgeBox.Text = _draft.DockBadge;
             var webRtc = new CheckBox { Content = "限制 WebRTC 非代理 UDP 与本地 IP 暴露", IsChecked = _draft.RestrictWebRTC, Margin = new Thickness(0, 8, 0, 4) };
             var notif = new CheckBox { Content = "关闭通知", IsChecked = _draft.DisableNotifications, Margin = new Thickness(0, 0, 0, 4) };
-            var cert = new CheckBox { Content = "忽略证书错误", IsChecked = _draft.IgnoreCertificateErrors, Margin = new Thickness(0, 0, 0, 8) };
-            sp.Children.Add(webRtc); sp.Children.Add(notif); sp.Children.Add(cert);
+            var cert = new CheckBox { Content = "忽略证书错误", IsChecked = _draft.IgnoreCertificateErrors, Margin = new Thickness(0, 0, 0, 4) };
+            var testType = new CheckBox { Content = "测试模式（--test-type）", IsChecked = _draft.UseTestType, Margin = new Thickness(0, 0, 0, 8) };
+            sp.Children.Add(webRtc); sp.Children.Add(notif); sp.Children.Add(cert); sp.Children.Add(testType);
             var flagsLabel = new TextBlock { Text = "附加参数（每行一个）", FontSize = 11 };
             flagsLabel.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             sp.Children.Add(flagsLabel);
@@ -228,6 +231,7 @@ namespace YTray.Views
                 _draft.RestrictWebRTC = webRtc.IsChecked == true;
                 _draft.DisableNotifications = notif.IsChecked == true;
                 _draft.IgnoreCertificateErrors = cert.IsChecked == true;
+                _draft.UseTestType = testType.IsChecked == true;
                 _draft.AdditionalFlags = flags.Text;
                 if (!ApplySelectedNetwork()) return false;
                 return true;
@@ -284,13 +288,13 @@ namespace YTray.Views
         {
             var sp = new StackPanel();
             var runtime = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
-            var supportsPlugins = runtime != null && BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind);
+            var supportsPlugins = runtime != null;
             sp.Children.Add(new TextBlock { Text = "选择本次加载的本地插件", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
-            if (!supportsPlugins && runtime != null)
+            if (runtime != null && !BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind))
             {
                 var notice = new TextBlock
                 {
-                    Text = $"{runtime.DisplayTitle} 不支持由 YTray 加载本地插件。本次启动将不加载插件；如需使用插件，请返回选择 Chrome for Testing、Chromium 或 Edge。",
+                    Text = $"{runtime.DisplayTitle} 将在启动后验证插件加载状态，并尝试通过浏览器扩展接口补载。仅在加载失败时询问是否跳过插件。",
                     TextWrapping = TextWrapping.Wrap,
                     FontSize = 11,
                 };
@@ -336,7 +340,7 @@ namespace YTray.Views
             sp.Children.Add(new TextBlock { Text = "确认本次启动配置", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 18) });
             var rt = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
             var grid = new Grid { Margin = new Thickness(18) };
-            for (int i = 0; i < 7; i++) grid.RowDefinitions.Add(new RowDefinition());
+            for (int i = 0; i < 8; i++) grid.RowDefinitions.Add(new RowDefinition());
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             AddReviewRow(grid, 0, "浏览器", rt != null ? $"{rt.DisplayTitle} {rt.VersionLabel} · {rt.Source.Title()}" : "未选择");
@@ -348,8 +352,8 @@ namespace YTray.Views
             var dockBadge = _draft.DockBadge?.Trim();
             AddReviewRow(grid, 4, "Dock 角标", string.IsNullOrEmpty(dockBadge) ? "自动分配" : dockBadge!.ToUpperInvariant());
             AddReviewRow(grid, 5, "WebRTC", _draft.RestrictWebRTC ? "限制" : "不限制");
-            var supportsPlugins = rt != null && BrowserLauncher.SupportsCommandLineExtensions(rt.Kind);
-            AddReviewRow(grid, 6, "插件", supportsPlugins ? $"{_pluginIDs.Count} 个" : "不支持（本次不加载）");
+            AddReviewRow(grid, 6, "插件", $"{_pluginIDs.Count} 个（启动时验证）");
+            AddReviewRow(grid, 7, "Profile 主题", _draft.ColorizeBrowserInstances ? "按角标分配独立主题色" : "使用浏览器默认主题");
             sp.Children.Add(grid);
             return sp;
         }
@@ -383,12 +387,11 @@ namespace YTray.Views
                 return;
             if (_step < 3) { _step++; ShowStep(); return; }
             var runtime = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
-            var effectivePluginIDs = runtime != null && BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind)
-                ? _pluginIDs.ToList()
-                : new List<Guid>();
+            var effectivePluginIDs = _pluginIDs.ToList();
             _draft.DefaultPluginIDs = effectivePluginIDs;
             if (!_store.Launch(LaunchMode.Custom, _draft, effectivePluginIDs, launchUsesProxy: _usePresetProxy))
             {
+                if (_store.LaunchWasCancelled) return;
                 MessageBox.Show(this,
                     _store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。",
                     "无法启动实例",

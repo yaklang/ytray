@@ -331,6 +331,7 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertNil(state.instances.first?.dockBadge)
         XCTAssertEqual(state.settings.dockBadge, "")
         XCTAssertTrue(state.settings.ignoreCertificateErrors)
+        XCTAssertTrue(state.settings.useTestType)
         XCTAssertEqual(state.settings.presetProxyServer, "http://127.0.0.1:8083")
     }
 
@@ -1168,6 +1169,20 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertFalse(arguments.contains("--no-proxy-server"))
         XCTAssertTrue(arguments.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"))
         XCTAssertTrue(arguments.contains("--ignore-certificate-errors"))
+        XCTAssertTrue(arguments.contains("--test-type"))
+    }
+
+    func testTestTypeDefaultsOnAndOptOutSurvivesPersistence() throws {
+        XCTAssertTrue(LaunchSettings().useTestType)
+        var settings = LaunchSettings()
+        settings.useTestType = false
+        let restored = try JSONDecoder().decode(LaunchSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertFalse(restored.useTestType)
+        let arguments = try BrowserLauncher.buildArguments(
+            mode: .quick, settings: restored, profilePath: "/tmp/profile",
+            debugPort: 9333, plugins: []
+        )
+        XCTAssertFalse(arguments.contains("--test-type"))
     }
 
     func testNoProxyAndHTTPProxyLaunchesHaveExclusiveNetworkArguments() throws {

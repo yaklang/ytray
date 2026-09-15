@@ -31,6 +31,7 @@ namespace YTray.Core
         private bool _pageRefreshInFlight;
         private bool _stateDirty;
         private bool _disposed;
+        private Guid? _discardingLaunchID;
         private static readonly TimeSpan ThumbnailRefreshInterval = TimeSpan.FromSeconds(12);
         private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(3);
         // Private persistence compatibility only. Keep this exact historical directory name so
@@ -52,6 +53,9 @@ namespace YTray.Core
         public long InstallBytesReceived { get; private set; }
         public long? InstallBytesTotal { get; private set; }
         public string? ErrorMessage { get; private set; }
+        public Func<ExtensionLaunchPrompt, bool>? ConfirmLaunchWithoutPlugins { get; set; }
+        public bool IsConfirmingLaunch { get; private set; }
+        public bool LaunchWasCancelled { get; private set; }
         public ExtensionManifest? ExtensionManifest { get; private set; }
         public string ExtensionStatusMessage { get; private set; } = "";
         public int ExtensionInstallPercent { get; private set; }
@@ -84,12 +88,13 @@ namespace YTray.Core
             ?? SystemRuntimes.FirstOrDefault()
             ?? Runtimes.FirstOrDefault();
 
-        public InstanceStore(string? applicationDirectory = null, bool discoverSystemBrowsers = true)
+        public InstanceStore(string? applicationDirectory = null, bool discoverSystemBrowsers = true,
+            bool runMaintenance = true)
         {
             var usesDefaultApplicationDirectory = applicationDirectory == null;
             ApplicationDirectory = applicationDirectory ?? StatePersistence.DefaultApplicationDirectory;
             // Best-effort migration from the private pre-rebrand persistence directory to YTray.
-            MigrateLegacyDirectoryIfNeeded();
+            if (usesDefaultApplicationDirectory) MigrateLegacyDirectoryIfNeeded();
             try { Directory.CreateDirectory(ApplicationDirectory); } catch { }
 
             Load();
@@ -105,7 +110,7 @@ namespace YTray.Core
                 Interval = TimeSpan.FromMilliseconds(450),
             };
             _persistenceTimer.Tick += OnPersistenceTick;
-            _timer.Start();
+            if (runMaintenance) _timer.Start();
             DiagnosticLog.Info("store.ready",
                 $"state loaded; runtimes={Runtimes.Count}; plugins={Plugins.Count}; instances={Instances.Count}");
         }
@@ -363,6 +368,7 @@ namespace YTray.Core
             if (current == null || current.Status != InstanceStatus.Running || current.IsStopping) return false;
 
             current.IsStopping = true;
+            if (_launches.TryGetValue(current.Id, out var pendingLaunch)) pendingLaunch.CancelInitialization();
             ErrorMessage = null;
             OnPropertyChanged(string.Empty);
             try
@@ -553,6 +559,7 @@ namespace YTray.Core
             BrowserInstance? restoring = null, bool? launchUsesProxy = null)
         {
             if (IsLaunching) return false;
+            LaunchWasCancelled = false;
             var token = Guid.NewGuid();
             LaunchToken = token;
             LaunchingMode = mode;
@@ -567,7 +574,10 @@ namespace YTray.Core
             // mutations alias the live application settings or a historical snapshot.
             var configuration = (customSettings ?? Settings).Clone();
             if (mode == LaunchMode.Isolated)
-                configuration = new LaunchSettings(configuration.DefaultRuntimeID ?? Settings.DefaultRuntimeID);
+                configuration = new LaunchSettings(configuration.DefaultRuntimeID ?? Settings.DefaultRuntimeID)
+                {
+                    ColorizeBrowserInstances = configuration.ColorizeBrowserInstances,
+                };
             if (restoring != null)
             {
                 configuration.DefaultRuntimeID = restoring.RuntimeID;
@@ -613,7 +623,11 @@ namespace YTray.Core
                 {
                     var dispatcher = System.Windows.Application.Current?.Dispatcher;
                     if (dispatcher == null || dispatcher.HasShutdownStarted) return;
-                    dispatcher.BeginInvoke(new Action(() => MarkStopped(result.Instance.Id)),
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (_launches.TryGetValue(result.Instance.Id, out var current) && ReferenceEquals(current, result))
+                            MarkStopped(result.Instance.Id);
+                    }),
                         DispatcherPriority.Background);
                 };
 
@@ -630,7 +644,7 @@ namespace YTray.Core
                 DiagnosticLog.Info("instance.launch",
                     $"process created; instance={result.Instance.Id}; pid={result.Instance.ProcessID}; debugPort={result.Instance.DebugPort}");
 
-                CrashGuard.Observe(WaitForBrowserAsync(result.Instance, token), "wait-for-browser");
+                CrashGuard.Observe(WaitForBrowserAsync(result, token, runtime, configuration, selectedPlugins, restoring), "wait-for-browser");
                 return true;
             }
             catch (Exception ex)
@@ -642,6 +656,7 @@ namespace YTray.Core
 
         public bool LaunchConfigured(bool usePresetProxy)
         {
+            LaunchWasCancelled = false;
             var cfg = QuickLaunchConfiguration(usePresetProxy);
             if (cfg == null) return false;
             return Launch(LaunchMode.Quick, cfg, launchUsesProxy: usePresetProxy);
@@ -657,6 +672,8 @@ namespace YTray.Core
                 RestrictWebRTC = Settings.RestrictWebRTC,
                 DisableNotifications = Settings.DisableNotifications,
                 IgnoreCertificateErrors = Settings.IgnoreCertificateErrors,
+                UseTestType = Settings.UseTestType,
+                ColorizeBrowserInstances = Settings.ColorizeBrowserInstances,
                 AdditionalFlags = Settings.AdditionalFlags,
                 DefaultPluginIDs = Settings.DefaultPluginIDs.ToList(),
                 DockBadge = Settings.DockBadge,
@@ -695,14 +712,15 @@ namespace YTray.Core
                 launchUsesProxy: !string.IsNullOrEmpty(cfg.ProxyServer?.Trim()));
         }
 
-        private async Task WaitForBrowserAsync(BrowserInstance instance, Guid token)
+        private async Task WaitForBrowserAsync(BrowserLauncher.LaunchResult launch, Guid token,
+            BrowserRuntime runtime, LaunchSettings configuration, List<BrowserPlugin> plugins, BrowserInstance? restoring)
         {
+            var instance = launch.Instance;
             var ready = await ScreenshotService.WaitUntilReadyAsync(instance.DebugPort);
             if (LaunchToken != token) return;
             if (!ready)
             {
                 var stillRunning = instance.ProcessID > 0 && IsExpectedInstanceProcess(instance);
-                var runtime = RuntimeFor(instance);
                 var detail = stillRunning
                     ? "浏览器进程已经创建，但调试端口未在 15 秒内就绪"
                     : runtime?.Source == RuntimeSource.Managed
@@ -710,6 +728,20 @@ namespace YTray.Core
                         : "浏览器进程在完成启动前退出";
                 FinishLaunchFailure(new YTrayException(YTrayError.LaunchFailed, detail), token);
                 return;
+            }
+
+            if (launch.ExtensionPaths.Count > 0)
+            {
+                LaunchMessage = "正在验证并加载插件…";
+                OnPropertyChanged(string.Empty);
+                try { await launch.InitializeExtensionsAsync(); }
+                catch (OperationCanceledException) { return; }
+                catch (ExtensionLoadingException ex)
+                {
+                    await RecoverExtensionLaunchAsync(launch, token, runtime, configuration, plugins, restoring, ex);
+                    return;
+                }
+                if (LaunchToken != token) return;
             }
 
             // The staged controller normally installs the custom AUMID/ICO before the window becomes
@@ -747,9 +779,9 @@ namespace YTray.Core
             var usesProxyAuth = !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyUsername)
                 || !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyPassword);
             var restoreURL = instance.LastPageURL?.Trim();
-            var navigationTarget = RestoringInstanceID == instance.Id
+            var navigationTarget = launch.DeferredStartupURL ?? (RestoringInstanceID == instance.Id
                 ? (!string.IsNullOrEmpty(restoreURL) ? restoreURL : instance.StartURL)
-                : (usesProxyAuth ? instance.StartURL : null);
+                : (usesProxyAuth ? instance.StartURL : null));
 
             if (!string.IsNullOrEmpty(navigationTarget))
             {
@@ -784,6 +816,71 @@ namespace YTray.Core
             LaunchPhase = BrowserLaunchPhase.Idle;
             LaunchToken = null;
             OnPropertyChanged(string.Empty);
+        }
+
+        private async Task RecoverExtensionLaunchAsync(BrowserLauncher.LaunchResult launch, Guid token,
+            BrowserRuntime runtime, LaunchSettings configuration, List<BrowserPlugin> plugins,
+            BrowserInstance? restoring, ExtensionLoadingException failure)
+        {
+            if (LaunchToken != token) return;
+            DiagnosticLog.Error("extension.load", failure);
+            var mode = launch.Instance.Mode;
+            var usesProxy = LaunchingUsesProxy;
+            // Keep the launch gate held while closing the incomplete process and asking the user.
+            LaunchingInstanceID = null;
+            bool stopped;
+            _discardingLaunchID = launch.Instance.Id;
+            try { stopped = await StopAsync(launch.Instance); }
+            finally { _discardingLaunchID = null; }
+            if (!stopped)
+            {
+                FinishLaunchFailure(new YTrayException(YTrayError.LaunchFailed, "插件加载失败，且未能关闭未完成的浏览器实例"), token);
+                return;
+            }
+            Instances.Remove(launch.Instance);
+            if (restoring != null) Instances.Insert(0, restoring);
+            else
+            {
+                // Only remove the new profile owned by this failed launch, never a restored profile.
+                var root = Path.GetFullPath(Path.Combine(ApplicationDirectory, "Profiles")) + Path.DirectorySeparatorChar;
+                var profile = Path.GetFullPath(launch.Instance.ProfilePath);
+                if (profile.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+                    && Path.GetFileName(profile) == launch.Instance.Id.ToString())
+                {
+                    try { if (Directory.Exists(profile)) Directory.Delete(profile, true); }
+                    catch (Exception ex) { CrashGuard.Record("failed-profile-cleanup", ex); }
+                }
+            }
+            Save();
+            var prompt = new ExtensionLaunchPrompt(runtime, configuration, plugins.Count, failure.Message);
+            bool proceed = false;
+            try
+            {
+                IsConfirmingLaunch = true;
+                if (ConfirmLaunchWithoutPlugins != null) proceed = ConfirmLaunchWithoutPlugins(prompt);
+                else { FinishLaunchFailure(failure, token); return; }
+            }
+            catch (Exception ex) { FinishLaunchFailure(ex, token); return; }
+            finally { IsConfirmingLaunch = false; }
+            LaunchWasCancelled = !proceed;
+            LaunchPhase = BrowserLaunchPhase.Idle;
+            LaunchMessage = "";
+            LaunchingMode = null;
+            LaunchingUsesProxy = null;
+            RestoringInstanceID = null;
+            LaunchToken = null;
+            OnPropertyChanged(string.Empty);
+            if (!proceed) return;
+            if (!prompt.CanSkipPlugins)
+            {
+                Report(new YTrayException(YTrayError.LaunchFailed, "代理认证插件未就绪，无法跳过认证继续启动"));
+                return;
+            }
+            var retry = configuration.Clone();
+            retry.DefaultPluginIDs.Clear();
+            // Restored profiles can already contain plugins, including a partial successful load.
+            retry.AdditionalFlags = (retry.AdditionalFlags ?? "") + "\n--disable-extensions";
+            Launch(mode, retry, new List<Guid>(), restoring, usesProxy);
         }
 
         private void FinishLaunchFailure(Exception ex, Guid token)
@@ -1192,7 +1289,7 @@ namespace YTray.Core
 
         private void ConsolidateHistoryBadges()
         {
-            var history = HistoryInstances;
+            var history = HistoryInstances.Where(instance => instance.Id != _discardingLaunchID).ToList();
             var newestByBadge = new Dictionary<string, BrowserInstance>();
             foreach (var i in history)
             {

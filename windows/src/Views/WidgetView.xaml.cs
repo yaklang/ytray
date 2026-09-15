@@ -64,6 +64,7 @@ namespace YTray.Views
 
         private void OnDeactivated(object sender, EventArgs e)
         {
+            if (_store.IsConfirmingLaunch) return;
             var generation = ++_dismissGeneration;
             Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -162,12 +163,14 @@ namespace YTray.Views
             if (_runningSignature != runningSignature)
             {
                 _runningSignature = runningSignature;
-                RunningList.ItemsSource = visibleRunning.Select(i => new BrowserInstancePresentation(i)).ToList();
+                RunningList.ItemsSource = visibleRunning.Select(i => new BrowserInstancePresentation(i,
+                    _store.Runtimes.FirstOrDefault(r => r.Id == i.RuntimeID))).ToList();
             }
             if (_historySignature != historySignature)
             {
                 _historySignature = historySignature;
-                HistoryList.ItemsSource = visibleHistory;
+                HistoryList.ItemsSource = visibleHistory.Select(i => new BrowserInstancePresentation(i,
+                    _store.Runtimes.FirstOrDefault(r => r.Id == i.RuntimeID))).ToList();
             }
             RunningCountLabel.Text = running.Count.ToString();
             HistoryCountLabel.Text = history.Count.ToString();
@@ -213,13 +216,13 @@ namespace YTray.Views
 
         private void DirectLaunch_Click(object sender, RoutedEventArgs e)
         {
-            if (!_store.LaunchConfigured(false))
+            if (!_store.LaunchConfigured(false) && !_store.LaunchWasCancelled)
                 ShowInstanceAction(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
         }
         private void ProxyLaunch_Click(object sender, RoutedEventArgs e)
         {
             if (!CommitProxyEditor()) return;
-            if (!_store.LaunchConfigured(true))
+            if (!_store.LaunchConfigured(true) && !_store.LaunchWasCancelled)
                 ShowInstanceAction(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
         }
 

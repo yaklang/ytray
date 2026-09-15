@@ -340,6 +340,19 @@ namespace YTray.Tests
             Assert.IsFalse(args.Contains("--no-proxy-server"));
             Assert.IsTrue(args.Contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
             Assert.IsTrue(args.Contains("--ignore-certificate-errors"));
+            Assert.IsTrue(args.Contains("--test-type"));
+        }
+
+        [TestMethod]
+        public void TestTypeDefaultsOnButCanBeDisabledAcrossLaunchSettingsSnapshots()
+        {
+            var settings = new LaunchSettings { UseTestType = false };
+            Assert.IsTrue(new LaunchSettings().UseTestType);
+            Assert.IsFalse(settings.Clone().UseTestType);
+            Assert.IsFalse(BrowserLauncher.BuildArguments(LaunchMode.Quick, settings,
+                "/tmp/profile", 9333, new List<BrowserPlugin>()).Contains("--test-type"));
+            Assert.IsFalse(Newtonsoft.Json.JsonConvert.DeserializeObject<LaunchSettings>(
+                Newtonsoft.Json.JsonConvert.SerializeObject(settings))?.UseTestType ?? true);
         }
 
         [TestMethod]
@@ -631,37 +644,27 @@ namespace YTray.Tests
         }
 
         [TestMethod]
-        public void UnsupportedChromeExplainsWhyQuickLaunchCannotLoadDefaultPlugins()
+        public void ExtensionStartupWaitsOnBlankPageWhileRetainingSessionRestore()
         {
-            var chrome = new BrowserRuntime
-            {
-                Name = "Google Chrome",
-                BrowserKind = BrowserKind.Chrome,
-                Source = RuntimeSource.System,
-            };
-            var plugin = new BrowserPlugin { Name = "Yakit Browser Agent", Enabled = true };
-
-            var message = BrowserLauncher.CommandLineExtensionCompatibilityError(
-                chrome, LaunchMode.Quick, new LaunchSettings(), new[] { plugin });
-
-            Assert.IsNotNull(message);
-            StringAssert.Contains(message, "默认加载 1 个本地插件");
-            StringAssert.Contains(message, "Chrome for Testing");
-
-            chrome.BrowserKind = BrowserKind.ChromeForTesting;
-            Assert.IsNull(BrowserLauncher.CommandLineExtensionCompatibilityError(
-                chrome, LaunchMode.Quick, new LaunchSettings(), new[] { plugin }));
+            var settings = new LaunchSettings { HomeURL = "https://example.com/", ProxyServer = "http://127.0.0.1:8083" };
+            var args = BrowserLauncher.BuildArguments(LaunchMode.Quick, settings, "/tmp/profile", 9222,
+                new List<BrowserPlugin> { new BrowserPlugin { Enabled = true, Path = "/tmp/plugin" } },
+                BrowserKind.Chrome, restoreLastSession: true, deferExtensionStartup: true);
+            Assert.AreEqual("about:blank", args.Last());
+            Assert.IsFalse(args.Contains(settings.HomeURL));
+            Assert.IsTrue(args.Contains("--restore-last-session"));
+            Assert.IsTrue(args.Contains("--proxy-server=http://127.0.0.1:8083"));
+            Assert.IsTrue(args.Contains("--load-extension=/tmp/plugin"));
         }
 
         [TestMethod]
-        public void QuickLaunchReturnsFailureThatTheUiCanPresentForSystemChromePlugins()
+        public void MissingExecutableFailsWithoutClaimingChromeCannotLoadPlugins()
         {
             var directory = Path.Combine(Path.GetTempPath(), "YTrayChromeCompatibilityTests", Guid.NewGuid().ToString("N"));
             try
             {
                 Directory.CreateDirectory(directory);
                 var executable = Path.Combine(directory, "chrome.exe");
-                File.WriteAllText(executable, "not reached");
                 var extension = Path.Combine(directory, "extension");
                 Directory.CreateDirectory(extension);
                 File.WriteAllText(Path.Combine(extension, "manifest.json"),
@@ -680,7 +683,8 @@ namespace YTray.Tests
                 store.AddPlugin(extension);
 
                 Assert.IsFalse(store.LaunchConfigured(usePresetProxy: false));
-                StringAssert.Contains(store.ErrorMessage, "不支持由 YTray");
+                Assert.IsNotNull(store.ErrorMessage);
+                Assert.IsFalse(store.ErrorMessage.Contains("不支持由 YTray"));
                 Assert.IsFalse(store.IsLaunching);
             }
             finally

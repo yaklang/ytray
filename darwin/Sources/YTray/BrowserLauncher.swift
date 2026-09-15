@@ -77,6 +77,9 @@ enum BrowserLauncher {
         if settings.ignoreCertificateErrors {
             arguments.append("--ignore-certificate-errors")
         }
+        if settings.useTestType {
+            arguments.append("--test-type")
+        }
         if mode != .isolated {
             arguments += ["--disable-background-networking", "--disable-component-update",
                           "--disable-default-apps", "--disable-sync", "--disable-translate"]

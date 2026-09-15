@@ -211,6 +211,7 @@ namespace YTray.Views.Pages
         private void SetSelected(BrowserInstancePresentation? selected)
         {
             _selected = selected;
+            DetailContent.Tag = selected;
             if (DetailRuntime == null) return;
             if (selected == null)
             {

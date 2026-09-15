@@ -13,7 +13,7 @@
         </Border.Effect>
         <Grid Margin="7">
             <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="27"/></Grid.RowDefinitions>
-            <Border CornerRadius="7" Background="#17181A" ClipToBounds="True">
+            <Border CornerRadius="7" Background="{DynamicResource SurfaceMutedBrush}" ClipToBounds="True">
                 <Image x:Name="PreviewImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
             </Border>
             <TextBlock x:Name="PreviewTitle" Grid.Row="1" VerticalAlignment="Center" Margin="3,2,3,0"
