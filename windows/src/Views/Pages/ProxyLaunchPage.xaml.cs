@@ -82,6 +82,7 @@ namespace YTray.Views.Pages
             WebRtcCheck.IsChecked = _store.Settings.RestrictWebRTC;
             NotificationsCheck.IsChecked = _store.Settings.DisableNotifications;
             CertCheck.IsChecked = _store.Settings.IgnoreCertificateErrors;
+            TestTypeCheck.IsChecked = _store.Settings.UseTestType;
             FlagsBox.Text = _store.Settings.AdditionalFlags;
             Refresh();
         }
@@ -148,6 +149,7 @@ namespace YTray.Views.Pages
             _store.Settings.RestrictWebRTC = WebRtcCheck.IsChecked == true;
             _store.Settings.DisableNotifications = NotificationsCheck.IsChecked == true;
             _store.Settings.IgnoreCertificateErrors = CertCheck.IsChecked == true;
+            _store.Settings.UseTestType = TestTypeCheck.IsChecked == true;
             _store.Settings.AdditionalFlags = FlagsBox.Text;
             if (RuntimeCombo.SelectedItem is RuntimeChoice choice) _store.Settings.DefaultRuntimeID = choice.Runtime.Id;
             return true;

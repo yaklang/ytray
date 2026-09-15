@@ -340,6 +340,19 @@ namespace YTray.Tests
             Assert.IsFalse(args.Contains("--no-proxy-server"));
             Assert.IsTrue(args.Contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
             Assert.IsTrue(args.Contains("--ignore-certificate-errors"));
+            Assert.IsTrue(args.Contains("--test-type"));
+        }
+
+        [TestMethod]
+        public void TestTypeDefaultsOnButCanBeDisabledAcrossLaunchSettingsSnapshots()
+        {
+            var settings = new LaunchSettings { UseTestType = false };
+            Assert.IsTrue(new LaunchSettings().UseTestType);
+            Assert.IsFalse(settings.Clone().UseTestType);
+            Assert.IsFalse(BrowserLauncher.BuildArguments(LaunchMode.Quick, settings,
+                "/tmp/profile", 9333, new List<BrowserPlugin>()).Contains("--test-type"));
+            Assert.IsFalse(Newtonsoft.Json.JsonConvert.DeserializeObject<LaunchSettings>(
+                Newtonsoft.Json.JsonConvert.SerializeObject(settings))?.UseTestType ?? true);
         }
 
         [TestMethod]

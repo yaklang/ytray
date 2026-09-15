@@ -30,6 +30,7 @@ namespace YTray.Views
                 RestrictWebRTC = store.Settings.RestrictWebRTC,
                 DisableNotifications = store.Settings.DisableNotifications,
                 IgnoreCertificateErrors = store.Settings.IgnoreCertificateErrors,
+                UseTestType = store.Settings.UseTestType,
                 ColorizeBrowserInstances = store.Settings.ColorizeBrowserInstances,
                 AdditionalFlags = store.Settings.AdditionalFlags,
                 DockBadge = store.Settings.DockBadge,
@@ -200,8 +201,9 @@ namespace YTray.Views
             badgeBox.Text = _draft.DockBadge;
             var webRtc = new CheckBox { Content = "限制 WebRTC 非代理 UDP 与本地 IP 暴露", IsChecked = _draft.RestrictWebRTC, Margin = new Thickness(0, 8, 0, 4) };
             var notif = new CheckBox { Content = "关闭通知", IsChecked = _draft.DisableNotifications, Margin = new Thickness(0, 0, 0, 4) };
-            var cert = new CheckBox { Content = "忽略证书错误", IsChecked = _draft.IgnoreCertificateErrors, Margin = new Thickness(0, 0, 0, 8) };
-            sp.Children.Add(webRtc); sp.Children.Add(notif); sp.Children.Add(cert);
+            var cert = new CheckBox { Content = "忽略证书错误", IsChecked = _draft.IgnoreCertificateErrors, Margin = new Thickness(0, 0, 0, 4) };
+            var testType = new CheckBox { Content = "测试模式（--test-type）", IsChecked = _draft.UseTestType, Margin = new Thickness(0, 0, 0, 8) };
+            sp.Children.Add(webRtc); sp.Children.Add(notif); sp.Children.Add(cert); sp.Children.Add(testType);
             var flagsLabel = new TextBlock { Text = "附加参数（每行一个）", FontSize = 11 };
             flagsLabel.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             sp.Children.Add(flagsLabel);
@@ -229,6 +231,7 @@ namespace YTray.Views
                 _draft.RestrictWebRTC = webRtc.IsChecked == true;
                 _draft.DisableNotifications = notif.IsChecked == true;
                 _draft.IgnoreCertificateErrors = cert.IsChecked == true;
+                _draft.UseTestType = testType.IsChecked == true;
                 _draft.AdditionalFlags = flags.Text;
                 if (!ApplySelectedNetwork()) return false;
                 return true;

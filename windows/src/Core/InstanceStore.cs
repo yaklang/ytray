@@ -672,6 +672,7 @@ namespace YTray.Core
                 RestrictWebRTC = Settings.RestrictWebRTC,
                 DisableNotifications = Settings.DisableNotifications,
                 IgnoreCertificateErrors = Settings.IgnoreCertificateErrors,
+                UseTestType = Settings.UseTestType,
                 ColorizeBrowserInstances = Settings.ColorizeBrowserInstances,
                 AdditionalFlags = Settings.AdditionalFlags,
                 DefaultPluginIDs = Settings.DefaultPluginIDs.ToList(),

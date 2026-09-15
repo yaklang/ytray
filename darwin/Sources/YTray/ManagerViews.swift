@@ -695,6 +695,12 @@ struct SettingsPage: View {
                     detail: "适用于本地代理与网络调试",
                     isOn: $store.settings.ignoreCertificateErrors
                 )
+                Divider()
+                settingToggle(
+                    "测试模式（--test-type）",
+                    detail: "隐藏命令行参数提示；会改变部分浏览器行为",
+                    isOn: $store.settings.useTestType
+                )
                 if AppEnvironment.instanceColorThemesEnabled {
                     Divider()
                     settingToggle(

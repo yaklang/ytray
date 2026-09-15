@@ -163,6 +163,7 @@ struct CustomLaunchWizard: View {
             Toggle("限制 WebRTC 非代理 UDP 与本地 IP 暴露", isOn: $draft.restrictWebRTC)
             Toggle("关闭通知", isOn: $draft.disableNotifications)
             Toggle("忽略证书错误", isOn: $draft.ignoreCertificateErrors)
+            Toggle("测试模式（--test-type）", isOn: $draft.useTestType)
             VStack(alignment: .leading) {
                 Text("附加参数（每行一个）").font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $draft.additionalFlags).font(.system(.body, design: .monospaced)).frame(height: 90)

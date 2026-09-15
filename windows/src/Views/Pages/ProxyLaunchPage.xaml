@@ -193,7 +193,8 @@
                         <TextBlock Text="浏览器网络行为" Style="{StaticResource ProxySectionTitle}" Margin="0,0,0,11"/>
                         <CheckBox x:Name="WebRtcCheck" Content="限制 WebRTC 非代理 UDP 与本地 IP 暴露" FontSize="12.5" Margin="0,0,0,10"/>
                         <CheckBox x:Name="NotificationsCheck" Content="关闭浏览器通知" FontSize="12.5" Margin="0,0,0,10"/>
-                        <CheckBox x:Name="CertCheck" Content="忽略证书错误" FontSize="12.5"/>
+                        <CheckBox x:Name="CertCheck" Content="忽略证书错误" FontSize="12.5" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="TestTypeCheck" Content="测试模式（--test-type）" FontSize="12.5"/>
                     </StackPanel>
                     <Grid Grid.Row="9" Margin="0,16,0,0">
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="9"/><RowDefinition Height="*"/></Grid.RowDefinitions>

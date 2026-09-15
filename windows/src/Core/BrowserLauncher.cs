@@ -133,6 +133,8 @@ namespace YTray.Core
 
             if (settings.IgnoreCertificateErrors)
                 arguments.Add("--ignore-certificate-errors");
+            if (settings.UseTestType)
+                arguments.Add("--test-type");
 
             if (mode != LaunchMode.Isolated)
             {
