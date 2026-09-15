@@ -28,6 +28,9 @@ final class InstanceStore: NSObject, ObservableObject {
     @Published var isProxyAdvancedExpanded = false
 
     let applicationDirectory: URL
+    var confirmLaunchWithoutPlugins: (ExtensionLaunchPrompt) -> Bool = { $0.present() }
+    private let browserProcessLauncher: URL?
+    private var discardingLaunchID: UUID?
     private let stateURL: URL
     private var processes: [UUID: Process] = [:]
     private var timer: Timer?
@@ -49,7 +52,8 @@ final class InstanceStore: NSObject, ObservableObject {
     init(
         applicationDirectory: URL? = nil,
         discoverSystemBrowsers: Bool = true,
-        legacyApplicationDirectory: URL? = nil
+        legacyApplicationDirectory: URL? = nil,
+        browserProcessLauncher: URL? = nil
     ) {
         let usesDefaultApplicationDirectory = applicationDirectory == nil
         let supportDirectory = FileManager.default.urls(
@@ -65,6 +69,7 @@ final class InstanceStore: NSObject, ObservableObject {
             Self.moveLegacyApplicationDirectoryIfNeeded(from: legacyBase, to: base)
         }
         self.applicationDirectory = base
+        self.browserProcessLauncher = browserProcessLauncher
         self.stateURL = base.appendingPathComponent("state.json")
         super.init()
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
@@ -514,14 +519,14 @@ final class InstanceStore: NSObject, ObservableObject {
                 ordinal: instances.count + 1,
                 dockBadge: badge,
                 restoring: history,
-                configuredPlugins: plugins
+                configuredPlugins: plugins,
+                launcherExecutable: browserProcessLauncher
             )
             processes[result.instance.id] = result.process
-            let instanceID = result.instance.id.uuidString
-            result.process.terminationHandler = { _ in
+            result.process.terminationHandler = { terminatedProcess in
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .ytrayProcessDidTerminate,
-                                                    object: instanceID)
+                                                    object: terminatedProcess)
                 }
             }
             if let history {
@@ -536,7 +541,9 @@ final class InstanceStore: NSObject, ObservableObject {
                 "instance.launch",
                 "process created; instance=\(result.instance.id.uuidString); pid=\(result.instance.processID); debugPort=\(result.instance.debugPort)"
             )
-            Task { await waitForBrowser(instance: result.instance, token: token) }
+            Task { await waitForBrowser(launch: result, token: token, runtime: runtime,
+                                        configuration: configuration, selectedPlugins: selectedPlugins,
+                                        history: history) }
         } catch {
             finishLaunchFailure(error, token: token)
         }
@@ -936,7 +943,8 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     @objc private func processDidTerminate(_ notification: Notification) {
-        guard let value = notification.object as? String, let id = UUID(uuidString: value) else { return }
+        guard let process = notification.object as? Process,
+              let id = processes.first(where: { $0.value === process })?.key else { return }
         markStopped(id)
     }
 
@@ -944,12 +952,8 @@ final class InstanceStore: NSObject, ObservableObject {
         processes[id] = nil
         BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
         ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
-        if launchingInstanceID == id, let token = launchToken, isLaunching {
-            finishLaunchFailure(
-                YTrayError.launchFailed("浏览器进程在完成启动前退出"),
-                token: token
-            )
-        }
+        // The pending startup owns failure cleanup, including its original history.
+        // Do not release its launch gate from a process-exit callback.
         guard let index = instances.firstIndex(where: { $0.id == id }) else { return }
         let wasRunning = instances[index].status == .running
         let processID = instances[index].processID
@@ -965,7 +969,9 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     private func consolidateHistoryBadges() {
-        let history = instances.filter { $0.status != .running }
+        let history = instances.filter {
+            $0.status != .running && $0.id != discardingLaunchID && $0.id != launchingInstanceID
+        }
         var newestByBadge: [String: BrowserInstance] = [:]
         for instance in history {
             guard let badge = instance.dockBadge, !badge.isEmpty else { continue }
@@ -975,6 +981,7 @@ final class InstanceStore: NSObject, ObservableObject {
 
         let removed = instances.filter { instance in
             guard instance.status != .running,
+                  instance.id != discardingLaunchID, instance.id != launchingInstanceID,
                   let badge = instance.dockBadge,
                   let newest = newestByBadge[badge] else { return false }
             return instance.id != newest.id
@@ -1003,26 +1010,29 @@ final class InstanceStore: NSObject, ObservableObject {
 
     private func refreshRunningPageTitles() async {
         guard !titleRefreshInFlight else { return }
-        let targets = runningInstances.map { ($0.id, $0.debugPort) }
+        let targets = runningInstances.filter {
+            $0.id != launchingInstanceID && $0.id != discardingLaunchID
+        }.map { ($0.id, $0.debugPort, $0.processID) }
         guard !targets.isEmpty else { return }
         titleRefreshInFlight = true
         defer { titleRefreshInFlight = false }
 
-        var updates: [(UUID, ScreenshotService.PageState)] = []
-        await withTaskGroup(of: (UUID, ScreenshotService.PageState?).self) { group in
-            for (id, port) in targets {
+        var updates: [(UUID, Int32, ScreenshotService.PageState)] = []
+        await withTaskGroup(of: (UUID, Int32, ScreenshotService.PageState?).self) { group in
+            for (id, port, pid) in targets {
                 group.addTask {
-                    (id, await ScreenshotService.currentPageState(debugPort: port))
+                    (id, pid, await ScreenshotService.currentPageState(debugPort: port))
                 }
             }
-            for await (id, state) in group {
-                if let state { updates.append((id, state)) }
+            for await (id, pid, state) in group {
+                if let state { updates.append((id, pid, state)) }
             }
         }
 
         var changed = false
-        for (id, state) in updates {
-            guard let index = instances.firstIndex(where: { $0.id == id }) else { continue }
+        for (id, pid, state) in updates {
+            guard let index = instances.firstIndex(where: { $0.id == id && $0.processID == pid }),
+                  id != launchingInstanceID, id != discardingLaunchID else { continue }
             if !state.title.isEmpty, instances[index].lastPageTitle != state.title {
                 instances[index].lastPageTitle = state.title
                 changed = true
@@ -1053,6 +1063,7 @@ final class InstanceStore: NSObject, ObservableObject {
     private func scheduleAutomaticThumbnailRefresh(force instanceID: UUID? = nil) {
         let now = Date()
         for instance in runningInstances {
+            guard instance.id != launchingInstanceID, instance.id != discardingLaunchID else { continue }
             let isForced = instance.id == instanceID
             let lastAttempt = lastThumbnailAttempt[instance.id]
                 ?? instance.thumbnailUpdatedAt
@@ -1084,7 +1095,8 @@ final class InstanceStore: NSObject, ObservableObject {
             debugPort: instance.debugPort,
             instanceID: instance.id,
             outputURL: output
-        ), let index = instances.firstIndex(where: { $0.id == instance.id }) else { return }
+        ), let index = instances.firstIndex(where: { $0.id == instance.id && $0.processID == instance.processID }),
+              instance.id != discardingLaunchID else { return }
         instances[index].thumbnailPath = captured.path
         instances[index].thumbnailUpdatedAt = Date()
         save()
@@ -1095,7 +1107,10 @@ final class InstanceStore: NSObject, ObservableObject {
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    private func waitForBrowser(instance: BrowserInstance, token: UUID) async {
+    private func waitForBrowser(launch: BrowserLauncher.LaunchResult, token: UUID,
+                                runtime: BrowserRuntime, configuration: LaunchSettings,
+                                selectedPlugins: [BrowserPlugin], history: BrowserInstance?) async {
+        let instance = launch.instance
         let ready = await ScreenshotService.waitUntilReady(debugPort: instance.debugPort)
         guard launchToken == token else { return }
         guard ready else {
@@ -1103,15 +1118,35 @@ final class InstanceStore: NSObject, ObservableObject {
             let detail = stillRunning
                 ? "浏览器进程已经创建，但调试端口未在 15 秒内就绪"
                 : "浏览器进程在完成启动前退出"
+            _ = await discardFailedLaunch(launch, history: history)
             finishLaunchFailure(YTrayError.launchFailed(detail), token: token)
+            return
+        }
+        if !launch.extensionPaths.isEmpty {
+            launchMessage = "正在加载并验证插件…"
+            do {
+                try await BrowserExtensionService.ensureLoaded(
+                    debugPort: instance.debugPort, paths: launch.extensionPaths,
+                    legacyLoadingExpected: launch.legacyExtensionLoadingExpected
+                )
+            } catch {
+                await recoverExtensionLaunch(launch, token: token, runtime: runtime,
+                                             configuration: configuration, selectedPlugins: selectedPlugins,
+                                             history: history, failure: error)
+                return
+            }
+        }
+        guard launchToken == token, launch.process.isRunning else {
+            _ = await discardFailedLaunch(launch, history: history)
+            finishLaunchFailure(YTrayError.launchFailed("浏览器进程在完成启动前退出"), token: token)
             return
         }
         let usesProxyAuthentication = !(instance.settingsSnapshot?.proxyUsername ?? "").isEmpty
             || !(instance.settingsSnapshot?.proxyPassword ?? "").isEmpty
         let restoreURL = instance.lastPageURL?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let navigationTarget: String? = restoringInstanceID == instance.id
+        let navigationTarget: String? = launch.deferredStartupURL ?? (restoringInstanceID == instance.id
             ? ((restoreURL?.isEmpty == false) ? restoreURL : instance.startURL)
-            : (usesProxyAuthentication ? instance.startURL : nil)
+            : (usesProxyAuthentication ? instance.startURL : nil))
         if let navigationTarget, !navigationTarget.isEmpty {
             do {
                 if usesProxyAuthentication {
@@ -1119,10 +1154,12 @@ final class InstanceStore: NSObject, ObservableObject {
                 }
                 try await ScreenshotService.navigate(debugPort: instance.debugPort, to: navigationTarget)
             } catch {
+                _ = await discardFailedLaunch(launch, history: history)
                 finishLaunchFailure(error, token: token)
                 return
             }
         }
+        guard launchToken == token else { return }
         launchMessage = "\(instance.runtimeName) 已启动"
         launchPhase = .succeeded
         DiagnosticLog.info(
@@ -1139,6 +1176,71 @@ final class InstanceStore: NSObject, ObservableObject {
         launchMessage = ""
         launchPhase = .idle
         launchToken = nil
+    }
+
+    private func recoverExtensionLaunch(
+        _ launch: BrowserLauncher.LaunchResult, token: UUID, runtime: BrowserRuntime,
+        configuration: LaunchSettings, selectedPlugins: [BrowserPlugin],
+        history: BrowserInstance?, failure: Error
+    ) async {
+        guard launchToken == token else { return }
+        DiagnosticLog.error("extension.load", failure)
+        let usesProxy = launchingUsesProxy
+        guard await discardFailedLaunch(launch, history: history) else {
+            finishLaunchFailure(YTrayError.launchFailed("插件加载失败，且未能关闭未完成的浏览器实例"), token: token)
+            return
+        }
+        guard launchToken == token else { return }
+        let prompt = ExtensionLaunchPrompt(runtime: runtime, settings: configuration,
+                                           pluginCount: selectedPlugins.count, failure: failure.localizedDescription)
+        // Keep the launch gate held throughout the modal prompt and process cleanup.
+        let proceed = confirmLaunchWithoutPlugins(prompt)
+        launchPhase = .idle
+        launchMessage = ""
+        launchingMode = nil
+        launchingUsesProxy = nil
+        restoringInstanceID = nil
+        launchToken = nil
+        guard proceed, var retry = prompt.retrySettings(from: configuration) else { return }
+        retry.dockBadge = launch.instance.dockBadge ?? configuration.dockBadge
+        self.launch(mode: launch.instance.mode, customSettings: retry, customPluginIDs: [],
+                    restoring: history, launchUsesProxy: usesProxy)
+    }
+
+    @discardableResult
+    private func discardFailedLaunch(_ launch: BrowserLauncher.LaunchResult, history: BrowserInstance?) async -> Bool {
+        let instance = launch.instance
+        discardingLaunchID = instance.id
+        launchingInstanceID = nil
+        defer { discardingLaunchID = nil }
+        if launch.process.isRunning { launch.process.terminate() }
+        for _ in 0..<50 {
+            if !launch.process.isRunning { break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        if launch.process.isRunning {
+            Darwin.kill(launch.process.processIdentifier, SIGKILL)
+            for _ in 0..<20 {
+                if !launch.process.isRunning { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+        guard !launch.process.isRunning else { return false }
+        processes[instance.id] = nil
+        BrowserProcessIcon.remove(instanceID: instance.id, applicationDirectory: applicationDirectory)
+        ProxyAuthenticationExtension.remove(instanceID: instance.id, applicationDirectory: applicationDirectory)
+        instances.removeAll { $0.id == instance.id }
+        if let history { instances.insert(history, at: 0) }
+        else {
+            let ownedProfile = applicationDirectory.appendingPathComponent("Profiles/\(instance.id.uuidString)")
+            if URL(fileURLWithPath: instance.profilePath).standardizedFileURL == ownedProfile.standardizedFileURL {
+                do { try FileManager.default.removeItem(at: ownedProfile) }
+                catch { DiagnosticLog.error("failed-profile-cleanup", error) }
+            }
+            InstanceThumbnailStorage.removeThumbnail(for: instance, applicationDirectory: applicationDirectory)
+        }
+        save()
+        return true
     }
 
     private func finishLaunchFailure(_ error: Error, token: UUID) {

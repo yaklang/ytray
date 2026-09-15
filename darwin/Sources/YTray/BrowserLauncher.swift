@@ -22,26 +22,12 @@ enum BrowserLauncher {
         return BrowserIdentityColor.color(for: badge)
     }
 
-    static func commandLineExtensionCompatibilityError(
-        runtime: BrowserRuntime,
-        mode: LaunchMode,
-        settings: LaunchSettings,
-        plugins: [BrowserPlugin]
-    ) -> String? {
-        guard mode != .isolated,
-              !supportsCommandLineExtensions(runtimeKind: runtime.kind) else { return nil }
-        let enabledPluginCount = plugins.filter(\.enabled).count
-        let needsProxyAuthentication = !settings.proxyUsername.isEmpty || !settings.proxyPassword.isEmpty
-        guard enabledPluginCount > 0 || needsProxyAuthentication else { return nil }
-        let reason = enabledPluginCount > 0
-            ? "当前已默认加载 \(enabledPluginCount) 个本地插件"
-            : "当前 HTTP 代理使用了认证信息"
-        return "\(runtime.displayTitle) 不支持由 YTray 通过命令行加载本地插件。\(reason)，请改用 Chrome for Testing、Chromium 或 Edge；也可在“插件”页关闭默认加载后再启动。"
-    }
-
     struct LaunchResult {
         let process: Process
         let instance: BrowserInstance
+        var extensionPaths: [String] = []
+        var legacyExtensionLoadingExpected = false
+        var deferredStartupURL: String? = nil
     }
 
     static func buildProcessArguments(iconURL: URL, browserExecutable: URL,
@@ -56,7 +42,9 @@ enum BrowserLauncher {
                                identityColor: BrowserIdentityColor? = nil,
                                restoreLastSession: Bool = false,
                                managedInstanceID: UUID? = nil,
-                               instanceBadge: String? = nil) throws -> [String] {
+                               instanceBadge: String? = nil,
+                               runtimeVersion: String? = nil,
+                               deferExtensionStartup: Bool = false) throws -> [String] {
         var arguments = [
             "--user-data-dir=\(profilePath)",
             "--remote-debugging-address=127.0.0.1",
@@ -97,7 +85,14 @@ enum BrowserLauncher {
             let paths = internalExtensionPaths + plugins.filter(\.enabled).map(\.path)
             if !paths.isEmpty {
                 let joined = paths.joined(separator: ",")
-                arguments += ["--disable-extensions-except=\(joined)", "--load-extension=\(joined)"]
+                arguments.append("--load-extension=\(joined)")
+                // Branded Chrome 137+ ignores CLI loading; its obsolete allowlist
+                // can also disable extensions subsequently loaded through CDP.
+                if runtimeKind == nil || BrowserExtensionService.legacyLoadingExpected(
+                    runtimeKind: runtimeKind, version: runtimeVersion
+                ) {
+                    arguments.append("--disable-extensions-except=\(joined)")
+                }
             }
             for line in settings.additionalFlags.components(separatedBy: .newlines) {
                 let flag = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -112,6 +107,10 @@ enum BrowserLauncher {
         let target = settings.homeURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard target.hasPrefix("chrome://") || URL(string: target)?.scheme != nil else {
             throw YTrayError.invalidURL(target)
+        }
+        if deferExtensionStartup && mode != .isolated {
+            arguments.append("about:blank")
+            return arguments
         }
         let managedExtensionID = plugins.lazy
             .filter { $0.enabled && $0.name == ExtensionInstaller.extensionName }
@@ -196,18 +195,11 @@ enum BrowserLauncher {
     static func launch(runtime: BrowserRuntime, mode: LaunchMode, settings: LaunchSettings,
                        plugins: [BrowserPlugin], applicationDirectory: URL, ordinal: Int,
                        dockBadge: String, restoring history: BrowserInstance? = nil,
-                       configuredPlugins: [BrowserPlugin]? = nil) throws -> LaunchResult {
+                       configuredPlugins: [BrowserPlugin]? = nil,
+                       launcherExecutable: URL? = nil) throws -> LaunchResult {
         let executable = URL(fileURLWithPath: runtime.executablePath)
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw YTrayError.invalidExecutable(executable.path)
-        }
-        if let compatibilityError = commandLineExtensionCompatibilityError(
-            runtime: runtime,
-            mode: mode,
-            settings: settings,
-            plugins: plugins
-        ) {
-            throw YTrayError.launchFailed(compatibilityError)
         }
         let id = history?.id ?? UUID()
         let normalizedBadge = try DockBadgeLabel.normalize(dockBadge)
@@ -215,20 +207,19 @@ enum BrowserLauncher {
             ?? applicationDirectory.appendingPathComponent("Profiles/\(id.uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
         let port = nextAvailablePort(startingAt: max(1024, settings.debugPort))
-        let proxyAuthExtension = try ProxyAuthenticationExtension.write(
+        let usesProxyAuthentication = mode != .isolated
+            && (!settings.proxyUsername.isEmpty || !settings.proxyPassword.isEmpty)
+        let proxyAuthExtension = usesProxyAuthentication ? try ProxyAuthenticationExtension.write(
             instanceID: id,
             username: settings.proxyUsername,
             password: settings.proxyPassword,
             proxyServer: settings.proxyServer,
             applicationDirectory: applicationDirectory
-        )
-        let usesProxyAuthentication = !settings.proxyUsername.isEmpty || !settings.proxyPassword.isEmpty
-        var launchSettings = settings
-        if usesProxyAuthentication {
-            // Give the unpacked MV3 service worker time to register onAuthRequired
-            // before the first network request reaches an authenticated proxy.
-            launchSettings.homeURL = proxyAuthenticationBootstrapURL
-        }
+        ) : nil
+        let extensionPaths = mode == .isolated ? []
+            : (proxyAuthExtension.map { [$0.path] } ?? []) + plugins.filter(\.enabled).map(\.path)
+        let startupURL = try deferredStartupURL(settings: settings, plugins: plugins,
+                                               instanceID: id, badge: normalizedBadge, history: history)
         let arguments: [String]
         let dockIdentityColor = AppEnvironment.instanceColorThemesEnabled
             ? BrowserIdentityColor.color(for: normalizedBadge)
@@ -240,7 +231,7 @@ enum BrowserLauncher {
             // theme, so a normal restart never overwrites appearance choices.
             arguments = try buildArguments(
                 mode: mode,
-                settings: launchSettings,
+                settings: settings,
                 profilePath: profile.path,
                 debugPort: port,
                 plugins: plugins,
@@ -249,7 +240,9 @@ enum BrowserLauncher {
                 identityColor: history == nil ? themeIdentityColor : nil,
                 restoreLastSession: history != nil && !usesProxyAuthentication,
                 managedInstanceID: id,
-                instanceBadge: normalizedBadge
+                instanceBadge: normalizedBadge,
+                runtimeVersion: runtime.version,
+                deferExtensionStartup: !extensionPaths.isEmpty
             )
             if mode != .isolated {
                 try preparePinnedExtensions(
@@ -286,7 +279,7 @@ enum BrowserLauncher {
             throw error
         }
         let process = Process()
-        guard let launcher = Bundle.main.executableURL else {
+        guard let launcher = launcherExecutable ?? Bundle.main.executableURL else {
             try? log.close()
             BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
             ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
@@ -326,7 +319,27 @@ enum BrowserLauncher {
             settingsSnapshot: settings,
             pluginIDs: plugins.map(\.id)
         )
-        return LaunchResult(process: process, instance: instance)
+        return LaunchResult(
+            process: process, instance: instance,
+            extensionPaths: extensionPaths,
+            legacyExtensionLoadingExpected: BrowserExtensionService.legacyLoadingExpected(
+                runtimeKind: runtime.kind, version: runtime.version
+            ),
+            deferredStartupURL: extensionPaths.isEmpty ? nil : startupURL
+        )
+    }
+
+    static func deferredStartupURL(settings: LaunchSettings, plugins: [BrowserPlugin],
+                                   instanceID: UUID, badge: String, history: BrowserInstance?) throws -> String {
+        let restoredURL = history?.lastPageURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = restoredURL.flatMap { $0.isEmpty ? nil : $0 } ?? settings.homeURL
+        if let managed = plugins.first(where: { $0.enabled && $0.name == ExtensionInstaller.extensionName }),
+           let extensionID = ExtensionInstaller.chromiumExtensionID(for: managed) {
+            return try managedBrowserBootstrapURL(extensionID: extensionID, instanceID: instanceID,
+                                                  badge: badge, target: target, restore: history != nil,
+                                                  proxyServer: settings.proxyServer)
+        }
+        return target
     }
 
     static func nextAvailablePort(startingAt requested: Int) -> Int {

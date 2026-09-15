@@ -180,9 +180,9 @@ struct CustomLaunchWizard: View {
     private var pluginStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("选择本次加载的本地插件").font(.headline)
-            if let runtime = selectedRuntime, !selectedRuntimeSupportsPlugins {
+            if let runtime = selectedRuntime, !BrowserLauncher.supportsCommandLineExtensions(runtimeKind: runtime.kind) {
                 Label {
-                    Text("\(runtime.displayTitle) 不支持由 YTray 加载本地插件。本次将不加载插件；如需使用，请返回选择 Chrome for Testing、Chromium 或 Edge。")
+                    Text("\(runtime.displayTitle) 将在启动时加载并验证插件；加载失败时可选择不加载插件继续启动。")
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                 }
@@ -226,7 +226,7 @@ struct CustomLaunchWizard: View {
                 reviewRow("Dock 角标", draft.dockBadge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                           ? "自动分配" : draft.dockBadge.uppercased())
                 reviewRow("WebRTC", draft.restrictWebRTC ? "限制非代理 UDP/IP 暴露" : "不限制")
-                reviewRow("插件", selectedRuntimeSupportsPlugins ? "\(pluginIDs.count) 个" : "不支持（本次不加载）")
+                reviewRow("插件", "\(pluginIDs.count) 个（启动时验证）")
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(Brand.orange.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13))
             Toggle("记住此浏览器，作为下次快速启动的默认选择", isOn: $rememberBrowser)
@@ -250,8 +250,7 @@ struct CustomLaunchWizard: View {
     }
 
     private var selectedRuntimeSupportsPlugins: Bool {
-        guard let selectedRuntime else { return false }
-        return BrowserLauncher.supportsCommandLineExtensions(runtimeKind: selectedRuntime.kind)
+        selectedRuntime != nil
     }
 
     private var effectivePluginIDs: [UUID] {
