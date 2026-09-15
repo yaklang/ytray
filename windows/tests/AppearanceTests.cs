@@ -35,6 +35,7 @@ namespace YTray.Tests
                     Application.ResourceAssembly = typeof(App).Assembly;
                     application = new App(initializeServices: false) { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                     application.InitializeComponent();
+                    SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
                     ThemeManager.Initialize(AppThemePreference.Light);
                     store = new InstanceStore(directory, false, false);
                     store.Settings.ColorizeBrowserInstances = false;
@@ -70,6 +71,9 @@ namespace YTray.Tests
                         widget.SchemeCombo.IsDropDownOpen = false;
                     }
                     Assert.AreEqual(4, Descendants(widget).OfType<Button>().Count(b => Equals(b.ToolTip, "聚焦窗口")));
+                    settingsWindow.Hide();
+                    widget.Hide();
+                    ExtensionFallbackVerification.Run(directory);
                 }
                 catch (Exception ex) { failure = ex; }
                 finally
@@ -81,7 +85,7 @@ namespace YTray.Tests
             });
             thread.SetApartmentState(ApartmentState.STA);
             thread.Start();
-            Assert.IsTrue(thread.Join(TimeSpan.FromSeconds(30)), "WPF theme regression test timed out");
+            Assert.IsTrue(thread.Join(TimeSpan.FromSeconds(180)), "WPF theme/launch regression test timed out");
             if (failure != null) throw new AssertFailedException(failure.ToString());
         }
 

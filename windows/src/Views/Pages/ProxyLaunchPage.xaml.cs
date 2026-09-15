@@ -214,13 +214,13 @@ namespace YTray.Views.Pages
 
         private void Direct_Click(object sender, RoutedEventArgs e)
         {
-            if (ApplyControls() && !_store.LaunchConfigured(false))
+            if (ApplyControls() && !_store.LaunchConfigured(false) && !_store.LaunchWasCancelled)
                 ShowSaveStatus(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
         }
 
         private void Proxy_Click(object sender, RoutedEventArgs e)
         {
-            if (ApplyControls() && !_store.LaunchConfigured(true))
+            if (ApplyControls() && !_store.LaunchConfigured(true) && !_store.LaunchWasCancelled)
                 ShowSaveStatus(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
         }
         private void Wizard_Click(object sender, RoutedEventArgs e)

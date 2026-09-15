@@ -391,6 +391,7 @@ namespace YTray.Views
             _draft.DefaultPluginIDs = effectivePluginIDs;
             if (!_store.Launch(LaunchMode.Custom, _draft, effectivePluginIDs, launchUsesProxy: _usePresetProxy))
             {
+                if (_store.LaunchWasCancelled) return;
                 MessageBox.Show(this,
                     _store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。",
                     "无法启动实例",

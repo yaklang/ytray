@@ -98,6 +98,7 @@ namespace YTray
                 return;
             }
             _store = new InstanceStore();
+            _store.ConfirmLaunchWithoutPlugins = Views.ExtensionLaunchDialog.Confirm;
             var initialTheme = _store.Settings.ThemePreference;
             // Non-persistent rendering override used by visual smoke tests and support diagnostics.
             foreach (var arg in e.Args)

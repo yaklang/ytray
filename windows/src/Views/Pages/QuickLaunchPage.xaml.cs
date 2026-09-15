@@ -172,7 +172,7 @@ namespace YTray.Views.Pages
         {
             _store.Settings.HomeURL = HomeUrlBox.Text.Trim();
             _store.SaveSettings();
-            if (!_store.LaunchConfigured((NetworkCombo.SelectedItem as NetworkChoice)?.UsesProxy == true))
+            if (!_store.LaunchConfigured((NetworkCombo.SelectedItem as NetworkChoice)?.UsesProxy == true) && !_store.LaunchWasCancelled)
                 ShowLaunchError();
         }
 

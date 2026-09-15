@@ -52,6 +52,9 @@ namespace YTray.Core
         public long InstallBytesReceived { get; private set; }
         public long? InstallBytesTotal { get; private set; }
         public string? ErrorMessage { get; private set; }
+        public Func<ExtensionLaunchPrompt, bool>? ConfirmLaunchWithoutPlugins { get; set; }
+        public bool IsConfirmingLaunch { get; private set; }
+        public bool LaunchWasCancelled { get; private set; }
         public ExtensionManifest? ExtensionManifest { get; private set; }
         public string ExtensionStatusMessage { get; private set; } = "";
         public int ExtensionInstallPercent { get; private set; }
@@ -554,6 +557,7 @@ namespace YTray.Core
             BrowserInstance? restoring = null, bool? launchUsesProxy = null)
         {
             if (IsLaunching) return false;
+            LaunchWasCancelled = false;
             var token = Guid.NewGuid();
             LaunchToken = token;
             LaunchingMode = mode;
@@ -594,6 +598,33 @@ namespace YTray.Core
 
             try
             {
+                var compatibilityError = BrowserLauncher.CommandLineExtensionCompatibilityError(runtime, mode, configuration, selectedPlugins);
+                if (compatibilityError != null && ConfirmLaunchWithoutPlugins != null)
+                {
+                    var prompt = new ExtensionLaunchPrompt(runtime, configuration, selectedPlugins.Count);
+                    bool proceed;
+                    IsConfirmingLaunch = true;
+                    try { proceed = ConfirmLaunchWithoutPlugins(prompt); }
+                    finally { IsConfirmingLaunch = false; }
+                    if (!proceed)
+                    {
+                        LaunchWasCancelled = true;
+                        LaunchPhase = BrowserLaunchPhase.Idle;
+                        LaunchMessage = "";
+                        LaunchingMode = null;
+                        LaunchingUsesProxy = null;
+                        LaunchingInstanceID = null;
+                        RestoringInstanceID = null;
+                        LaunchToken = null;
+                        OnPropertyChanged(string.Empty);
+                        return false;
+                    }
+                    // Proxy authentication also requires an extension. Never silently remove it.
+                    if (!prompt.CanSkipPlugins)
+                        throw new YTrayException(YTrayError.LaunchFailed, compatibilityError);
+                    selectedPlugins.Clear();
+                    configuration.DefaultPluginIDs.Clear();
+                }
                 var requestedBadge = (restoring?.DockBadge ?? configuration.DockBadge ?? "").Trim();
                 var badge = string.IsNullOrEmpty(requestedBadge) ? NextAvailableDockBadge() : DockBadgeLabel.Normalize(requestedBadge);
                 if (RunningInstances.Any(i => i.DockBadge == badge))
@@ -646,6 +677,7 @@ namespace YTray.Core
 
         public bool LaunchConfigured(bool usePresetProxy)
         {
+            LaunchWasCancelled = false;
             var cfg = QuickLaunchConfiguration(usePresetProxy);
             if (cfg == null) return false;
             return Launch(LaunchMode.Quick, cfg, launchUsesProxy: usePresetProxy);

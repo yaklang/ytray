@@ -64,6 +64,7 @@ namespace YTray.Views
 
         private void OnDeactivated(object sender, EventArgs e)
         {
+            if (_store.IsConfirmingLaunch) return;
             var generation = ++_dismissGeneration;
             Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -215,13 +216,13 @@ namespace YTray.Views
 
         private void DirectLaunch_Click(object sender, RoutedEventArgs e)
         {
-            if (!_store.LaunchConfigured(false))
+            if (!_store.LaunchConfigured(false) && !_store.LaunchWasCancelled)
                 ShowInstanceAction(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
         }
         private void ProxyLaunch_Click(object sender, RoutedEventArgs e)
         {
             if (!CommitProxyEditor()) return;
-            if (!_store.LaunchConfigured(true))
+            if (!_store.LaunchConfigured(true) && !_store.LaunchWasCancelled)
                 ShowInstanceAction(_store.ErrorMessage ?? "无法启动浏览器，请检查当前配置。", true);
         }
 
