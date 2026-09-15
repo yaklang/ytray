@@ -41,25 +41,6 @@ namespace YTray.Core
             }
         }
 
-        public static string? CommandLineExtensionCompatibilityError(
-            BrowserRuntime runtime, LaunchMode mode, LaunchSettings settings,
-            IEnumerable<BrowserPlugin> plugins)
-        {
-            if (mode == LaunchMode.Isolated || SupportsCommandLineExtensions(runtime.Kind))
-                return null;
-
-            var enabledPluginCount = plugins.Count(plugin => plugin.Enabled);
-            var needsProxyAuthentication = !string.IsNullOrEmpty(settings.ProxyUsername)
-                || !string.IsNullOrEmpty(settings.ProxyPassword);
-            if (enabledPluginCount == 0 && !needsProxyAuthentication)
-                return null;
-
-            var reason = enabledPluginCount > 0
-                ? $"当前已默认加载 {enabledPluginCount} 个本地插件"
-                : "当前 HTTP 代理使用了认证信息";
-            return $"{runtime.DisplayTitle} 不支持由 YTray 通过命令行加载本地插件。{reason}，请改用 Chrome for Testing、Chromium 或 Edge；也可在“插件”页关闭默认加载后再启动。";
-        }
-
         /// <summary>
         /// Unique owner of every resource created for one browser launch. Keeping the process,
         /// redirected log stream and taskbar controller in one disposable object prevents the
@@ -68,7 +49,17 @@ namespace YTray.Core
         public sealed class LaunchResult : IDisposable
         {
             private readonly FileStream _logStream;
+            private readonly CancellationTokenSource _initialization = new CancellationTokenSource();
             private int _disposed;
+            internal List<string> ExtensionPaths { get; set; } = new List<string>();
+            internal bool LegacyExtensionLoadingExpected { get; set; }
+            internal string? DeferredStartupURL { get; set; }
+
+            internal Task InitializeExtensionsAsync() => ExtensionPaths.Count == 0 ? Task.CompletedTask
+                : BrowserExtensionService.EnsureLoadedAsync(Instance.DebugPort, ExtensionPaths,
+                    LegacyExtensionLoadingExpected, _initialization.Token);
+
+            internal void CancelInitialization() => _initialization.Cancel();
 
             public Process Process { get; }
             public BrowserInstance Instance { get; }
@@ -101,6 +92,8 @@ namespace YTray.Core
             public void Dispose()
             {
                 if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                _initialization.Cancel();
+                _initialization.Dispose();
                 ReleaseTaskbarController();
                 try { Process.CancelOutputRead(); } catch { }
                 try { Process.CancelErrorRead(); } catch { }
@@ -117,7 +110,7 @@ namespace YTray.Core
             string profilePath, int debugPort, List<BrowserPlugin> plugins,
             BrowserKind? runtimeKind = null, List<string>? internalExtensionPaths = null,
             bool restoreLastSession = false, Guid? managedInstanceId = null,
-            string? instanceBadge = null, bool isNewProfile = true)
+            string? instanceBadge = null, bool isNewProfile = true, bool deferExtensionStartup = false)
         {
             var arguments = new List<string>
             {
@@ -187,6 +180,12 @@ namespace YTray.Core
             var target = (settings.HomeURL ?? "").Trim();
             if (string.IsNullOrEmpty(target) || (!target.StartsWith("chrome://") && !Uri.IsWellFormedUriString(target, UriKind.Absolute)))
                 throw new YTrayException(YTrayError.InvalidURL, target);
+            if (deferExtensionStartup)
+            {
+                if (restoreLastSession) arguments.Add("--restore-last-session");
+                arguments.Add("about:blank");
+                return arguments;
+            }
             var managedExtensionId = plugins
                 .Where(plugin => plugin.Enabled && plugin.Name == ExtensionInstaller.ExtensionName)
                 .Select(ExtensionInstaller.ChromiumExtensionId)
@@ -298,10 +297,6 @@ namespace YTray.Core
             if (!File.Exists(runtime.ExecutablePath))
                 throw new YTrayException(YTrayError.InvalidExecutable, runtime.ExecutablePath);
 
-            var compatibilityError = CommandLineExtensionCompatibilityError(runtime, mode, settings, plugins);
-            if (compatibilityError != null)
-                throw new YTrayException(YTrayError.LaunchFailed, compatibilityError);
-
             var id = restoring?.Id ?? Guid.NewGuid();
             var normalizedBadge = DockBadgeLabel.Normalize(dockBadge);
             var profile = restoring != null
@@ -311,21 +306,25 @@ namespace YTray.Core
 
             var port = NextAvailablePort(Math.Max(1024, settings.DebugPort));
 
-            var usesProxyAuth = !string.IsNullOrEmpty(settings.ProxyUsername) || !string.IsNullOrEmpty(settings.ProxyPassword);
+            var usesProxyAuth = mode != LaunchMode.Isolated && (!string.IsNullOrEmpty(settings.ProxyUsername) || !string.IsNullOrEmpty(settings.ProxyPassword));
             var launchSettings = settings.Clone();
-            if (usesProxyAuth)
-                launchSettings.HomeURL = ProxyAuthenticationBootstrapURL;
 
-            var proxyAuthExt = ProxyAuthenticationExtension.Write(id, settings.ProxyUsername ?? "", settings.ProxyPassword ?? "", applicationDirectory);
+            var proxyAuthExt = usesProxyAuth ? ProxyAuthenticationExtension.Write(id, settings.ProxyUsername ?? "", settings.ProxyPassword ?? "", applicationDirectory) : null;
             var internalPaths = new List<string>();
             if (proxyAuthExt != null) internalPaths.Add(proxyAuthExt);
+            var extensionPaths = mode == LaunchMode.Isolated ? new List<string>()
+                : internalPaths.Concat(plugins.Where(p => p.Enabled).Select(p => p.Path)).ToList();
 
             List<string> arguments;
             try
             {
                 arguments = BuildArguments(mode, launchSettings, profile, port, plugins, runtime.Kind,
                     internalPaths, restoring != null && !usesProxyAuth, id, normalizedBadge,
-                    isNewProfile: restoring == null);
+                    isNewProfile: restoring == null, deferExtensionStartup: extensionPaths.Count > 0);
+                // In branded Chrome 137+, this obsolete allowlist can discard a successful
+                // Extensions.loadUnpacked result. Keep it only for the supported legacy path.
+                if (!BrowserExtensionService.LegacyLoadingExpected(runtime))
+                    arguments.RemoveAll(argument => argument.StartsWith("--disable-extensions-except=", StringComparison.Ordinal));
                 if (mode != LaunchMode.Isolated) PreparePinnedExtensions(profile, plugins, configuredPlugins);
             }
             catch (Exception)
@@ -458,7 +457,17 @@ namespace YTray.Core
                 AppUserModelId = expectedAumid,
             };
 
-            return new LaunchResult(runningProcess, instance, taskbarController, logStream);
+            var startupURL = restoring?.LastPageURL ?? settings.HomeURL;
+            if (string.IsNullOrWhiteSpace(startupURL)) startupURL = settings.HomeURL;
+            var managedPlugin = plugins.FirstOrDefault(p => p.Enabled && p.Name == ExtensionInstaller.ExtensionName);
+            var managedID = managedPlugin == null ? null : ExtensionInstaller.ChromiumExtensionId(managedPlugin);
+            return new LaunchResult(runningProcess, instance, taskbarController, logStream)
+            {
+                ExtensionPaths = extensionPaths,
+                LegacyExtensionLoadingExpected = BrowserExtensionService.LegacyLoadingExpected(runtime),
+                DeferredStartupURL = extensionPaths.Count == 0 ? null : managedID == null ? startupURL
+                    : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null),
+            };
         }
 
         private static void LogLine(FileStream stream, string line)

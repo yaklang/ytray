@@ -285,13 +285,13 @@ namespace YTray.Views
         {
             var sp = new StackPanel();
             var runtime = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
-            var supportsPlugins = runtime != null && BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind);
+            var supportsPlugins = runtime != null;
             sp.Children.Add(new TextBlock { Text = "选择本次加载的本地插件", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
-            if (!supportsPlugins && runtime != null)
+            if (runtime != null && !BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind))
             {
                 var notice = new TextBlock
                 {
-                    Text = $"{runtime.DisplayTitle} 不支持由 YTray 加载本地插件。本次启动将不加载插件；如需使用插件，请返回选择 Chrome for Testing、Chromium 或 Edge。",
+                    Text = $"{runtime.DisplayTitle} 将在启动后验证插件加载状态，并尝试通过浏览器扩展接口补载。仅在加载失败时询问是否跳过插件。",
                     TextWrapping = TextWrapping.Wrap,
                     FontSize = 11,
                 };
@@ -349,8 +349,7 @@ namespace YTray.Views
             var dockBadge = _draft.DockBadge?.Trim();
             AddReviewRow(grid, 4, "Dock 角标", string.IsNullOrEmpty(dockBadge) ? "自动分配" : dockBadge!.ToUpperInvariant());
             AddReviewRow(grid, 5, "WebRTC", _draft.RestrictWebRTC ? "限制" : "不限制");
-            var supportsPlugins = rt != null && BrowserLauncher.SupportsCommandLineExtensions(rt.Kind);
-            AddReviewRow(grid, 6, "插件", supportsPlugins ? $"{_pluginIDs.Count} 个" : "不支持（本次不加载）");
+            AddReviewRow(grid, 6, "插件", $"{_pluginIDs.Count} 个（启动时验证）");
             AddReviewRow(grid, 7, "Profile 主题", _draft.ColorizeBrowserInstances ? "按角标分配独立主题色" : "使用浏览器默认主题");
             sp.Children.Add(grid);
             return sp;
@@ -385,9 +384,7 @@ namespace YTray.Views
                 return;
             if (_step < 3) { _step++; ShowStep(); return; }
             var runtime = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
-            var effectivePluginIDs = runtime != null && BrowserLauncher.SupportsCommandLineExtensions(runtime.Kind)
-                ? _pluginIDs.ToList()
-                : new List<Guid>();
+            var effectivePluginIDs = _pluginIDs.ToList();
             _draft.DefaultPluginIDs = effectivePluginIDs;
             if (!_store.Launch(LaunchMode.Custom, _draft, effectivePluginIDs, launchUsesProxy: _usePresetProxy))
             {

@@ -18,7 +18,9 @@
                     <Path Data="M 0 0 L 10 10 M 10 0 L 0 10" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1"/>
                 </Button>
             </Grid>
-            <TextBlock x:Name="MessageText" Margin="24,20,24,22" TextWrapping="Wrap" FontSize="13" LineHeight="22"/>
+            <ScrollViewer x:Name="MessageScroll" Margin="24,20,24,22" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <TextBlock x:Name="MessageText" TextWrapping="Wrap" FontSize="13" LineHeight="22"/>
+            </ScrollViewer>
             <Border Background="{DynamicResource SurfaceMutedBrush}" Padding="20,14">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="CancelButton" Content="取消" IsCancel="True" Click="Cancel_Click" MinWidth="76" Margin="0,0,10,0"/>

@@ -22,7 +22,7 @@ namespace YTray.Core
     /// </summary>
     public static class ScreenshotService
     {
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        private static readonly HttpClient Http = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(2) };
         private static readonly ConcurrentDictionary<int, string> LastVisibleTargetByPort =
             new ConcurrentDictionary<int, string>();
         private static readonly TimeSpan VisibilityProbeTimeout = TimeSpan.FromMilliseconds(850);
@@ -275,7 +275,7 @@ namespace YTray.Core
             return null;
         }
 
-        private static async Task<List<JObject>> WebSocketExchangeAsync(Uri wsUrl, JObject command,
+        internal static async Task<List<JObject>> WebSocketExchangeAsync(Uri wsUrl, JObject command,
             TimeSpan? operationTimeout = null, CancellationToken cancellationToken = default)
         {
             using (var ws = new ClientWebSocket())

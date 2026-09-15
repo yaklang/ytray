@@ -131,13 +131,15 @@ windows/src/bin/Release/YTray.exe --smoke-identities "C:\Program Files\Google\Ch
 
 设计验证输出 `capture-complete.txt`、截图索引与联系表；真机验证输出 `identity-smoke.json`、浏览器截图和 `smoke-complete.txt`。失败返回非零退出码并输出错误文件。两种模式的测试状态只保存在指定目录；真机模式会关闭自己启动的测试浏览器，保留测试 Profile 供复核。自动测试另外验证原有小组件在明暗/系统主题间切换后仍使用正确的文字、操作图标和输入框边框颜色。
 
-## Chrome 插件兼容性确认
+## Chrome 插件加载与故障恢复
 
-普通 Chrome、Chrome Beta 和 Chrome Canary 无法通过 YTray 自动加载本地插件时，启动前会显示完整说明。选择“不加载插件并启动”仅跳过本次选中的本地插件（包括内置插件），保留代理、主页、角标、主题和其他参数；全局插件启用状态保持不变。取消或关闭弹窗不会创建实例或显示启动失败。该确认覆盖小组件、托盘、快速启动、自定义启动及历史恢复。
+YTray 不再按浏览器名称直接拒绝加载插件。启动后使用浏览器级 CDP `Extensions.getExtensions` 检查已启用的插件；缺失或禁用的插件通过 `Extensions.loadUnpacked` 加载，并核对返回的 ID、目录和启用状态。已加载插件不会重复加载。普通新版 Chrome 不再携带会干扰新接口的旧 `--disable-extensions-except` 参数；支持旧命令行方式的浏览器保留原有路径。
 
-带账号密码的代理同样依赖认证插件，此时不提供跳过插件的按钮，并提示使用兼容浏览器或无需认证的代理。
+启动期间先停留在空白页，插件就绪后再打开内置插件初始化页或目标页面。Chrome 的代理认证插件也使用同一加载机制。自定义向导允许普通 Chrome 选择插件，历史恢复保留现有 Profile 和主题。
 
-自动测试覆盖明暗弹窗、取消、兼容浏览器不弹窗及认证保护。本地真实 Chrome 验证可在测试前设置以下环境变量（测试使用独立临时 Profile，并关闭自己创建的浏览器）：
+仅在实际加载失败后显示完整错误原因。选择“不加载插件并启动”会关闭未完成的浏览器，并重新启动本次配置；同时禁用该次运行中的扩展，避免旧 Profile 或部分成功加载的插件残留。全局插件设置不变。取消会清理未完成的实例、保留旧历史。代理认证插件未就绪时不允许跳过，防止认证失效后仍打开目标页。
+
+本地真实 Chrome 验证可在测试前设置以下环境变量（使用独立临时 Profile，并关闭自己创建的浏览器）：
 
 ```powershell
 $env:YTRAY_TEST_CHROME = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
@@ -145,7 +147,7 @@ $env:YTRAY_TEST_CAPTURE = "$PWD\windows\artifacts\extension-fallback-review"
 pwsh -File windows/build.ps1 -Test
 ```
 
-该验证实际点击小组件和确认弹窗，检查直连、HTTP 代理、自定义启动、历史恢复的 CDP 页面和截图，并验证插件默认设置仍能保存和重载。HTTP 代理用本地地址和内嵌页面测试参数保留，不验证外部代理连通性。输出包含明暗弹窗截图和 `chrome-fallback.txt`。
+该验证实际点击小组件、向导和确认弹窗，检查直连、自定义启动、历史恢复的插件启用状态、页面脚本注入、内置插件的实例身份绑定及截图。代理测试使用不会向外转发的本地测试服务器，真实返回 HTTP 407 并核对 Chrome 提交的认证信息。还覆盖部分插件加载失败后的取消、重试、历史保留和认证阻断。输出包含明暗弹窗截图和 `extension-api-smoke.txt`。详情见 [接口验证说明](docs/chrome-extension-api-review.md)。
 
 ## 数据位置
 

@@ -10,6 +10,7 @@ namespace YTray.Views
         public ExtensionLaunchDialog(ExtensionLaunchPrompt prompt)
         {
             InitializeComponent();
+            MessageScroll.MaxHeight = System.Math.Max(100, SystemParameters.WorkArea.Height - 180);
             MessageText.Text = prompt.Message;
             ContinueButton.Visibility = prompt.CanSkipPlugins ? Visibility.Visible : Visibility.Collapsed;
             Loaded += (s, e) => CancelButton.Focus();
