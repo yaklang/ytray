@@ -112,7 +112,11 @@ Windows 使用当前用户的 Local Application Data 下的 YTray 目录，保�
 
 ### 插件与浏览器限制
 
-Chrome 的命令行本地插件参数需要已解压插件目录。官方 Google Chrome 稳定版、Beta 和 Canary 可能忽略命令行加载未打包扩展，因此需要本地插件或代理用户名/密码认证时，推荐 Chrome for Testing、Chromium 或 Edge。普通无认证 HTTP 代理、独立用户目录和 CDP 调试仍可使用系统 Chrome。
+本地插件需要已解压目录。macOS 会先检查实际加载状态，并尝试通过 Chrome 的 CDP 扩展接口补载，确认后再打开目标页面。普通 Chrome、Beta 和 Canary 也可以选择本地或内置插件；只有实际加载失败时才询问是否“不加载插件并启动”。这个选择只修改本次启动配置，不会关闭全局插件默认设置。带账号或密码的代理依赖认证插件，不能跳过插件继续启动。
+
+旧版浏览器缺少新扩展接口时，会保留其支持的命令行加载方式。带插件的历史恢复会在验证后打开保存的最近页面，并保留原 Profile、身份和主题。测试步骤与兼容边界见 [macOS Chrome 插件验证](darwin/docs/chrome-extension-verification.md)。
+
+Windows 主线目前仍受官方 Chrome 命令行插件限制；对应的 CDP 加载改动见 [PR #14](https://github.com/yaklang/ytray/pull/14)。
 
 ## 本地开发
 

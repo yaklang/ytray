@@ -981,38 +981,16 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertLessThanOrEqual(YTrayMain.browserProcessBootstrapDelay, 0.1)
     }
 
-    func testUnsupportedChromeExplainsWhyQuickLaunchCannotLoadDefaultPlugins() throws {
-        var chrome = BrowserRuntime(
-            name: "Google Chrome",
-            version: "151.0",
-            architecture: "arm64",
-            executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            source: .system,
-            browserKind: .chrome
+    func testModernChromeDefersPluginStartupInsteadOfRejectingTheRuntime() throws {
+        let plugin = BrowserPlugin(name: "Local", version: "1", path: "/tmp/plugin", manifestVersion: 3)
+        let arguments = try BrowserLauncher.buildArguments(
+            mode: .quick, settings: LaunchSettings(), profilePath: "/tmp/profile",
+            debugPort: 9231, plugins: [plugin], runtimeKind: .chrome,
+            runtimeVersion: "152.0", deferExtensionStartup: true
         )
-        let plugin = BrowserPlugin(
-            name: "Yakit Browser Agent",
-            version: "0.2.2",
-            path: "/tmp/yakit-browser-agent",
-            manifestVersion: 3
-        )
-
-        let message = try XCTUnwrap(BrowserLauncher.commandLineExtensionCompatibilityError(
-            runtime: chrome,
-            mode: .quick,
-            settings: LaunchSettings(),
-            plugins: [plugin]
-        ))
-        XCTAssertTrue(message.contains("默认加载 1 个本地插件"))
-        XCTAssertTrue(message.contains("Chrome for Testing"))
-
-        chrome.browserKind = .chromeForTesting
-        XCTAssertNil(BrowserLauncher.commandLineExtensionCompatibilityError(
-            runtime: chrome,
-            mode: .quick,
-            settings: LaunchSettings(),
-            plugins: [plugin]
-        ))
+        XCTAssertEqual(arguments.last, "about:blank")
+        XCTAssertTrue(arguments.contains("--load-extension=/tmp/plugin"))
+        XCTAssertFalse(arguments.contains(where: { $0.hasPrefix("--disable-extensions-except") }))
     }
 
     func testRealChromeForTestingUsesGeneratedProxyAuthenticationExtensionWhenConfigured() async throws {

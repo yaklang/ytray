@@ -243,7 +243,7 @@ enum ScreenshotService {
     }
 }
 
-private enum RawWebSocket {
+enum RawWebSocket {
     static func exchange(url: URL, message: Data) async throws -> [Data] {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {

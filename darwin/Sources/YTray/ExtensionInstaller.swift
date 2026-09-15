@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import CryptoKit
 
 enum ExtensionInstaller {
@@ -26,7 +27,9 @@ enum ExtensionInstaller {
     }
 
     static func chromiumExtensionID(for plugin: BrowserPlugin) -> String? {
-        let directory = URL(fileURLWithPath: plugin.path, isDirectory: true).standardizedFileURL
+        // Chromium resolves macOS aliases such as /var -> /private/var before
+        // deriving an unpacked extension's path-based ID.
+        let directory = URL(fileURLWithPath: canonicalExtensionPath(plugin.path), isDirectory: true)
         let manifestURL = directory.appendingPathComponent("manifest.json")
         var key: String?
         if FileManager.default.fileExists(atPath: manifestURL.path) {
@@ -35,6 +38,16 @@ enum ExtensionInstaller {
             key = manifest.key
         }
         return chromiumExtensionID(extensionPath: directory.path, manifestKey: key)
+    }
+
+    static func canonicalExtensionPath(_ path: String) -> String {
+        // Foundation's resolvingSymlinksInPath deliberately strips /private
+        // from some macOS paths. Chromium uses the actual POSIX realpath.
+        guard let resolved = realpath(path, nil) else {
+            return URL(fileURLWithPath: path).standardizedFileURL.path
+        }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     static func chromiumExtensionID(extensionPath: String, manifestKey: String?) -> String? {
