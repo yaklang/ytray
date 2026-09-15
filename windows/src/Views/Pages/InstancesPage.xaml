@@ -284,7 +284,7 @@
                                     <TextBlock Grid.Row="2" Text="AppUserModelID" Style="{StaticResource DetailLabel}"/><TextBlock x:Name="DetailAumid" Grid.Row="2" Grid.Column="1" Style="{StaticResource DetailValue}" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"/>
                                     <TextBlock Grid.Row="3" Text="用户数据目录" Style="{StaticResource DetailLabel}"/><TextBlock x:Name="DetailProfile" Grid.Row="3" Grid.Column="1" Style="{StaticResource DetailValue}" ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"/>
                                     <TextBlock Grid.Row="4" Text="浏览器版本" Style="{StaticResource DetailLabel}"/><TextBlock x:Name="DetailVersion" Grid.Row="4" Grid.Column="1" Style="{StaticResource DetailValue}"/>
-                                    <TextBlock Grid.Row="5" Text="代理" Style="{StaticResource DetailLabel}"/><TextBlock x:Name="DetailProxy" Grid.Row="5" Grid.Column="1" Style="{StaticResource DetailValue}"/>
+                                    <TextBlock Grid.Row="5" Text="启动网络" Style="{StaticResource DetailLabel}"/><TextBlock x:Name="DetailProxy" Grid.Row="5" Grid.Column="1" Style="{StaticResource DetailValue}" ToolTip="仅显示启动配置；运行中的实际代理以浏览器插件显示为准。"/>
                                     <TextBlock Grid.Row="6" Text="调试端口" Style="{StaticResource DetailLabel}"/><TextBlock x:Name="DetailDebug" Grid.Row="6" Grid.Column="1" Style="{StaticResource DetailValue}"/>
                                     <TextBlock Grid.Row="7" Text="插件" Style="{StaticResource DetailLabel}"/><TextBlock x:Name="DetailPlugins" Grid.Row="7" Grid.Column="1" Style="{StaticResource DetailValue}"/>
                                 </Grid>

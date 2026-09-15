@@ -196,21 +196,22 @@ namespace YTray.Core
             {
                 arguments.Add("--restore-last-session");
                 if (managedExtensionLoaded)
-                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true));
+                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true, settings.ProxyServer));
                 return arguments;
             }
             arguments.Add(managedExtensionLoaded
-                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false)
+                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false, settings.ProxyServer)
                 : target);
             return arguments;
         }
 
-        internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target, bool restore)
+        internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target, bool restore, string? proxyServer = null)
         {
             return $"chrome-extension://{extensionId}/ytray-bootstrap.html" +
                 $"?manager=ytray&instanceId={Uri.EscapeDataString(instanceId.ToString())}" +
                 $"&badge={Uri.EscapeDataString(DockBadgeLabel.Normalize(badge))}" +
-                $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}";
+                $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
+                $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}";
         }
 
         internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,
@@ -309,7 +310,9 @@ namespace YTray.Core
             var usesProxyAuth = mode != LaunchMode.Isolated && (!string.IsNullOrEmpty(settings.ProxyUsername) || !string.IsNullOrEmpty(settings.ProxyPassword));
             var launchSettings = settings.Clone();
 
-            var proxyAuthExt = usesProxyAuth ? ProxyAuthenticationExtension.Write(id, settings.ProxyUsername ?? "", settings.ProxyPassword ?? "", applicationDirectory) : null;
+            var proxyAuthExt = usesProxyAuth
+                ? ProxyAuthenticationExtension.Write(id, settings.ProxyUsername ?? "", settings.ProxyPassword ?? "", applicationDirectory, settings.ProxyServer ?? "")
+                : null;
             var internalPaths = new List<string>();
             if (proxyAuthExt != null) internalPaths.Add(proxyAuthExt);
             var extensionPaths = mode == LaunchMode.Isolated ? new List<string>()
@@ -466,7 +469,7 @@ namespace YTray.Core
                 ExtensionPaths = extensionPaths,
                 LegacyExtensionLoadingExpected = BrowserExtensionService.LegacyLoadingExpected(runtime),
                 DeferredStartupURL = extensionPaths.Count == 0 ? null : managedID == null ? startupURL
-                    : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null),
+                    : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null, settings.ProxyServer),
             };
         }
 

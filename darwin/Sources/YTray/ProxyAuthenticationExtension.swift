@@ -5,9 +5,11 @@ enum ProxyAuthenticationExtension {
         instanceID: UUID,
         username: String,
         password: String,
+        proxyServer: String,
         applicationDirectory: URL
     ) throws -> URL? {
         guard !username.isEmpty || !password.isEmpty else { return nil }
+        let endpoint = try HTTPProxyAddress.split(proxyServer)
         let directory = extensionURL(for: instanceID, applicationDirectory: applicationDirectory)
         try? FileManager.default.removeItem(at: directory)
         try FileManager.default.createDirectory(
@@ -33,11 +35,14 @@ enum ProxyAuthenticationExtension {
         let script = """
         const username = \(usernameLiteral);
         const password = \(passwordLiteral);
+        const proxyHost = \(try javascriptLiteral(endpoint.host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))));
+        const proxyPort = \(endpoint.port);
         const attempts = new Map();
 
         chrome.webRequest.onAuthRequired.addListener(
           (details, callback) => {
-            if (!details.isProxy) {
+            if (!details.isProxy || String(details.challenger?.host || '').toLowerCase().replace(/^\\[|\\]$/g, '') !== proxyHost
+                || details.challenger?.port !== proxyPort) {
               callback({});
               return;
             }

@@ -17,6 +17,37 @@ namespace YTray.Tests
     public class BrowserLauncherTests
     {
         [TestMethod]
+        public void ProxyAuthenticationIsBoundToLaunchEndpoint()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "ytray-proxy-auth-test-" + Guid.NewGuid());
+            try
+            {
+                var path = ProxyAuthenticationExtension.Write(Guid.NewGuid(), "test-user", "test-password", directory, "http://PROXY.EXAMPLE:8083");
+                var script = File.ReadAllText(Path.Combine(path!, "background.js"));
+                StringAssert.Contains(script, "const proxyHost = \"proxy.example\"");
+                StringAssert.Contains(script, "const proxyPort = 8083");
+                StringAssert.Contains(script, "details.challenger?.port !== proxyPort");
+                StringAssert.Contains(script, "!== proxyHost");
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [TestMethod]
+        public void InstanceNetworkLabelsDescribeLaunchSnapshotOnly()
+        {
+            var startup = BrowserLauncher.ManagedBrowserBootstrapURL("extension", Guid.NewGuid(), "A", "chrome://newtab/", false, "http://127.0.0.1:8083");
+            StringAssert.Contains(Uri.UnescapeDataString(startup), "startupProxy=http://127.0.0.1:8083");
+            StringAssert.Contains(BrowserLauncher.ManagedBrowserBootstrapURL("extension", Guid.NewGuid(), "A", "chrome://newtab/", true), "startupProxy=direct");
+            var instance = new BrowserInstance { Mode = LaunchMode.Quick, SettingsSnapshot = new LaunchSettings { ProxyServer = "http://127.0.0.1:8083" } };
+            var view = new BrowserInstancePresentation(instance);
+            Assert.AreEqual("启动代理", view.NetworkMode);
+            instance.SettingsSnapshot.ProxyServer = "";
+            Assert.AreEqual("启动配置：直连", view.NetworkMode);
+            instance.Mode = LaunchMode.Isolated;
+            Assert.AreEqual("启动网络：默认", view.NetworkMode);
+        }
+
+        [TestMethod]
         public void LaunchAtLoginDefaultsOnOnceAndCanBeDisabled()
         {
             var backend = new TestLaunchAtLoginBackend();
