@@ -48,3 +48,5 @@ project.lock.json
 .zcode/
 ytray-design-review/
 ytray-design-concepts/
+
+windows/.dependencies/

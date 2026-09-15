@@ -41,8 +41,14 @@ if [[ -z "$IDENTITY" ]]; then
 fi
 [[ -n "$IDENTITY" ]] || { echo "No Developer ID signing identity found" >&2; exit 1; }
 
-while IFS= read -r nested; do
-    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$nested"
-done < <(find "$APP_PATH" \( -name '*.dylib' -o -name '*.framework' \) -print)
+FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
+# Sparkle helpers must be signed inside out, retaining their upstream entitlements.
+for code in "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc" \
+            "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc" \
+            "$FRAMEWORK/Versions/B/Autoupdate" \
+            "$FRAMEWORK/Versions/B/Updater.app" "$FRAMEWORK"; do
+    test -e "$code"
+    codesign --force --options runtime --timestamp --preserve-metadata=entitlements --sign "$IDENTITY" "$code"
+done
 codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP_PATH"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"

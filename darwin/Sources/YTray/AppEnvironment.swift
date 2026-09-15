@@ -31,7 +31,11 @@ enum AppEnvironment {
         return true
     }
 
-    static var appUpdatesEnabled: Bool { !isDevelopmentBuild }
+    static var appUpdatesEnabled: Bool {
+        Bundle.main.bundleIdentifier == "io.yaklang.ytray"
+            && Bundle.main.bundleURL.pathExtension == "app"
+            && !CommandLine.arguments.contains { $0.hasPrefix("--smoke-") || $0.hasPrefix("--render-") || $0.hasPrefix("--verify-") }
+    }
     static var launchAtLoginEnabled: Bool { !isDevelopmentBuild }
     static var bundledExtensionAutoInstallEnabled: Bool { !isDevelopmentBuild }
 }

@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -24,15 +25,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          repository_version="$(tr -d '[:space:]' < VERSION)"
-          test "$version" = "$repository_version"
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then test "${GITHUB_REF_NAME#v}" = "$version"; fi
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
           python3 script/verify-app-icons.py
           bash script/test-release-index.sh
           test -n "$(bash script/release-notes.sh "$version")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          python3 -m unittest discover -s script/tests -v
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
   macos:
     name: macOS ${{ matrix.arch }} DMG
@@ -61,6 +62,8 @@ jobs:
           ./script/package-macos.sh --arch "${{ matrix.arch }}" --version "${{ needs.version.outputs.version }}"
           cp "dist/darwin-${{ matrix.arch }}/BundledExtension/bundled-extension.json" \
             "dist/plugin-darwin-${{ matrix.arch }}.json"
+      - name: Verify native Sparkle upgrade
+        run: python3 script/test-macos-updater.py
       - name: Developer ID sign app
         if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_CERTIFICATE_PASSWORD != '' }}
         run: ./script/macos-codesign.sh "dist/darwin-${{ matrix.arch }}/YTray.app"
@@ -140,6 +143,11 @@ jobs:
             -Architecture '${{ matrix.arch }}' -Version '${{ needs.version.outputs.version }}'
           Copy-Item windows/src/Assets/BundledExtension/bundled-extension.json `
             "windows/artifacts/${{ matrix.arch }}/plugin-windows-${{ matrix.arch }}.json"
+      - name: Verify WinSparkle signature rejection and actual installer upgrade
+        shell: pwsh
+        run: |
+          ./windows/test-updater.ps1 -Architecture '${{ matrix.arch }}'
+          ./windows/verify-upgrade.ps1 -Architecture '${{ matrix.arch }}'
       - name: Verify portable build, installer, and signing when configured
         shell: pwsh
         run: |
@@ -184,8 +192,8 @@ jobs:
             windows/artifacts/${{ matrix.arch }}/plugin-windows-${{ matrix.arch }}.json
           if-no-files-found: error
 
-  publish:
-    name: Publish GitHub Release and OSS
+  prepare:
+    name: Prepare signed update feeds
     needs: [version, macos, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -215,33 +223,41 @@ jobs:
           test "$plugin_version" = "$latest_plugin"
           rm dist/plugin-*.json
 
-          test -s "dist/YTray-$VERSION-darwin-arm64.dmg"
-          test -s "dist/YTray-$VERSION-darwin-amd64.dmg"
-          test -s "dist/YTray-$VERSION-windows-amd64-setup.exe"
-          test -s "dist/YTray-$VERSION-windows-386-setup.exe"
+          PLUGIN_VERSION="$plugin_version" python3 script/prepare-release-assets.py dist
 
-          cd dist
-          : > SHA256SUMS
-          for file in YTray-*; do
-            sha256sum "$file" | tee "$file.sha256.txt" >> SHA256SUMS
-          done
-          released_at="$(date -u -d "$(git show -s --format=%cI "$GITHUB_SHA")" +%Y-%m-%dT%H:%M:%SZ)"
-          asset() {
-            local platform="$1" architecture="$2" kind="$3" filename="$4"
-            jq -n --arg platform "$platform" --arg architecture "$architecture" --arg kind "$kind" \
-              --arg filename "$filename" --arg url "$PUBLIC_BASE_URL/$VERSION/$filename" \
-              --arg sha256 "$(sha256sum "$filename" | cut -d' ' -f1)" --argjson size "$(stat -c %s "$filename")" \
-              '{platform:$platform,architecture:$architecture,kind:$kind,filename:$filename,url:$url,sha256:$sha256,size:$size}'
-          }
-          jq -n --arg version "$VERSION" --arg released_at "$released_at" --arg plugin_version "$plugin_version" \
-            --argjson a1 "$(asset darwin arm64 dmg "YTray-$VERSION-darwin-arm64.dmg")" \
-            --argjson a2 "$(asset darwin amd64 dmg "YTray-$VERSION-darwin-amd64.dmg")" \
-            --argjson a3 "$(asset windows amd64 setup "YTray-$VERSION-windows-amd64-setup.exe")" \
-            --argjson a4 "$(asset windows 386 setup "YTray-$VERSION-windows-386-setup.exe")" \
-            '{schema_version:1,product:"ytray",version:$version,released_at:$released_at,
-              plugin:{name:"Yakit Browser Agent",version:$plugin_version},assets:[$a1,$a2,$a3,$a4]}' \
-            > manifest.json
-          jq -e '.assets | length == 4' manifest.json >/dev/null
+      - name: Sign and verify all native update feeds
+        env:
+          YTRAY_UPDATE_PRIVATE_KEY: ${{ secrets.YTRAY_UPDATE_PRIVATE_KEY }}
+        run: python3 script/sign-appcasts.py dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Release and OSS
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [version, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      group: ytray-release-publication
+      cancel-in-progress: false
+    env:
+      OSS_BUCKET: yaklang
+      OSS_ENDPOINT: oss-accelerate.aliyuncs.com
+      PUBLIC_BASE_URL: https://aliyun-oss.yaklang.com/ytray
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: dist
+      - name: Reject a stale or conflicting release before uploading
+        run: bash script/prepare-release-index.sh '${{ needs.version.outputs.version }}' dist/manifest.json release-index
 
       - name: Install official ossutil
         env:
@@ -277,6 +293,23 @@ jobs:
             ossutil cp "$file" "oss://$OSS_BUCKET/ytray/$VERSION/$base" \
               -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
           done
+
+      - name: Verify immutable downloads before making updates visible
+        run: bash script/verify-release-cdn.sh '${{ needs.version.outputs.version }}' dist release-index immutable
+
+      - name: Publish and verify native feeds before version indexes
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_KEY_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in dist/appcast-*.xml; do
+            ossutil cp -f "$file" "oss://$OSS_BUCKET/ytray/$(basename "$file")" \
+              --meta 'Content-Type:application/xml#Cache-Control:no-cache,no-transform' \
+              -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
+          done
+          bash script/verify-release-cdn.sh '${{ needs.version.outputs.version }}' dist release-index feeds
 
       - name: Publish release indexes last
         env:

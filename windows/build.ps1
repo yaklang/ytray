@@ -52,6 +52,8 @@ if ($Package) {
     & (Join-Path $windowsDir 'prepare-yakit-browser-agent.ps1') -OutputDirectory $bundledExtensionDir
 }
 
+& (Join-Path $windowsDir 'fetch-winsparkle.ps1') -Architecture $Architecture
+
 Write-Host "Building $solution ($config)..." -ForegroundColor Yellow
 & $msbuild $solution -p:Configuration=$config -p:PlatformTarget=$platformTarget `
     -p:YTrayVersion=$Version -restore -nologo -v:minimal
@@ -70,7 +72,7 @@ if ($Test) {
     if (-not $vstest) { throw "vstest.console.exe not found." }
     Write-Host "Running tests..." -ForegroundColor Yellow
     $testDll = Join-Path $windowsDir "tests\bin\$config\YTray.Tests.dll"
-    & $vstest $testDll
+    & $vstest $testDll /Platform:$platformTarget
     if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
 }
 

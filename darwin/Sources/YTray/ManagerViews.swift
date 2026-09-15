@@ -523,7 +523,6 @@ private struct RuntimeArtwork: View {
 struct SettingsPage: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject private var updater = AppUpdateManager.shared
-    @State private var confirmUpdate = false
 
     var body: some View {
         ScrollView {
@@ -573,20 +572,6 @@ struct SettingsPage: View {
         .task {
             if updater.phase == .idle { await updater.checkForUpdates() }
         }
-        .confirmationDialog("安装 YTray \(updater.availableVersion.map { "v\($0)" } ?? "更新")？", isPresented: $confirmUpdate) {
-            Button("下载、安装并重启") {
-                Task {
-                    if !updater.isDownloaded {
-                        let downloaded = await updater.downloadUpdate()
-                        if !downloaded { return }
-                    }
-                    _ = await updater.installDownloadedUpdate()
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("YTray 会在本机下载并校验官方安装包，然后替换当前应用并自动重启。运行中的浏览器不会被关闭。")
-        }
     }
 
     private var updatePanel: some View {
@@ -612,8 +597,8 @@ struct SettingsPage: View {
                 }
                 Spacer(minLength: 16)
                 Button(updater.actionLabel) {
-                    if updater.isUpdateAvailable || updater.isDownloaded {
-                        confirmUpdate = true
+                    if updater.isUpdateAvailable {
+                        updater.installUpdate()
                     } else {
                         Task { await updater.checkForUpdates() }
                     }
@@ -621,15 +606,22 @@ struct SettingsPage: View {
                 .buttonStyle(FilledOrangeButtonStyle())
                 .disabled(updater.isBusy || !updater.updatesEnabled)
             }
-            if updater.phase == .downloading {
-                ProgressView(value: Double(updater.downloadPercent), total: 100)
-                    .tint(Brand.orange)
-                Text("正在下载并校验官方 DMG · \(updater.downloadPercent)%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if let notes = updater.releaseNotesText, updater.isUpdateAvailable {
+                Text(notes).font(.caption).textSelection(.enabled)
+            }
+            HStack {
+                Toggle("自动检查新版本", isOn: $updater.automaticallyChecks)
+                    .disabled(!updater.updatesEnabled)
+                Spacer()
+                Button("手动下载") { updater.openDownloads() }.disabled(!updater.updatesEnabled)
+            }.font(.caption)
+            Text("更新 YTray 与内置 Yakit 插件，保留实例、配置和已安装的浏览器。运行中的浏览器继续运行。")
+                .font(.caption2).foregroundStyle(.secondary)
+            if let date = updater.lastCheck {
+                Text("上次检查：\(date.formatted())").font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(14)
         .frame(minHeight: 64)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))

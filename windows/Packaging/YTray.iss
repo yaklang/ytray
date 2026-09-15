@@ -30,6 +30,8 @@ PrivilegesRequired=admin
 SetupIconFile=..\src\Assets\Icons\ytray-app.ico
 UninstallDisplayIcon={app}\YTray.exe
 CloseApplications=yes
+CloseApplicationsFilter=YTray.exe
+AlwaysRestart=no
 RestartApplications=no
 #if Architecture == "amd64"
 ArchitecturesAllowed=x64compatible
@@ -42,6 +44,7 @@ ArchitecturesAllowed=x86compatible
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+Source: "..\.dependencies\WinSparkle-0.9.4\COPYING"; DestDir: "{app}\Licenses"; DestName: "WinSparkle.txt"; Flags: ignoreversion
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "YTray.exe"; Flags: ignoreversion
 
 [Icons]

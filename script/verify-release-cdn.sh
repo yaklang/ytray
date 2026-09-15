@@ -4,6 +4,7 @@ set -euo pipefail
 VERSION="${1:?usage: verify-release-cdn.sh <version> <dist-dir> <index-dir>}"
 DIST_DIR="${2:?usage: verify-release-cdn.sh <version> <dist-dir> <index-dir>}"
 INDEX_DIR="${3:?usage: verify-release-cdn.sh <version> <dist-dir> <index-dir>}"
+MODE="${4:-all}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://aliyun-oss.yaklang.com/ytray}"
 MAX_ATTEMPTS="${CDN_VERIFY_ATTEMPTS:-24}"
 RETRY_DELAY_SECONDS="${CDN_VERIFY_DELAY_SECONDS:-10}"
@@ -84,6 +85,7 @@ jq -e --arg version "$VERSION" '.version == $version and (.assets | length == 4)
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
+if [[ "$MODE" != feeds ]]; then
 download_exact "$PUBLIC_BASE_URL/$VERSION/manifest.json" "$MANIFEST" "version manifest"
 download_exact "$PUBLIC_BASE_URL/$VERSION/SHA256SUMS" "$DIST_DIR/SHA256SUMS" "SHA256SUMS"
 
@@ -98,6 +100,16 @@ while IFS=$'\t' read -r filename expected_hash expected_size; do
   download_exact "$PUBLIC_BASE_URL/$VERSION/$filename" "$local_file" "$filename"
   download_exact "$PUBLIC_BASE_URL/$VERSION/$filename.sha256.txt" "$checksum_file" "$filename.sha256.txt"
 done < <(jq -r '.assets[] | [.filename, .sha256, (.size | tostring)] | @tsv' "$MANIFEST")
+
+for feed in "$DIST_DIR"/appcast-*.xml; do
+  download_exact "$PUBLIC_BASE_URL/$VERSION/$(basename "$feed")" "$feed" "immutable $(basename "$feed")"
+done
+fi
+[[ "$MODE" != immutable ]] || exit 0
+for feed in "$DIST_DIR"/appcast-*.xml; do
+  download_exact "$PUBLIC_BASE_URL/$(basename "$feed")" "$feed" "$(basename "$feed")"
+done
+[[ "$MODE" != feeds ]] || exit 0
 
 download_raw_exact "$PUBLIC_BASE_URL/latest.json" "$INDEX_DIR/latest.json" "latest.json"
 download_exact "$PUBLIC_BASE_URL/latest.txt" "$INDEX_DIR/latest.txt" "latest.txt"

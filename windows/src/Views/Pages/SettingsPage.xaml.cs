@@ -192,33 +192,27 @@ namespace YTray.Views.Pages
                 : _updater.Phase == AppUpdatePhase.UpToDate ? "SuccessBrush"
                 : "TextSecondaryBrush");
             UpdateButton.Content = _updater.ActionLabel;
-            UpdateButton.IsEnabled = !_updater.IsBusy;
-            UpdateProgress.Visibility = _updater.Phase == AppUpdatePhase.Downloading
-                ? Visibility.Visible : Visibility.Collapsed;
-            UpdateProgress.Value = _updater.DownloadPercent;
+            UpdateButton.IsEnabled = _updater.Enabled && !_updater.IsBusy;
+            UpdateNotesText.Text = _updater.IsUpdateAvailable ? _updater.ReleaseNotesText ?? "" : "";
+            UpdateLastCheckText.Text = _updater.LastCheck.HasValue ? "上次检查：" + _updater.LastCheck.Value.ToString("g") : "";
+            AutomaticUpdatesCheck.IsChecked = _store.Settings.CheckForAppUpdates;
+            AutomaticUpdatesCheck.IsEnabled = _updater.Enabled;
         }
 
         private async void Update_Click(object sender, RoutedEventArgs e)
         {
             if (_updater.IsBusy) return;
-            if (!_updater.IsUpdateAvailable && !_updater.IsDownloaded)
-            {
-                await _updater.CheckAsync();
-                return;
-            }
-
-            var version = _updater.AvailableVersion ?? "最新版";
-            var choice = MessageBox.Show(
-                $"YTray v{version} 将在应用内下载并校验。校验通过后会请求管理员权限完成安装，然后自动重新启动。\n\n运行中的浏览器不会被关闭。",
-                "安装 YTray 更新？",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Information,
-                MessageBoxResult.Yes);
-            if (choice != MessageBoxResult.Yes) return;
-
-            if (!_updater.IsDownloaded && !await _updater.DownloadAsync()) return;
-            if (_updater.StartInstaller()) Application.Current.Shutdown();
+            if (_updater.IsUpdateAvailable) _updater.InstallUpdate();
+            else await _updater.CheckAsync();
         }
+
+        private void AutomaticUpdates_Click(object sender, RoutedEventArgs e)
+        {
+            _store.Settings.CheckForAppUpdates = AutomaticUpdatesCheck.IsChecked == true;
+            _store.SaveSettings();
+        }
+
+        private void DownloadUpdate_Click(object sender, RoutedEventArgs e) => _updater.OpenDownloads();
 
         private static bool IsCaptureProcess() => Environment.GetCommandLineArgs().Any(argument =>
             argument.StartsWith("--capture-", StringComparison.OrdinalIgnoreCase));

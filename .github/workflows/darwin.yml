@@ -33,13 +33,18 @@ jobs:
           python3 script/verify-app-icons.py
 
       - name: Run release metadata tests
-        run: bash script/test-release-index.sh
+        run: |
+          bash script/test-release-index.sh
+          python3 -m unittest discover -s script/tests -v
 
       - name: Build and test macOS application
         run: |
           swift --version
           swift build --package-path darwin --configuration release
           swift test --package-path darwin
+
+      - name: Verify native Sparkle rejection, replacement and relaunch
+        run: python3 script/test-macos-updater.py
 
       - name: Render real UI previews
         shell: bash

@@ -1,5 +1,8 @@
 # YTray
 
+
+**v0.2.0：Windows 与 macOS 均支持 YConnect 同款应用内更新。** 在“设置 → YTray 更新”点击“更新”，按原生更新窗口完成下载、签名校验和安装，完成后自动重新打开。YTray 与内置 Yakit 插件随安装包更新，浏览器配置、实例和已安装运行时保留。后台只检查和提示；可关闭自动检查。[更新与发布说明](docs/UPDATES.md)。
+
 <p align="center">
   <img alt="YTray 应用图标" src="assets/app-icon/YTray.png" width="128"><br>
   <strong>多身份浏览器实例工作台</strong><br>
