@@ -175,9 +175,11 @@ namespace YTray
             {
                 try { if (Directory.Exists(extractionRoot)) Directory.Delete(extractionRoot, true); } catch { }
             }
+            NativeAppUpdater.EnsureLoaded();
             var payload = JsonConvert.SerializeObject(new
             {
                 application = "YTray",
+                updateEngineSha256 = NativeAppUpdater.EngineHash,
                 version = YTrayBuildInfo.Version,
                 framework = ".NET Framework 4.8.1",
                 jsonAssembly = typeof(JsonConvert).Assembly.GetName().Name,

@@ -46,6 +46,19 @@ fi
 jq -e '.schema_version == 1 and .product == "ytray" and (.versions | type == "array")' \
   "$OUT_DIR/releases.previous.json" >/dev/null || die "existing releases index is invalid"
 
+python3 - "$OUT_DIR/releases.previous.json" "$MANIFEST" "$VERSION" <<'PYVALIDATE'
+import json, sys
+previous, manifest = (json.load(open(path)) for path in sys.argv[1:3])
+def parts(value):
+    return tuple(map(int, value.split('.')))
+latest = previous.get('latest', '')
+if latest and parts(latest) > parts(sys.argv[3]):
+    raise SystemExit('Refusing to downgrade the published latest version')
+for entry in previous['versions']:
+    if entry.get('version') == sys.argv[3] and entry != manifest:
+        raise SystemExit('Refusing to overwrite a different immutable release')
+PYVALIDATE
+
 jq --slurpfile release "$MANIFEST" --arg version "$VERSION" '
   .latest = $version |
   .versions = ([$release[0]] + [.versions[] | select(.version != $version)])

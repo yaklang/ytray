@@ -21,6 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select OpenSSL 3 for Ed25519 tests
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+
       - name: Repository hygiene
         shell: bash
         run: |
@@ -33,13 +38,18 @@ jobs:
           python3 script/verify-app-icons.py
 
       - name: Run release metadata tests
-        run: bash script/test-release-index.sh
+        run: |
+          bash script/test-release-index.sh
+          python3 -m unittest discover -s script/tests -v
 
       - name: Build and test macOS application
         run: |
           swift --version
           swift build --package-path darwin --configuration release
           swift test --package-path darwin
+
+      - name: Verify native Sparkle rejection, replacement and relaunch
+        run: python3 script/test-macos-updater.py
 
       - name: Render real UI previews
         shell: bash

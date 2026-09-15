@@ -42,17 +42,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else if focusSmoke || transientSmoke {
             waitForStableTrayAnchor(focusOnPresentation: true)
         }
-        if !edgeWidgetSmoke && !focusSmoke && !transientSmoke && appUpdater.updatesEnabled {
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                await self?.appUpdater.checkForUpdates()
-            }
+        appUpdater.canInstall = { [weak self] in
+            guard let self else { return false }
+            return !self.store.isLaunching && !self.store.isInstalling && !self.store.isInstallingExtension
+                && NSApp.modalWindow == nil && NSApp.windows.allSatisfy { $0.attachedSheet == nil }
         }
+        appUpdater.start()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
+        appUpdater.stop()
         DiagnosticLog.info("app.exit", "application will terminate")
     }
 

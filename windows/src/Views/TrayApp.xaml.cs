@@ -6,7 +6,6 @@ using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
-using System.Threading.Tasks;
 using YTray.Core;
 using YTray.Views;
 using YTray.Native;
@@ -28,7 +27,6 @@ namespace YTray
         private bool _statusRefreshScheduled;
         private bool _launchAtLoginRefreshScheduled;
         private bool _updateRefreshScheduled;
-        private string? _notifiedUpdateVersion;
 
         public TrayApp(InstanceStore store, LaunchAtLoginManager launchAtLogin)
         {
@@ -55,7 +53,10 @@ namespace YTray
             BuildMenu();
             UpdateStatusTitle();
             if (_store.Settings.EdgeDockEnabled) _edgeDock.ShowDock(remember: false);
-            CrashGuard.Observe(CheckForUpdatesAfterStartupAsync(), "check-app-update-startup");
+            _updater.AutomaticChecks = () => _store.Settings.CheckForAppUpdates;
+            _updater.CanInstall = () => !_store.IsLaunching && !_store.IsInstalling && !_store.IsInstallingExtension
+                && !ComponentDispatcher.IsThreadModal;
+            _updater.Start();
         }
 
         private void OnThemeChanged(object sender, EventArgs e)
@@ -103,16 +104,6 @@ namespace YTray
             {
                 _updateRefreshScheduled = false;
                 BuildMenu();
-                if (_updater.IsUpdateAvailable
-                    && !string.Equals(_notifiedUpdateVersion, _updater.AvailableVersion, StringComparison.Ordinal))
-                {
-                    _notifiedUpdateVersion = _updater.AvailableVersion;
-                    _notify.ShowBalloonTip(
-                        7000,
-                        "YTray 有新版本",
-                        $"v{_updater.AvailableVersion} 已发布。点击即可在应用内下载、校验并安装。",
-                        System.Windows.Forms.ToolTipIcon.Info);
-                }
             }), DispatcherPriority.Background);
         }
 
@@ -219,12 +210,6 @@ namespace YTray
             if (handle != IntPtr.Zero) Win32.SetForegroundWindow(handle);
         }
 
-        private async Task CheckForUpdatesAfterStartupAsync()
-        {
-            await Task.Delay(2500).ConfigureAwait(false);
-            await _updater.CheckAsync().ConfigureAwait(false);
-        }
-
         private void OpenUpdatePage()
         {
             ShowManager("settings");
@@ -280,6 +265,7 @@ namespace YTray
             _store.PropertyChanged -= OnStorePropertyChanged;
             _launchAtLogin.PropertyChanged -= OnLaunchAtLoginChanged;
             _updater.PropertyChanged -= OnUpdaterPropertyChanged;
+            _updater.Dispose();
             ThemeManager.ThemeChanged -= OnThemeChanged;
             _widget?.Close();
             _manager?.Close();

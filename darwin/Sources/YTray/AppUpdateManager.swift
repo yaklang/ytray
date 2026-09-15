@@ -1,16 +1,13 @@
 import AppKit
 import Combine
-import CryptoKit
-import Darwin
 import Foundation
+import Sparkle
 
 enum AppUpdatePhase: Equatable {
     case idle
     case checking
     case upToDate
     case available
-    case downloading
-    case downloaded
     case installing
     case failed
 }
@@ -20,10 +17,14 @@ struct AppReleaseManifest: Decodable {
     let product: String
     let version: String
     let assets: [AppReleaseAsset]
+    var releaseNotes: String? = nil
+    var releaseNotesText: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case product, version, assets
+        case releaseNotes = "release_notes"
+        case releaseNotesText = "release_notes_text"
     }
 }
 
@@ -48,196 +49,178 @@ enum AppUpdateError: LocalizedError {
 }
 
 @MainActor
-final class AppUpdateManager: ObservableObject {
+final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate {
     static let shared = AppUpdateManager()
-    static let manifestURL = URL(string: "https://aliyun-oss.yaklang.com/ytray/latest.json")!
-    static let manifestTimeout: TimeInterval = 10
+    nonisolated static let baseURL = "https://aliyun-oss.yaklang.com/ytray"
+    static let manifestURL = URL(string: baseURL + "/latest.json")!
+    static let manifestTimeout: TimeInterval = 20
+    nonisolated static let maximumManifestBytes = 524_288
 
     @Published private(set) var phase: AppUpdatePhase = .idle
     @Published private(set) var statusText: String
-    @Published private(set) var downloadPercent = 0
     @Published private(set) var availableVersion: String?
-
+    @Published private(set) var releaseNotesText: String?
+    @Published private(set) var lastCheck: Date?
+    @Published var automaticallyChecks: Bool {
+        didSet { if updatesEnabled { defaults.set(automaticallyChecks, forKey: "YTrayCheckUpdates") } }
+    }
     let currentVersion: String
     let updatesEnabled: Bool
-    private var release: AppReleaseManifest?
-    private var asset: AppReleaseAsset?
-    private var downloadedDMG: URL?
+    var canInstall: () -> Bool = { true }
+    private let defaults: UserDefaults
+    private var controller: SPUStandardUpdaterController?
+    private var timer: Task<Void, Never>?
+    private var postponedRelaunch: Task<Void, Never>?
 
-    init(currentVersion: String? = nil, updatesEnabled: Bool? = nil) {
-        let bundleVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        self.currentVersion = currentVersion ?? bundleVersion ?? "0.0.0"
+    init(currentVersion: String? = nil, updatesEnabled: Bool? = nil, defaults: UserDefaults = .standard) {
+        self.currentVersion = currentVersion ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         self.updatesEnabled = updatesEnabled ?? AppEnvironment.appUpdatesEnabled
-        self.statusText = self.updatesEnabled
-            ? "当前版本 v\(self.currentVersion)"
-            : "YTrayDev 体验版已关闭应用内更新"
+        self.defaults = defaults
+        automaticallyChecks = defaults.object(forKey: "YTrayCheckUpdates") as? Bool ?? true
+        statusText = self.updatesEnabled ? "当前版本 v\(self.currentVersion)" : "开发与演示环境不检查或安装正式更新"
+        super.init()
     }
 
-    var isBusy: Bool {
-        phase == .checking || phase == .downloading || phase == .installing
-    }
-
+    var isBusy: Bool { phase == .checking || phase == .installing }
     var isUpdateAvailable: Bool {
-        guard let availableVersion else { return false }
-        return Self.compareVersions(availableVersion, currentVersion) == .orderedDescending
+        availableVersion.map { Self.compareVersions($0, currentVersion) == .orderedDescending } ?? false
     }
-
-    var isDownloaded: Bool {
-        guard phase == .downloaded, let downloadedDMG else { return false }
-        return FileManager.default.fileExists(atPath: downloadedDMG.path)
-    }
-
     var actionLabel: String {
-        guard updatesEnabled else { return "体验版不更新" }
+        guard updatesEnabled else { return "开发版不更新" }
         switch phase {
         case .checking: return "正在检查…"
-        case .downloading: return "下载中 \(downloadPercent)%"
-        case .installing: return "正在安装…"
-        case .downloaded: return "立即安装并重启"
-        default: return isUpdateAvailable ? "下载并安装" : "检查更新"
+        case .installing: return "更新中…"
+        default: return isUpdateAvailable ? "更新" : "检查更新"
         }
     }
 
-    func checkForUpdates() async {
-        guard updatesEnabled else {
-            setPhase(.upToDate, "YTrayDev 体验版已关闭应用内更新")
-            return
+    func start() {
+        guard updatesEnabled, timer == nil else { return }
+        timer = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(15))
+                while !Task.isCancelled {
+                    if self?.automaticallyChecks == true { await self?.checkForUpdates() }
+                    try await Task.sleep(for: .seconds(6 * 60 * 60))
+                }
+            } catch { /* Cancellation ends the quiet check timer. */ }
         }
+    }
+
+    func stop() { timer?.cancel(); timer = nil; postponedRelaunch?.cancel(); postponedRelaunch = nil }
+
+    func checkForUpdates() async {
+        guard updatesEnabled else { setPhase(.upToDate, "开发与演示环境不检查或安装正式更新"); return }
         guard !isBusy else { return }
         setPhase(.checking, "正在检查 YTray 更新…")
         do {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.httpShouldSetCookies = false
+            configuration.httpCookieStorage = nil
+            configuration.urlCredentialStorage = nil
+            configuration.timeoutIntervalForRequest = Self.manifestTimeout
+            configuration.timeoutIntervalForResource = 30
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
             var request = URLRequest(url: Self.manifestURL)
-            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            request.timeoutInterval = Self.manifestTimeout
-            request.setValue("no-cache, no-store", forHTTPHeaderField: "Cache-Control")
-            request.setValue("YTray/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            let (bytes, response) = try await session.bytes(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200, response.url == request.url,
+                  response.expectedContentLength <= Self.maximumManifestBytes else {
                 throw AppUpdateError.message("更新服务器返回了异常状态")
             }
-            let manifest = try JSONDecoder().decode(AppReleaseManifest.self, from: data)
-            try Self.validate(manifest)
-            let selected = Self.selectAsset(
-                from: manifest,
-                platform: "darwin",
-                architecture: Self.architecture,
-                kind: "dmg"
-            )
-            guard let selected else {
-                throw AppUpdateError.message("最新版本没有适用于本机架构的 macOS 安装包")
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < Self.maximumManifestBytes else { throw AppUpdateError.message("更新信息过大") }
+                data.append(byte)
             }
-            try Self.validate(selected)
-            release = manifest
-            asset = selected
-            availableVersion = manifest.version
-            downloadedDMG = Self.existingVerifiedDownload(manifest: manifest, asset: selected)
-
-            if Self.compareVersions(manifest.version, currentVersion) == .orderedDescending {
-                if downloadedDMG != nil {
-                    setPhase(.downloaded, "YTray v\(manifest.version) 已下载并校验，可以安装")
-                } else {
-                    setPhase(.available, "发现新版本 v\(manifest.version) · 当前 v\(currentVersion)")
-                }
-            } else {
-                downloadedDMG = nil
-                setPhase(.upToDate, "YTray v\(currentVersion) 已是最新版本")
-            }
-        } catch let urlError as URLError where urlError.code == .timedOut {
-            DiagnosticLog.error("app.update.check", urlError, message: "update check timed out")
-            setPhase(.failed, "检查更新超时，请稍后重试")
+            let release = try Self.parseManifest(data, architecture: Self.architecture)
+            availableVersion = release.version
+            releaseNotesText = release.releaseNotesText
+            lastCheck = Date()
+            setPhase(isUpdateAvailable ? .available : .upToDate,
+                isUpdateAvailable ? "发现新版本 v\(release.version) · 当前 v\(currentVersion)" : "YTray v\(currentVersion) 已是最新版本")
         } catch {
             DiagnosticLog.error("app.update.check", error)
-            setPhase(.failed, "检查更新失败 · \(Self.userFacing(error))")
+            setPhase(.failed, "检查更新失败，请检查网络后重试。当前版本仍可使用。")
         }
     }
 
-    func downloadUpdate() async -> Bool {
-        guard updatesEnabled else { return false }
-        guard !isBusy, isUpdateAvailable, let release, let asset else { return false }
+    /// Only Sparkle can download, authenticate, replace and relaunch the app.
+    /// The JSON catalog is used solely for a quiet availability hint.
+    func installUpdate() {
+        guard updatesEnabled, !isBusy else { return }
+        guard canInstall() else { setPhase(.failed, "请先完成浏览器启动、组件安装或当前弹窗，再更新 YTray。"); return }
         do {
-            let destination = try Self.downloadPath(manifest: release, asset: asset)
-            let partial = destination.appendingPathExtension("part")
-            try FileManager.default.createDirectory(
-                at: destination.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try? FileManager.default.removeItem(at: partial)
-            downloadPercent = 0
-            setPhase(.downloading, "正在下载 YTray v\(release.version)…")
-
-            var request = URLRequest(url: asset.url)
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.timeoutInterval = 20 * 60
-            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-            request.setValue("YTray/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            let delegate = AppUpdateDownloadDelegate(
-                destination: partial,
-                expectedSize: asset.size
-            ) { [weak self] percent in
-                Task { @MainActor in
-                    guard let self, self.phase == .downloading else { return }
-                    self.downloadPercent = percent
-                }
+            if controller == nil {
+                let driver = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
+                try driver.updater.start()
+                driver.updater.automaticallyChecksForUpdates = false
+                driver.updater.automaticallyDownloadsUpdates = false
+                controller = driver
             }
-            _ = try await delegate.start(request: request)
-            try await Task.detached(priority: .userInitiated) {
-                try Self.verifyFile(partial, asset: asset)
-            }.value
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.moveItem(at: partial, to: destination)
-            downloadedDMG = destination
-            downloadPercent = 100
-            setPhase(.downloaded, "YTray v\(release.version) 下载完成，校验已通过")
-            return true
+            setPhase(.installing, "请在更新窗口中下载并安装，完成后自动重新打开 YTray。")
+            NSApp.activate(ignoringOtherApps: true)
+            controller?.checkForUpdates(nil)
         } catch {
-            DiagnosticLog.error("app.update.download", error)
-            setPhase(.failed, "下载更新失败 · \(Self.userFacing(error))")
-            return false
+            setPhase(.failed, "更新组件启动失败：\(error.localizedDescription)。可重试或手动下载。")
         }
     }
 
-    func installDownloadedUpdate() async -> Bool {
-        guard updatesEnabled else { return false }
-        guard !isBusy, let release, let asset, let downloadedDMG else { return false }
-        do {
-            try Self.verifyFile(downloadedDMG, asset: asset)
-            let currentApplication = Bundle.main.bundleURL
-            guard currentApplication.pathExtension.lowercased() == "app",
-                  !currentApplication.path.hasPrefix("/Volumes/"),
-                  !currentApplication.path.contains("/AppTranslocation/") else {
-                throw AppUpdateError.message("请先将 YTray.app 放入“应用程序”文件夹，再使用应用内更新")
-            }
-            setPhase(.installing, "正在准备更新助手，YTray 随后会自动重新启动…")
-            let processID = ProcessInfo.processInfo.processIdentifier
-            try await Task.detached(priority: .userInitiated) {
-                try MacUpdateInstaller.prepareAndLaunch(
-                    dmg: downloadedDMG,
-                    expectedVersion: release.version,
-                    currentApplication: currentApplication,
-                    parentProcessID: processID,
-                    consoleUserID: getuid()
-                )
-            }.value
-            NSApplication.shared.terminate(nil)
-            return true
-        } catch {
-            DiagnosticLog.error("app.update.install", error)
-            setPhase(.failed, "无法安装更新 · \(Self.userFacing(error))")
-            return false
-        }
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        "\(Self.baseURL)/appcast-macos-\(Self.architecture).xml"
     }
 
-    nonisolated static func selectAsset(
-        from manifest: AppReleaseManifest,
-        platform: String,
-        architecture: String,
-        kind: String
-    ) -> AppReleaseAsset? {
-        manifest.assets.first {
-            $0.platform.caseInsensitiveCompare(platform) == .orderedSame
-                && $0.architecture.caseInsensitiveCompare(architecture) == .orderedSame
-                && $0.kind.caseInsensitiveCompare(kind) == .orderedSame
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        setPhase(error == nil ? (isUpdateAvailable ? .available : .upToDate) : .failed,
+            error.map { "更新未完成：\($0.localizedDescription)。当前版本仍可使用，可重试或手动下载。" }
+                ?? "更新窗口已关闭，可以继续使用 YTray。")
+    }
+
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        guard !canInstall() else { return false }
+        statusText = "更新已验证，等待当前浏览器启动或组件安装完成后重启。"
+        postponedRelaunch = Task { [weak self] in
+            do {
+                while self?.canInstall() == false { try await Task.sleep(for: .seconds(1)) }
+                guard !Task.isCancelled, self != nil else { return }
+                installHandler()
+            } catch { }
         }
+        return true
+    }
+
+    func openDownloads() {
+        let version = isUpdateAvailable ? availableVersion! : currentVersion
+        guard let url = URL(string: "\(Self.baseURL)/\(version)/YTray-\(version)-darwin-\(Self.architecture).dmg") else { return }
+        if !NSWorkspace.shared.open(url) { setPhase(.failed, "无法打开浏览器，请前往 yaklang.io/ytray/ 下载。") }
+    }
+
+    nonisolated static func parseManifest(_ data: Data, architecture: String) throws -> AppReleaseManifest {
+        guard data.count <= maximumManifestBytes else { throw AppUpdateError.message("更新信息过大") }
+        let release = try JSONDecoder().decode(AppReleaseManifest.self, from: data)
+        guard release.schemaVersion == 1, release.product == "ytray",
+              release.version.range(of: #"\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z"#, options: .regularExpression) != nil,
+              release.version.split(separator: ".").allSatisfy({ Int($0) != nil }),
+              release.releaseNotes == nil || release.releaseNotes == "https://github.com/yaklang/ytray/releases/tag/v\(release.version)",
+              (release.releaseNotesText?.count ?? 0) <= 32_000,
+              let asset = selectAsset(from: release, platform: "darwin", architecture: architecture, kind: "dmg") else {
+            throw AppUpdateError.message("更新清单格式无效")
+        }
+        let filename = "YTray-\(release.version)-darwin-\(architecture).dmg"
+        guard asset.filename == filename, asset.url.absoluteString == "\(baseURL)/\(release.version)/\(filename)",
+              asset.size > 0, asset.size < 536_870_912,
+              asset.sha256.range(of: #"\A[a-f0-9]{64}\z"#, options: .regularExpression) != nil else {
+            throw AppUpdateError.message("更新包校验信息无效")
+        }
+        return release
+    }
+
+    nonisolated static func selectAsset(from manifest: AppReleaseManifest, platform: String, architecture: String, kind: String) -> AppReleaseAsset? {
+        let matches = manifest.assets.filter { $0.platform == platform && $0.architecture == architecture && $0.kind == kind }
+        return matches.count == 1 ? matches.first : nil
     }
 
     nonisolated static func compareVersions(_ left: String, _ right: String) -> ComparisonResult {
@@ -291,79 +274,7 @@ final class AppUpdateManager: ObservableObject {
         return (String(value.dropLast(suffix.count)), number)
     }
 
-    nonisolated private static func validate(_ manifest: AppReleaseManifest) throws {
-        guard manifest.schemaVersion == 1, manifest.product == "ytray",
-              manifest.version.range(
-                of: #"^[0-9]+\.[0-9]+\.[0-9]+(?:[-.][0-9A-Za-z][0-9A-Za-z.-]*)?$"#,
-                options: .regularExpression
-              ) != nil,
-              !manifest.assets.isEmpty else {
-            throw AppUpdateError.message("更新清单格式无效")
-        }
-    }
-
-    nonisolated private static func validate(_ asset: AppReleaseAsset) throws {
-        guard asset.url.scheme?.lowercased() == "https", asset.size > 0,
-              asset.sha256.count == 64,
-              asset.sha256.allSatisfy({ $0.isHexDigit }),
-              asset.filename == URL(fileURLWithPath: asset.filename).lastPathComponent else {
-            throw AppUpdateError.message("更新包校验信息无效")
-        }
-    }
-
-    nonisolated private static func downloadPath(manifest: AppReleaseManifest, asset: AppReleaseAsset) throws -> URL {
-        try validate(asset)
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("YTray/Updates", isDirectory: true)
-        let safeVersion = manifest.version
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: "\\", with: "-")
-        return root
-            .appendingPathComponent(safeVersion, isDirectory: true)
-            .appendingPathComponent(asset.filename)
-    }
-
-    nonisolated private static func existingVerifiedDownload(
-        manifest: AppReleaseManifest,
-        asset: AppReleaseAsset
-    ) -> URL? {
-        guard let path = try? downloadPath(manifest: manifest, asset: asset),
-              FileManager.default.fileExists(atPath: path.path),
-              (try? verifyFile(path, asset: asset)) != nil else { return nil }
-        return path
-    }
-
-    nonisolated private static func verifyFile(_ file: URL, asset: AppReleaseAsset) throws {
-        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
-        guard let size = attributes[.size] as? NSNumber, size.int64Value == asset.size else {
-            throw AppUpdateError.message("更新包大小与发布清单不一致")
-        }
-        let handle = try FileHandle(forReadingFrom: file)
-        defer { try? handle.close() }
-        var digest = SHA256()
-        while true {
-            let data = handle.readData(ofLength: 1024 * 1024)
-            if data.isEmpty { break }
-            digest.update(data: data)
-        }
-        let actual = digest.finalize().map { String(format: "%02x", $0) }.joined()
-        guard actual.caseInsensitiveCompare(asset.sha256) == .orderedSame else {
-            throw AppUpdateError.message("更新包 SHA-256 校验失败")
-        }
-    }
-
-    private func setPhase(_ phase: AppUpdatePhase, _ status: String) {
-        self.phase = phase
-        statusText = status
-        DiagnosticLog.info("app.update", "phase=\(phase); status=\(status)")
-    }
-
-    nonisolated private static func userFacing(_ error: Error) -> String {
-        if let updateError = error as? AppUpdateError { return updateError.localizedDescription }
-        if let urlError = error as? URLError, urlError.code == .cancelled { return "请求已取消" }
-        if let urlError = error as? URLError, urlError.code == .timedOut { return "请求超时" }
-        return error.localizedDescription
-    }
+    private func setPhase(_ value: AppUpdatePhase, _ status: String) { phase = value; statusText = status }
 }
 
 private struct ParsedAppVersion {
@@ -377,242 +288,5 @@ private struct ParsedAppVersion {
         let parts = value.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
         core = parts.first?.split(separator: ".").map { Int($0) ?? -1 } ?? [-1]
         prerelease = parts.count > 1 ? parts[1].split(separator: ".").map(String.init) : []
-    }
-}
-
-private final class AppUpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate {
-    private let destination: URL
-    private let expectedSize: Int64
-    private let progress: (Int) -> Void
-    private var continuation: CheckedContinuation<URL, Error>?
-    private var downloadedURL: URL?
-    private var failure: Error?
-    private var session: URLSession?
-
-    init(destination: URL, expectedSize: Int64, progress: @escaping (Int) -> Void) {
-        self.destination = destination
-        self.expectedSize = expectedSize
-        self.progress = progress
-    }
-
-    func start(request: URLRequest) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 60
-            configuration.timeoutIntervalForResource = 20 * 60
-            let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-            self.session = session
-            session.downloadTask(with: request).resume()
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didWriteData bytesWritten: Int64,
-        totalBytesWritten: Int64,
-        totalBytesExpectedToWrite: Int64
-    ) {
-        let total = expectedSize > 0 ? expectedSize : totalBytesExpectedToWrite
-        guard total > 0 else { return }
-        progress(max(0, min(100, Int(totalBytesWritten * 100 / total))))
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didFinishDownloadingTo location: URL
-    ) {
-        do {
-            guard let response = downloadTask.response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode) else {
-                throw AppUpdateError.message("更新服务器返回了异常状态")
-            }
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.moveItem(at: location, to: destination)
-            downloadedURL = destination
-        } catch {
-            failure = error
-        }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        defer {
-            continuation = nil
-            self.session?.finishTasksAndInvalidate()
-            self.session = nil
-        }
-        if let error { continuation?.resume(throwing: error) }
-        else if let failure { continuation?.resume(throwing: failure) }
-        else if let downloadedURL { continuation?.resume(returning: downloadedURL) }
-        else { continuation?.resume(throwing: AppUpdateError.message("更新包下载没有产生文件")) }
-    }
-}
-
-private enum MacUpdateInstaller {
-    static func prepareAndLaunch(
-        dmg: URL,
-        expectedVersion: String,
-        currentApplication: URL,
-        parentProcessID: Int32,
-        consoleUserID: uid_t
-    ) throws {
-        let fileManager = FileManager.default
-        let mountPoint = fileManager.temporaryDirectory
-            .appendingPathComponent("ytray-update-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: mountPoint, withIntermediateDirectories: true)
-        var helperOwnsMount = false
-        defer {
-            if !helperOwnsMount {
-                _ = try? run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])
-                try? fileManager.removeItem(at: mountPoint)
-            }
-        }
-
-        _ = try run("/usr/bin/hdiutil", [
-            "attach", dmg.path, "-mountpoint", mountPoint.path, "-nobrowse", "-readonly"
-        ])
-        let sourceApplication = mountPoint.appendingPathComponent("YTray.app", isDirectory: true)
-        guard fileManager.fileExists(atPath: sourceApplication.path),
-              let bundle = Bundle(url: sourceApplication),
-              bundle.bundleIdentifier == "io.yaklang.ytray",
-              bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == expectedVersion else {
-            throw AppUpdateError.message("DMG 中的 YTray.app 身份或版本不正确")
-        }
-
-        _ = try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", sourceApplication.path])
-        let currentTeam = try signingTeam(currentApplication)
-        let updateTeam = try signingTeam(sourceApplication)
-        guard !currentTeam.isEmpty, currentTeam != "not set", currentTeam == updateTeam else {
-            throw AppUpdateError.message("新版本的开发者签名与当前 YTray 不一致")
-        }
-
-        let updateDirectory = dmg.deletingLastPathComponent()
-        let script = updateDirectory.appendingPathComponent("apply-ytray-update.sh")
-        let log = updateDirectory.appendingPathComponent("install.log")
-        try installerScript.write(to: script, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
-
-        let arguments = [
-            String(parentProcessID),
-            sourceApplication.path,
-            currentApplication.path,
-            mountPoint.path,
-            String(consoleUserID),
-        ]
-        let parentDirectory = currentApplication.deletingLastPathComponent()
-        if fileManager.isWritableFile(atPath: parentDirectory.path) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = [script.path] + arguments
-            _ = fileManager.createFile(atPath: log.path, contents: nil)
-            let output = try FileHandle(forWritingTo: log)
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
-        } else {
-            let command = (["/bin/sh", script.path] + arguments)
-                .map(shellQuote).joined(separator: " ")
-                + " > " + shellQuote(log.path) + " 2>&1 &"
-            let appleScript = "do shell script \(appleScriptQuote(command)) with administrator privileges"
-            _ = try run("/usr/bin/osascript", ["-e", appleScript])
-        }
-        helperOwnsMount = true
-    }
-
-    private static let installerScript = #"""
-#!/bin/sh
-set -eu
-
-PARENT_PID="$1"
-SOURCE_APP="$2"
-TARGET_APP="$3"
-MOUNT_POINT="$4"
-CONSOLE_UID="$5"
-BACKUP_APP="${TARGET_APP}.ytray-update-backup"
-
-open_target() {
-  if [ "$(/usr/bin/id -u)" -eq 0 ]; then
-    /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/open "$TARGET_APP"
-  else
-    /usr/bin/open "$TARGET_APP"
-  fi
-}
-
-while kill -0 "$PARENT_PID" 2>/dev/null; do
-  sleep 0.2
-done
-
-rm -rf "$BACKUP_APP"
-if [ -e "$TARGET_APP" ]; then
-  mv "$TARGET_APP" "$BACKUP_APP"
-fi
-
-if /usr/bin/ditto "$SOURCE_APP" "$TARGET_APP" && \
-   /usr/bin/codesign --verify --deep --strict "$TARGET_APP"; then
-  rm -rf "$BACKUP_APP"
-  /usr/bin/hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true
-  open_target
-  rm -f "$0"
-  exit 0
-fi
-
-rm -rf "$TARGET_APP"
-if [ -e "$BACKUP_APP" ]; then
-  mv "$BACKUP_APP" "$TARGET_APP"
-  open_target || true
-fi
-/usr/bin/hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true
-exit 1
-"""#
-
-    private static func signingTeam(_ application: URL) throws -> String {
-        let result = try run(
-            "/usr/bin/codesign",
-            ["-dv", "--verbose=4", application.path],
-            includeStandardError: true
-        )
-        for line in result.split(whereSeparator: \.isNewline) {
-            if line.hasPrefix("TeamIdentifier=") {
-                return String(line.dropFirst("TeamIdentifier=".count))
-            }
-        }
-        return ""
-    }
-
-    @discardableResult
-    private static func run(
-        _ executable: String,
-        _ arguments: [String],
-        includeStandardError: Bool = false
-    ) throws -> String {
-        let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let error = standardError.fileHandleForReading.readDataToEndOfFile()
-        let message = String(data: includeStandardError ? output + error : output, encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            let detail = String(data: error, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw AppUpdateError.message(detail?.isEmpty == false ? detail! : "更新助手执行失败")
-        }
-        return message
-    }
-
-    private static func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    private static func appleScriptQuote(_ value: String) -> String {
-        "\"" + value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 }

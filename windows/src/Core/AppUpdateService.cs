@@ -11,6 +11,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Threading;
 using Newtonsoft.Json;
 
 namespace YTray.Core
@@ -21,8 +24,6 @@ namespace YTray.Core
         Checking,
         UpToDate,
         Available,
-        Downloading,
-        Downloaded,
         Installing,
         Failed,
     }
@@ -37,6 +38,11 @@ namespace YTray.Core
 
         [JsonProperty("version")]
         public string Version { get; set; } = "";
+
+        [JsonProperty("release_notes")]
+        public string? ReleaseNotes { get; set; }
+        [JsonProperty("release_notes_text")]
+        public string? ReleaseNotesText { get; set; }
 
         [JsonProperty("assets")]
         public AppReleaseAsset[] Assets { get; set; } = Array.Empty<AppReleaseAsset>();
@@ -66,55 +72,50 @@ namespace YTray.Core
         public long Size { get; set; }
     }
 
-    /// <summary>
-    /// Downloads an immutable, versioned YTray installer from the public OSS release manifest.
-    /// The installer is never executed until its exact byte count and SHA-256 both match the
-    /// manifest. The official Inno Setup package performs the privileged replacement after the
-    /// current process exits and relaunches YTray when installation completes.
-    /// </summary>
+    // The catalog only controls availability hints. WinSparkle authenticates every
+    // installation with the embedded Ed25519 key before handing off to Inno Setup.
     internal sealed class AppUpdateService : INotifyPropertyChanged, IDisposable
     {
         internal const string ManifestUrl = "https://aliyun-oss.yaklang.com/ytray/latest.json";
         internal const string InstallerArguments =
-            "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /YTRAYAUTOUPDATE=1";
+            "/SILENT /SP- /NORESTART /NOFORCECLOSEAPPLICATIONS /YTRAYAUTOUPDATE=1";
         internal static readonly TimeSpan DefaultCheckTimeout = TimeSpan.FromSeconds(10);
-        private const int MaximumManifestBytes = 2 * 1024 * 1024;
+        internal const int MaximumManifestBytes = 524288;
         private static readonly Lazy<AppUpdateService> LazyShared =
             new Lazy<AppUpdateService>(() => new AppUpdateService());
 
         private readonly HttpClient _client;
         private readonly TimeSpan _checkTimeout;
-        private readonly string _updatesDirectory;
+        private readonly bool _enabled;
+        private NativeAppUpdater? _native;
+        private DispatcherTimer? _timer;
+        private bool _disposed;
+        internal Func<bool> CanInstall { get; set; } = () => false;
+        internal Func<bool> AutomaticChecks { get; set; } = () => true;
+        internal bool Enabled => _enabled;
+        internal DateTime? LastCheck { get; private set; }
+        internal string? ReleaseNotesText => _release?.ReleaseNotesText;
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private AppReleaseManifest? _release;
         private AppReleaseAsset? _asset;
-        private string? _downloadedInstaller;
         private AppUpdatePhase _phase;
         private string _statusText;
-        private int _downloadPercent;
 
         internal static AppUpdateService Shared => LazyShared.Value;
 
         internal AppUpdateService(
             HttpMessageHandler? handler = null,
             TimeSpan? checkTimeout = null,
-            string? updatesDirectory = null)
+            bool? enabled = null)
         {
             _client = new HttpClient(handler ?? CreateDefaultHandler());
             _checkTimeout = checkTimeout ?? DefaultCheckTimeout;
             if (_checkTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(checkTimeout));
-            _updatesDirectory = string.IsNullOrWhiteSpace(updatesDirectory)
-                ? Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "YTray",
-                    "Updates")
-                : Path.GetFullPath(updatesDirectory!);
-            // Installer downloads may legitimately take a long time. Manifest checks use
-            // their own short cancellation budget in CheckAsync so a blocked OSS endpoint
-            // cannot leave the settings UI in the Checking phase for twenty minutes.
-            _client.Timeout = TimeSpan.FromMinutes(20);
+            _enabled = enabled ?? IsProductionProcess();
+            _client.Timeout = _checkTimeout;
+            _client.MaxResponseContentBufferSize = MaximumManifestBytes;
             _client.DefaultRequestHeaders.UserAgent.ParseAdd("YTray/" + CurrentVersion);
-            _statusText = $"当前版本 v{CurrentVersion}";
+            _statusText = _enabled ? $"当前版本 v{CurrentVersion}" : "开发与演示环境不检查或安装正式更新";
         }
 
         internal static HttpClientHandler CreateDefaultHandler() => new HttpClientHandler
@@ -123,6 +124,7 @@ namespace YTray.Core
             // not advertise Accept-Encoding. .NET Framework does not decompress it unless
             // explicitly configured, which otherwise feeds the 1F 8B bytes to Json.NET.
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            UseCookies = false, UseDefaultCredentials = false, AllowAutoRedirect = false,
         };
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -131,16 +133,10 @@ namespace YTray.Core
         internal string? AvailableVersion => _release?.Version;
         internal AppUpdatePhase Phase => _phase;
         internal string StatusText => _statusText;
-        internal int DownloadPercent => _downloadPercent;
         internal bool IsBusy => _phase == AppUpdatePhase.Checking
-            || _phase == AppUpdatePhase.Downloading
             || _phase == AppUpdatePhase.Installing;
         internal bool IsUpdateAvailable => _release != null && _asset != null
             && CompareVersions(_release.Version, CurrentVersion) > 0;
-        internal bool IsDownloaded => _phase == AppUpdatePhase.Downloaded
-            && !string.IsNullOrWhiteSpace(_downloadedInstaller)
-            && File.Exists(_downloadedInstaller);
-
         internal string ActionLabel
         {
             get
@@ -148,23 +144,21 @@ namespace YTray.Core
                 switch (_phase)
                 {
                     case AppUpdatePhase.Checking: return "正在检查…";
-                    case AppUpdatePhase.Downloading: return $"下载中 {_downloadPercent}%";
                     case AppUpdatePhase.Installing: return "正在启动安装…";
-                    case AppUpdatePhase.Downloaded: return "立即安装";
-                    default: return IsUpdateAvailable ? "下载并安装" : "检查更新";
+                    default: return !_enabled ? "开发版不更新" : IsUpdateAvailable ? "更新" : "检查更新";
                 }
             }
         }
 
         internal async Task CheckAsync()
         {
-            if (!await _operationGate.WaitAsync(0).ConfigureAwait(false)) return;
+            if (!_enabled || _disposed || IsBusy || !await _operationGate.WaitAsync(0).ConfigureAwait(false)) return;
             try
             {
                 SetPhase(AppUpdatePhase.Checking, "正在检查 YTray 更新…");
                 using (var request = new HttpRequestMessage(
                     HttpMethod.Get,
-                    ManifestUrl + "?app_update=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
+                    ManifestUrl))
                 using (var timeout = new CancellationTokenSource(_checkTimeout))
                 {
                     request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue
@@ -177,7 +171,7 @@ namespace YTray.Core
                         HttpCompletionOption.ResponseContentRead,
                         timeout.Token).ConfigureAwait(false))
                     {
-                        response.EnsureSuccessStatusCode();
+                        if (response.StatusCode != HttpStatusCode.OK) throw new InvalidDataException("更新服务器返回了异常状态");
                         var json = await ReadManifestJsonAsync(response.Content).ConfigureAwait(false);
                         AppReleaseManifest release;
                         try
@@ -193,23 +187,14 @@ namespace YTray.Core
                         var architecture = Environment.Is64BitProcess ? "amd64" : "386";
                         var asset = SelectAsset(release, "windows", architecture, "setup")
                             ?? throw new InvalidDataException($"最新版本没有 Windows {architecture} 安装包");
-                        ValidateAsset(asset);
+                        ValidateAsset(asset, release.Version, architecture);
 
                         _release = release;
                         _asset = asset;
-                        _downloadedInstaller = ExistingVerifiedDownload(release, asset);
-                        if (CompareVersions(release.Version, CurrentVersion) > 0)
-                        {
-                            if (_downloadedInstaller != null)
-                                SetPhase(AppUpdatePhase.Downloaded, $"YTray v{release.Version} 已下载并校验，可以安装");
-                            else
-                                SetPhase(AppUpdatePhase.Available, $"发现新版本 v{release.Version} · 当前 v{CurrentVersion}");
-                        }
-                        else
-                        {
-                            _downloadedInstaller = null;
-                            SetPhase(AppUpdatePhase.UpToDate, $"YTray v{CurrentVersion} 已是最新版本");
-                        }
+                        LastCheck = DateTime.Now;
+                        SetPhase(IsUpdateAvailable ? AppUpdatePhase.Available : AppUpdatePhase.UpToDate,
+                            IsUpdateAvailable ? $"发现新版本 v{release.Version} · 当前 v{CurrentVersion}"
+                                : $"YTray v{CurrentVersion} 已是最新版本");
                     }
                 }
             }
@@ -229,142 +214,61 @@ namespace YTray.Core
             }
         }
 
-        internal async Task<bool> DownloadAsync()
+        private static bool IsProductionProcess()
         {
-            if (!IsUpdateAvailable || _release == null || _asset == null) return false;
-            if (!await _operationGate.WaitAsync(0).ConfigureAwait(false)) return false;
-            var release = _release;
-            var asset = _asset;
-            string? partialPath = null;
-            try
-            {
-                ValidateAsset(asset);
-                var destination = DownloadPath(release, asset);
-                partialPath = destination + ".part";
-                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                TryDelete(partialPath);
-                SetDownloadProgress(0);
-                SetPhase(AppUpdatePhase.Downloading, $"正在下载 YTray v{release.Version}…");
-
-                using (var request = new HttpRequestMessage(HttpMethod.Get, asset.Url))
-                {
-                    request.Headers.AcceptEncoding.Clear();
-                    using (var response = await _client.SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
-                    {
-                        response.EnsureSuccessStatusCode();
-                        using (var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                        using (var output = new FileStream(
-                            partialPath,
-                            FileMode.CreateNew,
-                            FileAccess.Write,
-                            FileShare.None,
-                            81920,
-                            useAsync: true))
-                        {
-                            var buffer = new byte[81920];
-                            long received = 0;
-                            int read;
-                            while ((read = await source.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
-                            {
-                                await output.WriteAsync(buffer, 0, read).ConfigureAwait(false);
-                                received += read;
-                                if (asset.Size > 0)
-                                    SetDownloadProgress((int)Math.Min(100, received * 100 / asset.Size));
-                            }
-                            await output.FlushAsync().ConfigureAwait(false);
-                        }
-                    }
-                }
-
-                VerifyFile(partialPath, asset);
-                TryDelete(destination);
-                File.Move(partialPath, destination);
-                partialPath = null;
-                _downloadedInstaller = destination;
-                SetDownloadProgress(100);
-                SetPhase(AppUpdatePhase.Downloaded, $"YTray v{release.Version} 下载完成，校验已通过");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                if (partialPath != null) TryDelete(partialPath);
-                DiagnosticLog.Error("app.update.download", ex);
-                SetPhase(AppUpdatePhase.Failed, "下载更新失败 · " + UserFacingError(ex));
-                return false;
-            }
-            finally
-            {
-                _operationGate.Release();
-            }
+#if DEBUG
+            return false;
+#else
+            return System.Reflection.Assembly.GetEntryAssembly() == typeof(AppUpdateService).Assembly
+                && !Environment.GetCommandLineArgs().Any(a => a.StartsWith("--capture-", StringComparison.Ordinal)
+                    || a.StartsWith("--verify-", StringComparison.Ordinal) || a.StartsWith("--smoke-", StringComparison.Ordinal));
+#endif
         }
 
-        internal bool StartInstaller()
+        internal void Start()
         {
-            try
+            if (!_enabled || _disposed || _timer != null) return;
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+            _timer.Tick += async (sender, args) =>
             {
-                var asset = _asset;
-                var installer = _downloadedInstaller;
-                if (asset == null || string.IsNullOrWhiteSpace(installer))
-                    throw new InvalidOperationException("安装包尚未下载");
-                VerifyFile(installer!, asset);
-                SetPhase(AppUpdatePhase.Installing, "正在启动安装程序，YTray 将自动重启…");
-                var process = Process.Start(CreateInstallerStartInfo(installer!));
-                if (process == null) throw new InvalidOperationException("无法启动安装程序");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                DiagnosticLog.Error("app.update.install", ex);
-                SetPhase(AppUpdatePhase.Failed, "无法安装更新 · " + UserFacingError(ex));
-                return false;
-            }
-        }
-
-        internal static ProcessStartInfo CreateInstallerStartInfo(string installer)
-        {
-            if (string.IsNullOrWhiteSpace(installer)) throw new ArgumentException("安装包路径为空", nameof(installer));
-            return new ProcessStartInfo
-            {
-                FileName = installer,
-                Arguments = InstallerArguments,
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                // Do not set Verb=runas here. The signed Inno Setup executable declares
-                // PrivilegesRequired=admin and performs its own UAC transition while retaining
-                // the original user's token. Pre-elevating Setup prevents runasoriginaluser
-                // from dropping the relaunched YTray process back to normal integrity.
-                WorkingDirectory = Path.GetDirectoryName(installer),
+                _timer.Interval = TimeSpan.FromHours(6);
+                if (AutomaticChecks()) await CheckAsync();
             };
+            _timer.Start();
         }
 
-        private string? ExistingVerifiedDownload(AppReleaseManifest release, AppReleaseAsset asset)
+        internal void InstallUpdate()
         {
+            if (!_enabled || _disposed || IsBusy) return;
+            if (!CanInstall()) { SetPhase(AppUpdatePhase.Failed, "请先完成浏览器启动、组件安装或当前弹窗，再更新 YTray。"); return; }
+            if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "unins000.exe"))
+                && MessageBox.Show("当前为便携版。更新将安装到本机应用目录，保留实例和配置；原便携目录不会删除。", "更新 YTray？",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
             try
             {
-                var path = DownloadPath(release, asset);
-                if (!File.Exists(path)) return null;
-                VerifyFile(path, asset);
-                return path;
+                if (_native == null) _native = new NativeAppUpdater(CurrentVersion, CanInstall,
+                    (result, message) =>
+                    {
+                        if (result == NativeUpdateResult.Current) { _release = null; _asset = null; }
+                        SetPhase(result == NativeUpdateResult.Failed ? AppUpdatePhase.Failed
+                            : result == NativeUpdateResult.Current ? AppUpdatePhase.UpToDate : AppUpdatePhase.Idle, message);
+                    });
+                SetPhase(AppUpdatePhase.Installing, "正在下载并校验，安装完成后会重新打开 YTray。");
+                _native.Install();
             }
-            catch
+            catch (Exception ex)
             {
-                return null;
+                DiagnosticLog.Error("app.update.native", ex);
+                SetPhase(AppUpdatePhase.Failed, "更新组件不可用，请重试或手动下载。");
             }
         }
 
-        private string DownloadPath(AppReleaseManifest release, AppReleaseAsset asset)
+        internal void OpenDownloads()
         {
-            var safeVersion = release.Version.Replace('/', '-').Replace('\\', '-');
-            var safeFilename = Path.GetFileName(asset.Filename);
-            if (string.IsNullOrWhiteSpace(safeFilename)
-                || !string.Equals(safeFilename, asset.Filename, StringComparison.Ordinal))
-                throw new InvalidDataException("更新清单中的文件名不安全");
-            return Path.Combine(
-                _updatesDirectory,
-                safeVersion,
-                safeFilename);
+            var version = IsUpdateAvailable ? AvailableVersion! : CurrentVersion;
+            var architecture = Environment.Is64BitProcess ? "amd64" : "386";
+            try { Process.Start(new ProcessStartInfo($"https://aliyun-oss.yaklang.com/ytray/{version}/YTray-{version}-windows-{architecture}-setup.exe") { UseShellExecute = true }); }
+            catch (Exception ex) { SetPhase(AppUpdatePhase.Failed, "无法打开浏览器：" + ex.Message); }
         }
 
         private static async Task<string> ReadManifestJsonAsync(HttpContent content)
@@ -412,31 +316,29 @@ namespace YTray.Core
 
         private static void ValidateManifest(AppReleaseManifest release)
         {
-            if (release.SchemaVersion != 1 || !string.Equals(release.Product, "ytray", StringComparison.Ordinal)
-                || string.IsNullOrWhiteSpace(release.Version) || release.Assets == null)
+            if (release.SchemaVersion != 1 || release.Product != "ytray" || release.Version == null
+                || !Regex.IsMatch(release.Version, @"\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z")
+                || !Version.TryParse(release.Version, out _) || release.Assets == null
+                || (release.ReleaseNotes != null && release.ReleaseNotes != "https://github.com/yaklang/ytray/releases/tag/v" + release.Version)
+                || (release.ReleaseNotesText?.Length ?? 0) > 32000)
                 throw new InvalidDataException("更新清单格式无效");
         }
 
-        private static void ValidateAsset(AppReleaseAsset asset)
+        private static void ValidateAsset(AppReleaseAsset asset, string version, string architecture)
         {
-            if (!Uri.TryCreate(asset.Url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-                throw new InvalidDataException("更新下载地址必须使用 HTTPS");
-            if (asset.Size <= 0 || asset.SHA256.Length != 64
-                || asset.SHA256.Any(character => !Uri.IsHexDigit(character)))
+            var filename = $"YTray-{version}-windows-{architecture}-setup.exe";
+            if (asset.Filename != filename || asset.Url != $"https://aliyun-oss.yaklang.com/ytray/{version}/{filename}"
+                || asset.Size <= 0 || asset.Size >= 536870912 || asset.SHA256 == null
+                || !Regex.IsMatch(asset.SHA256, @"\A[a-f0-9]{64}\z"))
                 throw new InvalidDataException("更新包校验信息无效");
-            if (string.IsNullOrWhiteSpace(asset.Filename)
-                || !string.Equals(Path.GetFileName(asset.Filename), asset.Filename, StringComparison.Ordinal))
-                throw new InvalidDataException("更新包文件名无效");
         }
 
-        internal static AppReleaseAsset? SelectAsset(
-            AppReleaseManifest release,
-            string platform,
-            string architecture,
-            string kind) => release.Assets.FirstOrDefault(asset =>
-                string.Equals(asset.Platform, platform, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(asset.Architecture, architecture, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(asset.Kind, kind, StringComparison.OrdinalIgnoreCase));
+        internal static AppReleaseAsset? SelectAsset(AppReleaseManifest release, string platform, string architecture, string kind)
+        {
+            var matches = release.Assets.Where(a => a != null && a.Platform == platform
+                && a.Architecture == architecture && a.Kind == kind).ToArray();
+            return matches.Length == 1 ? matches[0] : null;
+        }
 
         internal static int CompareVersions(string left, string right)
         {
@@ -516,29 +418,6 @@ namespace YTray.Core
             }
         }
 
-        private static void VerifyFile(string path, AppReleaseAsset asset)
-        {
-            var info = new FileInfo(path);
-            if (!info.Exists || info.Length != asset.Size)
-                throw new InvalidDataException("更新包大小与发布清单不一致");
-            using (var stream = File.OpenRead(path))
-            using (var sha = SHA256.Create())
-            {
-                var actual = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
-                if (!string.Equals(actual, asset.SHA256, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("更新包 SHA-256 校验失败");
-            }
-        }
-
-        private void SetDownloadProgress(int value)
-        {
-            value = Math.Max(0, Math.Min(100, value));
-            if (_downloadPercent == value) return;
-            _downloadPercent = value;
-            OnPropertyChanged(nameof(DownloadPercent));
-            OnPropertyChanged(nameof(ActionLabel));
-        }
-
         private void SetPhase(AppUpdatePhase phase, string status)
         {
             _phase = phase;
@@ -548,7 +427,6 @@ namespace YTray.Core
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(IsBusy));
             OnPropertyChanged(nameof(IsUpdateAvailable));
-            OnPropertyChanged(nameof(IsDownloaded));
             OnPropertyChanged(nameof(ActionLabel));
             OnPropertyChanged(nameof(AvailableVersion));
         }
@@ -567,16 +445,11 @@ namespace YTray.Core
                 catch (Exception ex)
                 {
                     // A presentation observer must never break the updater state machine or
-                    // strand the UI in Checking/Downloading. Preserve diagnostics and keep
+                    // strand the UI in Checking/Installing. Preserve diagnostics and keep
                     // notifying the remaining observers.
                     CrashGuard.Record("app-update-property-changed:" + name, ex);
                 }
             }
-        }
-
-        private static void TryDelete(string path)
-        {
-            try { if (File.Exists(path)) File.Delete(path); } catch { }
         }
 
         private static string UserFacingError(Exception error)
@@ -589,8 +462,12 @@ namespace YTray.Core
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
+            _timer?.Stop();
+            _native?.Dispose();
             _client.Dispose();
-            _operationGate.Dispose();
+            // An in-flight check still owns the semaphore and releases it in finally.
         }
     }
 }

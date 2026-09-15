@@ -33,3 +33,13 @@ EXISTING_RELEASES_FILE="$WORK/retry-existing.json" \
 cmp "$WORK/out/releases.json" "$WORK/retry-out/releases.json"
 cmp "$WORK/out/latest-version.txt" "$WORK/retry-out/latest-version.txt"
 echo "release index test passed"
+
+jq '.latest = "0.2.0"' "$WORK/existing.json" > "$WORK/newer.json"
+if EXISTING_RELEASES_FILE="$WORK/newer.json" bash "$ROOT/script/prepare-release-index.sh" "$VERSION" "$WORK/manifest.json" "$WORK/downgrade"; then
+  echo "Downgrade was incorrectly accepted" >&2; exit 1
+fi
+jq '.assets[0].size = 999' "$WORK/manifest.json" > "$WORK/conflict.json"
+if EXISTING_RELEASES_FILE="$WORK/retry-existing.json" bash "$ROOT/script/prepare-release-index.sh" "$VERSION" "$WORK/conflict.json" "$WORK/conflict"; then
+  echo "Conflicting historical release was incorrectly accepted" >&2; exit 1
+fi
+echo "release downgrade and immutability checks passed"

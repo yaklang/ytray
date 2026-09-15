@@ -18,6 +18,10 @@ jobs:
     name: Build, test, capture, package
     runs-on: windows-2022
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, "386"]
     steps:
       - uses: actions/checkout@v4
 
@@ -27,16 +31,16 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
-      - name: Build, test, and package amd64
+      - name: Build, test, and package ${{ matrix.arch }}
         shell: pwsh
-        run: ./windows/build.ps1 -Release -Test -Package -Installer -Architecture amd64
+        run: ./windows/build.ps1 -Release -Test -Package -Installer -Architecture '${{ matrix.arch }}'
 
       - name: Verify standalone executable and bundled latest plugin
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (Get-Content VERSION -Raw).Trim()
-          $exe = "windows/artifacts/amd64/YTray-$version-windows-amd64.exe"
+          $exe = "windows/artifacts/${{ matrix.arch }}/YTray-$version-windows-${{ matrix.arch }}.exe"
           $marker = Join-Path $env:RUNNER_TEMP 'standalone-ok.json'
           $process = Start-Process $exe -ArgumentList @('--verify-standalone', ('"' + $marker + '"')) -PassThru
           if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Standalone smoke timed out.' }
@@ -46,11 +50,20 @@ jobs:
           if ($verification.version -ne $version) { throw "Standalone version mismatch: $($verification.version) != $version" }
           if ($verification.bundledExtensionVersion -ne $bundled.version) { throw 'Bundled plugin version mismatch.' }
 
+      - name: Verify native WinSparkle signatures
+        shell: pwsh
+        run: ./windows/test-updater.ps1 -Architecture '${{ matrix.arch }}'
+
+      - name: Verify upgrade, relaunch and data preservation
+        shell: pwsh
+        run: ./windows/verify-upgrade.ps1 -Architecture '${{ matrix.arch }}'
+
       - name: Capture Windows design review
+        if: matrix.arch == 'amd64'
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          $exe = "windows/artifacts/amd64/YTray-$version-windows-amd64.exe"
+          $exe = "windows/artifacts/${{ matrix.arch }}/YTray-$version-windows-${{ matrix.arch }}.exe"
           $capture = Join-Path $env:RUNNER_TEMP 'ytray-design-review'
           $process = Start-Process $exe -ArgumentList @('--capture-design-review', ('"' + $capture + '"')) -PassThru
           if (-not $process.WaitForExit(300000)) {
@@ -65,9 +78,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ytray-windows-ci
+          name: ytray-windows-ci-${{ matrix.arch }}
           path: |
-            windows/artifacts/amd64/YTray-*-windows-amd64-setup.exe
+            windows/artifacts/${{ matrix.arch }}/YTray-*-windows-${{ matrix.arch }}-setup.exe
             ${{ runner.temp }}/ytray-design-review/**
           if-no-files-found: error
           retention-days: 14

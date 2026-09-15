@@ -278,6 +278,7 @@ namespace YTray.Models
 
     public class LaunchSettings
     {
+        public bool CheckForAppUpdates { get; set; } = true;
         public const int CurrentConfigurationVersion = 5;
         public const int CertificateDefaultMigrationVersion = 2;
         public const string DefaultPresetProxyServer = "http://127.0.0.1:8083";
@@ -375,6 +376,7 @@ namespace YTray.Models
                 EdgeDockYPercent = EdgeDockYPercent,
                 ThemePreference = ThemePreference,
                 LaunchAtLoginSetupCompleted = LaunchAtLoginSetupCompleted,
+                CheckForAppUpdates = CheckForAppUpdates,
             };
         }
 

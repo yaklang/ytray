@@ -87,6 +87,12 @@ BIN_PATH="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/BundledExtension" "$ICONSET_DIR"
 cp "$BIN_PATH/YTray" "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
+SPARKLE_FRAMEWORK="$PACKAGE_ROOT/.build/artifacts/darwin/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+test -d "$SPARKLE_FRAMEWORK"
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+ditto "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+cp "$PACKAGE_ROOT/.build/artifacts/darwin/Sparkle/LICENSE" "$APP_BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
+
 cp "$BUNDLED_EXTENSION_DIR/yakit-browser-agent.zip" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 cp "$BUNDLED_EXTENSION_DIR/bundled-extension.json" "$APP_BUNDLE/Contents/Resources/BundledExtension/"
 
@@ -112,7 +118,7 @@ cp "$BASE_PNG" "$ICONSET_DIR/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/YTray.icns"
 cp "$INFO_PLIST_SOURCE" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-$(git -C "$PROJECT_ROOT" rev-list --count HEAD)}" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(python3 "$SCRIPT_DIR/version.py" --version "${VERSION%%-*}" --build-number)" "$APP_BUNDLE/Contents/Info.plist"
 if [[ "$DEVELOPMENT_BUILD" -eq 1 ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName YTrayDev" "$APP_BUNDLE/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleName YTrayDev" "$APP_BUNDLE/Contents/Info.plist"
@@ -121,6 +127,8 @@ if [[ "$DEVELOPMENT_BUILD" -eq 1 ]]; then
     /usr/libexec/PlistBuddy -c "Add :YTrayInstanceColorThemes bool true" "$APP_BUNDLE/Contents/Info.plist"
 fi
 
+UPDATE_PUBLIC_KEY="$(tr -d '[:space:]' < "$PROJECT_ROOT/resources/updates/ed25519-public-key.txt")"
+/usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $UPDATE_PUBLIC_KEY" "$APP_BUNDLE/Contents/Info.plist"
 # Local packages are ad-hoc signed. The release workflow replaces this with a
 # stable Developer ID signature and notarization when the repository secrets exist.
 codesign --force --deep --sign - "$APP_BUNDLE"

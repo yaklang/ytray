@@ -243,13 +243,11 @@ final class BrowserLauncherTests: XCTestCase {
     func testDisabledDevelopmentUpdaterCannotCheckOrInstall() async {
         let updater = AppUpdateManager(currentVersion: "0.1.8-dev", updatesEnabled: false)
         XCTAssertFalse(updater.updatesEnabled)
-        XCTAssertEqual(updater.actionLabel, "体验版不更新")
+        XCTAssertEqual(updater.actionLabel, "开发版不更新")
         await updater.checkForUpdates()
         XCTAssertEqual(updater.phase, .upToDate)
-        let downloaded = await updater.downloadUpdate()
-        let installed = await updater.installDownloadedUpdate()
-        XCTAssertFalse(downloaded)
-        XCTAssertFalse(installed)
+        updater.installUpdate()
+        XCTAssertEqual(updater.phase, .upToDate)
     }
 
     func testDockBadgeIconCanRenderOneOrTwoLetters() {

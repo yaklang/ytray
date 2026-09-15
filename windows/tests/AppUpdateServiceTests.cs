@@ -62,7 +62,7 @@ namespace YTray.Tests
             var handler = new NeverCompletingHandler();
             using (var service = new AppUpdateService(
                 handler,
-                TimeSpan.FromMilliseconds(40)))
+                TimeSpan.FromMilliseconds(40), enabled: true))
             {
                 await service.CheckAsync();
 
@@ -84,6 +84,9 @@ namespace YTray.Tests
             {
                 Assert.IsTrue(handler.AutomaticDecompression.HasFlag(DecompressionMethods.GZip));
                 Assert.IsTrue(handler.AutomaticDecompression.HasFlag(DecompressionMethods.Deflate));
+                Assert.IsFalse(handler.AllowAutoRedirect);
+                Assert.IsFalse(handler.UseCookies);
+                Assert.IsFalse(handler.UseDefaultCredentials);
             }
         }
 
@@ -93,11 +96,11 @@ namespace YTray.Tests
             var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.0\","
                 + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\""
                 + (Environment.Is64BitProcess ? "amd64" : "386")
-                + "\",\"kind\":\"setup\",\"filename\":\"YTray-99.0.0-setup.exe\","
-                + "\"url\":\"https://example.test/YTray-99.0.0-setup.exe\","
+                + "\",\"kind\":\"setup\",\"filename\":\"YTray-99.0.0-windows-" + (Environment.Is64BitProcess ? "amd64" : "386") + "-setup.exe\","
+                + "\"url\":\"https://aliyun-oss.yaklang.com/ytray/99.0.0/YTray-99.0.0-windows-" + (Environment.Is64BitProcess ? "amd64" : "386") + "-setup.exe\","
                 + "\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}]}";
             using (var service = new AppUpdateService(
-                new StaticResponseHandler(() => GzipResponse(manifest))))
+                new StaticResponseHandler(() => GzipResponse(manifest)), enabled: true))
             {
                 await service.CheckAsync();
 
@@ -114,7 +117,7 @@ namespace YTray.Tests
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent("proxy returned an error page", Encoding.UTF8, "application/json"),
-                })))
+                }), enabled: true))
             {
                 await service.CheckAsync();
 
@@ -129,14 +132,14 @@ namespace YTray.Tests
             var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.0\","
                 + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\""
                 + (Environment.Is64BitProcess ? "amd64" : "386")
-                + "\",\"kind\":\"setup\",\"filename\":\"YTray-99.0.0-setup.exe\","
-                + "\"url\":\"https://example.test/YTray-99.0.0-setup.exe\","
+                + "\",\"kind\":\"setup\",\"filename\":\"YTray-99.0.0-windows-" + (Environment.Is64BitProcess ? "amd64" : "386") + "-setup.exe\","
+                + "\"url\":\"https://aliyun-oss.yaklang.com/ytray/99.0.0/YTray-99.0.0-windows-" + (Environment.Is64BitProcess ? "amd64" : "386") + "-setup.exe\","
                 + "\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}]}";
             using (var service = new AppUpdateService(new StaticResponseHandler(() =>
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(manifest, Encoding.UTF8, "application/json"),
-                })))
+                }), enabled: true))
             {
                 var notifications = 0;
                 service.PropertyChanged += (sender, args) =>
@@ -155,82 +158,64 @@ namespace YTray.Tests
         }
 
         [TestMethod]
-        public void AutoUpdateLetsInnoSetupPreserveTheOriginalUserToken()
+        public async Task DevelopmentModeMakesNoRequestsAndCannotInstall()
         {
-            var installer = Path.Combine(Path.GetTempPath(), "YTray-test-setup.exe");
-            var startInfo = AppUpdateService.CreateInstallerStartInfo(installer);
-
-            Assert.AreEqual(installer, startInfo.FileName);
-            Assert.AreEqual(AppUpdateService.InstallerArguments, startInfo.Arguments);
-            Assert.IsTrue(startInfo.UseShellExecute);
-            Assert.AreEqual(ProcessWindowStyle.Hidden, startInfo.WindowStyle);
-            Assert.IsTrue(string.IsNullOrEmpty(startInfo.Verb),
-                "Pre-elevating Setup prevents Inno from relaunching YTray as the original user.");
-
-            var repositoryRoot = Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", ".."));
-            var innoScript = File.ReadAllText(Path.Combine(
-                repositoryRoot,
-                "windows", "Packaging", "YTray.iss"));
-            StringAssert.Contains(innoScript,
-                "Flags: nowait skipifdoesntexist runasoriginaluser; Check: IsAutoUpdate");
+            var handler = new NeverCompletingHandler();
+            using (var service = new AppUpdateService(handler, enabled: false))
+            {
+                await service.CheckAsync();
+                service.InstallUpdate();
+                Assert.AreEqual(0, handler.RequestCount);
+                Assert.AreEqual(AppUpdatePhase.Idle, service.Phase);
+            }
         }
 
         [TestMethod]
-        public async Task DownloadProgressObserverFailureCannotAbortAValidUpdate()
+        public void BusyWorkPreventsTheNativeInstaller()
         {
-            var payload = Encoding.UTF8.GetBytes("deterministic installer payload");
-            string sha256;
-            using (var sha = SHA256.Create())
-                sha256 = BitConverter.ToString(sha.ComputeHash(payload)).Replace("-", "").ToLowerInvariant();
-            var architecture = Environment.Is64BitProcess ? "amd64" : "386";
-            var filename = "YTray-99.0.1-setup.exe";
-            var assetUrl = "https://example.test/" + filename;
-            var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.1\","
-                + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\"" + architecture
-                + "\",\"kind\":\"setup\",\"filename\":\"" + filename + "\","
-                + "\"url\":\"" + assetUrl + "\",\"sha256\":\"" + sha256
-                + "\",\"size\":" + payload.Length + "}]}";
-            var updateRoot = Path.Combine(Path.GetTempPath(), "YTray.Tests", Guid.NewGuid().ToString("N"));
-
-            try
+            using (var service = new AppUpdateService(enabled: true))
             {
-                using (var service = new AppUpdateService(
-                    new RoutedResponseHandler(request =>
-                    {
-                        if (string.Equals(request.RequestUri?.AbsoluteUri, assetUrl, StringComparison.Ordinal))
-                            return new HttpResponseMessage(HttpStatusCode.OK)
-                            {
-                                Content = new ByteArrayContent(payload),
-                            };
-                        return new HttpResponseMessage(HttpStatusCode.OK)
-                        {
-                            Content = new StringContent(manifest, Encoding.UTF8, "application/json"),
-                        };
-                    }),
-                    updatesDirectory: updateRoot))
-                {
-                    service.PropertyChanged += (sender, args) =>
-                    {
-                        if (args.PropertyName == nameof(AppUpdateService.DownloadPercent))
-                            throw new InvalidOperationException("Broken progress observer");
-                    };
-
-                    await service.CheckAsync();
-                    var downloaded = await service.DownloadAsync();
-
-                    Assert.IsTrue(downloaded);
-                    Assert.AreEqual(AppUpdatePhase.Downloaded, service.Phase);
-                    Assert.AreEqual(100, service.DownloadPercent);
-                    CollectionAssert.AreEqual(
-                        payload,
-                        File.ReadAllBytes(Path.Combine(updateRoot, "99.0.1", filename)));
-                }
+                service.CanInstall = () => false;
+                service.InstallUpdate();
+                Assert.AreEqual(AppUpdatePhase.Failed, service.Phase);
+                StringAssert.Contains(service.StatusText, "请先完成");
+                Assert.IsFalse(service.IsBusy);
             }
-            finally
+        }
+
+        [TestMethod]
+        public void NativeEngineMatchesTheProcessArchitecture()
+        {
+            var bytes = NativeAppUpdater.VerifiedEngineBytes();
+            Assert.IsTrue(bytes.Length > 1000000);
+            var peOffset = BitConverter.ToInt32(bytes, 0x3c);
+            Assert.AreEqual(Environment.Is64BitProcess ? 0x8664 : 0x14c, (int)BitConverter.ToUInt16(bytes, peOffset + 4));
+        }
+
+        [TestMethod]
+        public async Task CatalogRejectsWrongOriginDuplicatesAndOversizedBodies()
+        {
+            var architecture = Environment.Is64BitProcess ? "amd64" : "386";
+            var filename = "YTray-99.0.0-windows-" + architecture + "-setup.exe";
+            var asset = "{\"platform\":\"windows\",\"architecture\":\"" + architecture + "\",\"kind\":\"setup\",\"filename\":\"" + filename
+                + "\",\"url\":\"https://aliyun-oss.yaklang.com/ytray/99.0.0/" + filename + "\",\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}";
+            var valid = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.0\",\"assets\":[" + asset + "]}";
+            foreach (var invalid in new[] {
+                valid.Replace("aliyun-oss.yaklang.com", "example.com"),
+                valid.Replace("\"ytray\"", "\"yconnect\""),
+                valid.Replace("99.0.0", "099.0.0"),
+                valid.Replace("[" + asset + "]", "[" + asset + "," + asset + "]"),
+                valid.Replace("123}", "-1}"),
+                new string(' ', AppUpdateService.MaximumManifestBytes + 1),
+            })
             {
-                if (Directory.Exists(updateRoot)) Directory.Delete(updateRoot, recursive: true);
+                using (var service = new AppUpdateService(new StaticResponseHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent(invalid) }), enabled: true))
+                {
+                    await service.CheckAsync();
+                    Assert.AreEqual(AppUpdatePhase.Failed, service.Phase);
+                    Assert.IsFalse(service.IsUpdateAvailable);
+                }
             }
         }
 
