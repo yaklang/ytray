@@ -191,21 +191,22 @@ namespace YTray.Core
             {
                 arguments.Add("--restore-last-session");
                 if (managedExtensionLoaded)
-                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true));
+                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true, settings.ProxyServer));
                 return arguments;
             }
             arguments.Add(managedExtensionLoaded
-                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false)
+                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false, settings.ProxyServer)
                 : target);
             return arguments;
         }
 
-        internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target, bool restore)
+        internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target, bool restore, string? proxyServer = null)
         {
             return $"chrome-extension://{extensionId}/ytray-bootstrap.html" +
                 $"?manager=ytray&instanceId={Uri.EscapeDataString(instanceId.ToString())}" +
                 $"&badge={Uri.EscapeDataString(DockBadgeLabel.Normalize(badge))}" +
-                $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}";
+                $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
+                $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}";
         }
 
         internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,
@@ -310,7 +311,7 @@ namespace YTray.Core
             if (usesProxyAuth)
                 launchSettings.HomeURL = ProxyAuthenticationBootstrapURL;
 
-            var proxyAuthExt = ProxyAuthenticationExtension.Write(id, settings.ProxyUsername ?? "", settings.ProxyPassword ?? "", applicationDirectory);
+            var proxyAuthExt = ProxyAuthenticationExtension.Write(id, settings.ProxyUsername ?? "", settings.ProxyPassword ?? "", applicationDirectory, settings.ProxyServer ?? "");
             var internalPaths = new List<string>();
             if (proxyAuthExt != null) internalPaths.Add(proxyAuthExt);
 

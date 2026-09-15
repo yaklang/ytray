@@ -12,9 +12,10 @@ namespace YTray.Core
     /// </summary>
     public static class ProxyAuthenticationExtension
     {
-        public static string? Write(Guid instanceId, string username, string password, string applicationDirectory)
+        public static string? Write(Guid instanceId, string username, string password, string applicationDirectory, string proxyServer)
         {
             if (string.IsNullOrEmpty(username) && string.IsNullOrEmpty(password)) return null;
+            var endpoint = HTTPProxyAddress.Split(proxyServer);
             var dir = ExtensionURL(instanceId, applicationDirectory);
             try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
             Directory.CreateDirectory(dir);
@@ -35,11 +36,14 @@ namespace YTray.Core
             var script = $@"
 const username = {usernameLiteral};
 const password = {passwordLiteral};
+const proxyHost = {JsonConvert.SerializeObject(endpoint.Host.ToLowerInvariant().Trim('[', ']'))};
+const proxyPort = {endpoint.Port};
 const attempts = new Map();
 
 chrome.webRequest.onAuthRequired.addListener(
   (details, callback) => {{
-    if (!details.isProxy) {{ callback({{}}); return; }}
+    if (!details.isProxy || String(details.challenger?.host || '').toLowerCase().replace(/^\[|\]$/g, '') !== proxyHost
+        || details.challenger?.port !== proxyPort) {{ callback({{}}); return; }}
     const count = (attempts.get(details.requestId) || 0) + 1;
     attempts.set(details.requestId, count);
     if (count > 1) {{ callback({{ cancel: true }}); return; }}

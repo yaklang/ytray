@@ -923,6 +923,7 @@ final class BrowserLauncherTests: XCTestCase {
             instanceID: instanceID,
             username: "yak-user",
             password: "secret-value",
+            proxyServer: "http://127.0.0.1:8083",
             applicationDirectory: directory
         ))
         let manifest = try String(contentsOf: extensionURL.appendingPathComponent("manifest.json"))
@@ -930,6 +931,8 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertTrue(manifest.contains("webRequestAuthProvider"))
         XCTAssertTrue(script.contains("secret-value"))
         XCTAssertTrue(script.contains("details.isProxy"))
+        XCTAssertTrue(script.contains("details.challenger?.port !== proxyPort"))
+        XCTAssertTrue(script.contains("const proxyPort = 8083"))
 
         let scriptAttributes = try FileManager.default.attributesOfItem(
             atPath: extensionURL.appendingPathComponent("background.js").path
@@ -1059,6 +1062,7 @@ final class BrowserLauncherTests: XCTestCase {
             instanceID: instanceID,
             username: "yak",
             password: "secret",
+            proxyServer: "http://127.0.0.1:\(proxyPort)",
             applicationDirectory: directory
         ))
         let debugPort = BrowserLauncher.nextAvailablePort(startingAt: 18_383)
