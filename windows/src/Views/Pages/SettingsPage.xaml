@@ -12,8 +12,9 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
     </Page.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="25,20,25,22">
-        <Grid.RowDefinitions><RowDefinition Height="80"/><RowDefinition Height="375"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="80"/><RowDefinition Height="Auto"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel><TextBlock Text="设置" Style="{StaticResource PageTitle}" FontSize="27"/><TextBlock Text="应用外观、浏览器默认行为与高级参数" Style="{StaticResource PageSubtitle}" FontSize="13" Margin="0,5,0,0"/></StackPanel>
@@ -81,7 +82,9 @@
                                 <Button x:Name="UpdateButton" Grid.Column="2" Content="检查更新" Click="Update_Click" MinWidth="112" Height="34" Padding="12,0" Style="{StaticResource YTrayPrimaryButton}"/>
                             </Grid>
                             <StackPanel Grid.Row="4">
-                                <TextBlock x:Name="UpdateNotesText" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,8"/>
+                                <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <TextBlock x:Name="UpdateNotesText" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,8"/>
+                                </ScrollViewer>
                                 <WrapPanel>
                                     <CheckBox x:Name="AutomaticUpdatesCheck" Content="自动检查新版本" Click="AutomaticUpdates_Click" FontSize="11" VerticalAlignment="Center"/>
                                     <Button Content="手动下载" Click="DownloadUpdate_Click" Style="{StaticResource YTrayGhostButton}" Margin="12,0,0,0"/>
@@ -95,7 +98,7 @@
             </Border>
         </Grid>
 
-        <Border Grid.Row="3" Style="{StaticResource SurfaceBorder}" Padding="20,16">
+        <Border Grid.Row="3" Style="{StaticResource SurfaceBorder}" Padding="20,16" MinHeight="220">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="*"/><RowDefinition Height="11"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <TextBlock Text="Chrome 高级参数" Style="{StaticResource SectionTitle}" FontSize="15"/>
@@ -104,4 +107,5 @@
             </Grid>
         </Border>
     </Grid>
+    </ScrollViewer>
 </Page>
