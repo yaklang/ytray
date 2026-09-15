@@ -36,9 +36,11 @@
 	<false/>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
 	<key>SUVerifyUpdateBeforeExtraction</key>
 	<true/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUSendProfileInfo</key>
+	<false/>
 </dict>
 </plist>

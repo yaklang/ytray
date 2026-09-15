@@ -52,6 +52,10 @@ jobs:
         arch: [arm64, amd64]
     steps:
       - uses: actions/checkout@v4
+      - name: Select OpenSSL 3 for native updater tests
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
       - name: Ensure ImageMagick
         run: command -v magick >/dev/null 2>&1 || brew install imagemagick
       - name: Test and package

@@ -6,7 +6,6 @@ using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
-using System.Threading.Tasks;
 using YTray.Core;
 using YTray.Views;
 using YTray.Native;
@@ -105,7 +104,6 @@ namespace YTray
             {
                 _updateRefreshScheduled = false;
                 BuildMenu();
-
             }), DispatcherPriority.Background);
         }
 

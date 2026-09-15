@@ -52,6 +52,12 @@
     <EmbeddedResource Include="..\.dependencies\WinSparkle-0.9.4\$(WinSparkleArchitecture)\Release\WinSparkle.dll">
       <LogicalName>YTray.WinSparkle</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="..\.dependencies\WinSparkle-0.9.4\COPYING">
+      <LogicalName>YTray.WinSparkleLicense</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\.dependencies\WinSparkle-0.9.4\COPYING.expat">
+      <LogicalName>YTray.ExpatLicense</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="..\..\resources\updates\ed25519-public-key.txt">
       <LogicalName>YTray.UpdatePublicKey</LogicalName>
     </EmbeddedResource>

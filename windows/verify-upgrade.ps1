@@ -44,7 +44,7 @@ try {
     if (-not $probe.WaitForExit(30000) -or $probe.ExitCode -ne 0) { throw 'Installed update engine failed to load' }
     $verified = Get-Content $marker -Raw | ConvertFrom-Json
     if ($verified.version -ne $version) { throw 'Installed version mismatch' }
-    Write-Host "Windows $Architecture: upgrade from 0.1.16, exact executable, automatic relaunch, native engine and data preservation verified"
+    Write-Host "Windows ${Architecture}: upgrade from 0.1.16, exact executable, automatic relaunch, native engine and data preservation verified"
 } finally {
     $exe = Join-Path $install 'YTray.exe'
     Get-Process -Name YTray -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
