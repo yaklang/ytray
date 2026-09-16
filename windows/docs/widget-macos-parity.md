@@ -36,4 +36,3 @@ Windows 小组件按仓库 `docs/images/v0.1.0/ytray-widget.png` 和 `darwin/Sou
 截图模式输出四张 PNG、`metrics.json` 和完成标记；固定以 192 DPI 渲染，直接得到 780 像素宽的图片。所有状态写在指定目录的 `fixture-state` 中，不启动浏览器、不注册开机启动。现有 `--capture-design-review` 也会生成这些图，因此 Windows CI 的截图 artifact 包含同一组对照。
 
 本地验证：Release x64 构建、104 项 MSTest（103 通过、1 项原有联网诊断跳过）；其中 WPF 检查覆盖尺寸、下拉框铺满、按钮文字不裁切、认证与目标保存、历史回填、草稿保留、主题切换、短屏滚动和空状态。另已通过实际窗口操作核对协议选择和高级配置折叠。
-
