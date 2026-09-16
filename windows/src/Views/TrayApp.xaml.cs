@@ -162,7 +162,7 @@ namespace YTray
         private WidgetView EnsureWidget()
         {
             if (_widget != null) return _widget;
-            _widget = new WidgetView(_store);
+            _widget = new WidgetView(_store, _launchAtLogin);
             _widget.OpenManagerRequested += (s, e) => ShowManager();
             return _widget;
         }

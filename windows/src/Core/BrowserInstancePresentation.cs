@@ -39,6 +39,7 @@ namespace YTray.Core
             ? Instance.RuntimeName
             : (Instance.RuntimeKind?.Title() ?? "Chromium");
         public string RuntimeVersion => string.IsNullOrWhiteSpace(Instance.RuntimeVersion) ? "版本未知" : Instance.RuntimeVersion!;
+        public string RuntimeSourceTitle => (Instance.RuntimeSource ?? RuntimeSource.Local).Title();
         public string PageTitle => string.IsNullOrWhiteSpace(Instance.LastPageTitle) ? "新标签页" : Instance.LastPageTitle!;
         public string PageUrl => string.IsNullOrWhiteSpace(Instance.LastPageURL)
             ? (string.IsNullOrWhiteSpace(Instance.StartURL) ? "chrome://newtab" : Instance.StartURL)

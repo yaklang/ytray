@@ -73,6 +73,7 @@ namespace YTray.Tests
                     Assert.AreEqual(4, Descendants(widget).OfType<Button>().Count(b => Equals(b.ToolTip, "聚焦窗口")));
                     settingsWindow.Hide();
                     widget.Hide();
+                    WidgetLayoutVerification.Run(directory);
                     ExtensionFallbackVerification.Run(directory);
                 }
                 catch (Exception ex) { failure = ex; }
