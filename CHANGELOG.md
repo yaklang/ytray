@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 — 2026-09-16
+
+- macOS 与 Windows 启动托管浏览器时向 Yakit Browser Agent 传递真实浏览器类型和版本，覆盖直接启动及插件通过 CDP 延迟加载后的跳转流程。
+- Yakit 的浏览器实例现在可以准确区分 Chrome、Chrome for Testing、Chromium 与 Edge，并展示对应版本；本版同时内置 Yakit Browser Agent 0.2.5。
+
 ## 0.2.1 — 2026-09-16
 
 - Windows 小组件对齐 macOS 的布局、按钮与下拉框高度、间距、圆角及深浅配色，统一快速启动、代理设置、运行实例和历史记录的显示。
