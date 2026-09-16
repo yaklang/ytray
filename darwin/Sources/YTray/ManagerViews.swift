@@ -24,16 +24,18 @@ enum ManagerSection: String, CaseIterable, Identifiable {
 @MainActor
 final class ManagerNavigation: ObservableObject {
     @Published var selection: ManagerSection? = .quick
+    @Published var columnVisibility: NavigationSplitViewVisibility = .all
 }
 
 struct ManagerView: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject var navigation: ManagerNavigation
     @ObservedObject var launchAtLogin: LaunchAtLoginManager
+    let quitApplication: () -> Void
     @State private var showWizard = false
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $navigation.columnVisibility) {
             List(ManagerSection.allCases) { section in
                 ManagerSidebarRow(section: section, isSelected: navigation.selection == section) {
                     navigation.selection = section
@@ -42,6 +44,7 @@ struct ManagerView: View {
                 .listRowBackground(Color.clear)
             }
             .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 200, ideal: ManagerMetrics.sidebarWidth, max: 240)
             .navigationTitle("YTray")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
@@ -70,7 +73,7 @@ struct ManagerView: View {
                 switch navigation.selection ?? .quick {
                 case .quick: QuickLaunchPage(store: store, showWizard: $showWizard)
                 case .runtimes: RuntimePage(store: store)
-                case .settings: SettingsPage(store: store)
+                case .settings: SettingsPage(store: store, quitApplication: quitApplication)
                 case .instances: InstancesPage(store: store)
                 case .plugins: PluginsPage(store: store)
                 case .launchAtLogin: LaunchAtLoginPage(manager: launchAtLogin)
@@ -79,6 +82,9 @@ struct ManagerView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
         }
+        .navigationSplitViewStyle(.balanced)
+        .buttonStyle(ManagerButtonStyle())
+        .controlSize(.regular)
         .tint(Brand.orange)
         .accentColor(Brand.orange)
         .sheet(isPresented: $showWizard) { CustomLaunchWizard(store: store, isPresented: $showWizard) }
@@ -116,6 +122,8 @@ private struct ManagerSidebarRow: View {
                     .foregroundStyle(Brand.orange)
                     .frame(width: 17)
                 Text(section.rawValue)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(Color.primary)
             }
                 .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
@@ -146,7 +154,7 @@ struct LaunchAtLoginPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: ManagerMetrics.sectionSpacing) {
                 PageHeader(
                     title: "开机启动",
                     subtitle: "让 YTray 在你登录系统后自动进入菜单栏，不自动打开浏览器实例。"
@@ -155,9 +163,9 @@ struct LaunchAtLoginPage: View {
                 GroupBox {
                     HStack(spacing: 18) {
                         ZStack {
-                            Circle().fill(statusColor.opacity(0.14)).frame(width: 58, height: 58)
+                            Circle().fill(statusColor.opacity(0.14)).frame(width: 44, height: 44)
                             Image(systemName: manager.isEnabled ? "power.circle.fill" : "power.circle")
-                                .font(.system(size: 30))
+                                .font(.system(size: 26))
                                 .foregroundStyle(statusColor)
                         }
                         VStack(alignment: .leading, spacing: 6) {
@@ -178,7 +186,7 @@ struct LaunchAtLoginPage: View {
                         .tint(Brand.orange)
                         .disabled(manager.status == .unavailable)
                     }
-                    .padding(16)
+                    .padding(10)
                 } label: {
                     Label("随登录自动运行", systemImage: "person.crop.circle.badge.clock")
                 }
@@ -193,20 +201,20 @@ struct LaunchAtLoginPage: View {
                     Text("此设置只让 YTray 驻留菜单栏。代理、插件和浏览器实例仍需由你点击启动。")
                         .foregroundStyle(.secondary)
                 }
-                .padding(18)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.primary.opacity(0.035))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 HStack {
                     Button("刷新状态") { manager.refresh() }
-                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .buttonStyle(ManagerButtonStyle())
                     Button("打开系统登录项设置") { manager.openSystemSettings() }
-                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .buttonStyle(ManagerButtonStyle())
                     Spacer()
                 }
             }
-            .padding(24)
+            .padding(ManagerMetrics.pagePadding)
         }
         .confirmationDialog("确认关闭开机启动？", isPresented: $confirmDisable) {
             Button("关闭开机启动", role: .destructive) { _ = manager.setEnabled(false) }
@@ -238,7 +246,7 @@ struct PageHeader: View {
     let subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 24, weight: .semibold))
+            Text(title).font(.system(size: 20, weight: .semibold))
             Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -249,9 +257,9 @@ struct QuickLaunchPage: View {
     @Binding var showWizard: Bool
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: ManagerMetrics.sectionSpacing) {
                 PageHeader(title: "快速配置", subtitle: "选择直连或预设 HTTP 代理启动；每个实例仍使用独立用户目录。")
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     LaunchModeCard(icon: "network.slash", title: "无代理启动", detail: "忽略预设代理，以直连方式创建新的独立实例",
                                    button: "无代理启动", isLoading: store.isLaunching && store.launchingUsesProxy == false,
                                    disabled: store.isLaunching) { store.launchConfigured(usePresetProxy: false) }
@@ -263,14 +271,14 @@ struct QuickLaunchPage: View {
                                    disabled: store.isLaunching) { showWizard = true }
                 }
                 GroupBox("当前默认配置") {
-                    Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 12) {
+                    Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
                         GridRow { Text("运行时").foregroundStyle(.secondary); Text(defaultRuntimeName) }
                         GridRow { Text("启动地址").foregroundStyle(.secondary); Text(store.settings.homeURL) }
                         GridRow { Text("调试端口").foregroundStyle(.secondary); Text("127.0.0.1:\(store.settings.debugPort) 起自动避让") }
                         GridRow { Text("插件").foregroundStyle(.secondary); Text("\(store.settings.defaultPluginIDs.count) 个") }
                     }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }.padding(24)
+            }.padding(ManagerMetrics.pagePadding)
         }
     }
     private var defaultRuntimeName: String {
@@ -288,18 +296,20 @@ struct LaunchModeCard: View {
     let disabled: Bool
     let action: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Image(systemName: icon).font(.system(size: 24)).foregroundStyle(Brand.orange)
-            Text(title).font(.headline)
-            Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Spacer()
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Brand.orange)
+            Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 34, alignment: .topLeading)
             Button(action: action) {
                 LaunchActionLabel(title: button, systemImage: icon, isLoading: isLoading)
             }
-            .buttonStyle(FilledOrangeButtonStyle())
+            .buttonStyle(ManagerButtonStyle(emphasis: .primary))
             .disabled(disabled)
             .frame(maxWidth: .infinity, alignment: .leading)
-        }.padding(16).frame(maxWidth: .infinity, minHeight: 168, alignment: .leading)
+        }.padding(12).frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
         .background(Brand.orange.opacity(0.065)).clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Brand.orange.opacity(0.22)))
     }
@@ -310,7 +320,7 @@ struct RuntimePage: View {
     @State private var selectedVersion = ""
     @State private var runtimePendingRemoval: BrowserRuntime?
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: ManagerMetrics.sectionSpacing) {
             PageHeader(title: "浏览器来源", subtitle: "系统浏览器会自动识别并可直接使用；安装 Chrome for Testing 只是可选项。")
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
@@ -318,9 +328,9 @@ struct RuntimePage: View {
                         .font(.callout.weight(.semibold))
                     Spacer()
                     Button("重新扫描") { store.refreshSystemBrowsers() }
-                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .buttonStyle(ManagerButtonStyle())
                     Button("添加本地浏览器…") { chooseRuntime() }
-                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .buttonStyle(ManagerButtonStyle())
                 }
                 .padding(.horizontal, 12)
                 .frame(height: 44)
@@ -329,16 +339,15 @@ struct RuntimePage: View {
                     Label("Chrome for Testing", systemImage: "shippingbox")
                         .font(.callout.weight(.semibold))
                     Spacer()
-                    Picker("", selection: $selectedVersion) {
+                    ManagerPicker(title: "Chrome for Testing 版本",
+                                  selectedTitle: selectedVersion.isEmpty ? "选择镜像版本" : selectedVersion,
+                                  selection: $selectedVersion) {
                         Text(store.availableVersions.isEmpty ? "请先刷新版本" : "选择镜像版本").tag("")
                         ForEach(store.availableVersions) { Text($0.version).tag($0.version) }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 190)
-                    .controlSize(.small)
+                    .frame(width: 180)
                     Button("刷新版本") { Task { await store.refreshManifest() } }
-                        .buttonStyle(SmallSecondaryButtonStyle())
+                        .buttonStyle(ManagerButtonStyle())
                     Button {
                         guard let version = store.availableVersions.first(where: { $0.version == selectedVersion }) else { return }
                         Task { await store.install(version: version) }
@@ -348,7 +357,7 @@ struct RuntimePage: View {
                             Text(store.isInstalling ? "安装中…" : "安装")
                         }
                     }
-                    .buttonStyle(FilledOrangeButtonStyle())
+                    .buttonStyle(ManagerButtonStyle(emphasis: .primary))
                     .disabled(selectedVersion.isEmpty || store.isInstalling)
                 }
                 .padding(.horizontal, 12)
@@ -404,35 +413,35 @@ struct RuntimePage: View {
                     .padding(.vertical, 4)
                     .help(Text(runtime.executablePath))
                 }
-                .width(min: 245, ideal: 380)
+                .width(min: 180, ideal: 200)
                 TableColumn("版本 / 架构") { runtime in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(runtime.versionLabel).font(.callout.monospacedDigit()).lineLimit(1)
                         Text(runtime.architecture).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                .width(min: 105, ideal: 125)
+                .width(110)
                 TableColumn("来源") { runtime in
                     StatusBadge(text: runtime.source.title,
                                 color: runtime.isSystemEnvironment ? .green : Brand.orange)
                 }
-                .width(min: 72, ideal: 88)
+                .width(78)
                 TableColumn("默认") { runtime in
                     if store.settings.defaultRuntimeID == runtime.id {
                         StatusBadge(text: "当前默认", color: Brand.orange)
                     } else {
                         Button("设为默认") { store.selectDefaultRuntime(runtime) }
-                            .buttonStyle(SmallSecondaryButtonStyle())
+                            .buttonStyle(ManagerButtonStyle())
                     }
                 }
-                .width(min: 72, ideal: 84)
+                .width(88)
                 TableColumn("操作") { runtime in
                     if runtime.source != .system {
                         Button(role: .destructive) {
                             if runtime.source == .managed { runtimePendingRemoval = runtime }
                             else { store.removeRuntime(runtime) }
                         } label: { Image(systemName: "trash") }
-                            .buttonStyle(IconButtonStyle())
+                            .buttonStyle(ManagerButtonStyle(emphasis: .destructive, iconOnly: true))
                             .help(Text(runtime.source == .managed
                                 ? "卸载此 Chrome for Testing" : "移除此浏览器记录"))
                             .accessibilityLabel(Text(runtime.source == .managed
@@ -454,7 +463,7 @@ struct RuntimePage: View {
                                            description: Text("添加本地浏览器，或安装 Chrome for Testing"))
                 }
             }
-        }.padding(24).task { if store.availableVersions.isEmpty { await store.refreshManifest() } }
+        }.padding(ManagerMetrics.pagePadding).task { if store.availableVersions.isEmpty { await store.refreshManifest() } }
         .animation(.easeOut(duration: 0.16), value: store.isInstalling)
         .alert("卸载 Chrome for Testing？", isPresented: Binding(
             get: { runtimePendingRemoval != nil },
@@ -523,50 +532,41 @@ private struct RuntimeArtwork: View {
 struct SettingsPage: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject private var updater = AppUpdateManager.shared
+    let quitApplication: () -> Void
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .leading, spacing: ManagerMetrics.sectionSpacing) {
+                HStack(alignment: .top, spacing: 10) {
                     PageHeader(title: "启动设置", subtitle: "设置新实例的默认运行时、网络行为与 Chromium 附加参数。")
+                    Button("退出 YTray", action: quitApplication)
+                        .buttonStyle(ManagerButtonStyle(emphasis: .destructive))
+                        .keyboardShortcut("q", modifiers: .command)
+                        .help("退出 YTray；已启动的浏览器继续运行")
                     Button("保存设置") { store.saveSettings() }
-                        .buttonStyle(FilledOrangeButtonStyle())
+                        .buttonStyle(ManagerButtonStyle(emphasis: .primary))
                 }
 
                 updatePanel
 
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        startupPanel
-                            .frame(minWidth: 330, maxWidth: .infinity)
+                    HStack(alignment: .top, spacing: ManagerMetrics.sectionSpacing) {
+                        VStack(spacing: ManagerMetrics.sectionSpacing) {
+                            startupPanel
+                            advancedFlagsPanel
+                        }
+                            .frame(minWidth: 310, maxWidth: .infinity)
                         browserBehaviorPanel
-                            .frame(minWidth: 330, maxWidth: .infinity)
+                            .frame(minWidth: 320, maxWidth: .infinity)
                     }
-                    VStack(spacing: 16) {
+                    VStack(spacing: ManagerMetrics.sectionSpacing) {
                         startupPanel
                         browserBehaviorPanel
+                        advancedFlagsPanel
                     }
-                }
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 10) {
-                        TextEditor(text: $store.settings.additionalFlags)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(minHeight: 116)
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.10)))
-                        Text("每行填写一个 --flag。实例隔离、调试端口、代理和插件参数由 YTray 管理，不能在这里覆盖。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(8)
-                } label: {
-                    Label("Chrome 高级参数", systemImage: "terminal")
                 }
             }
-            .padding(24)
+            .padding(ManagerMetrics.pagePadding)
         }
         .tint(Brand.orange)
         .task {
@@ -574,9 +574,29 @@ struct SettingsPage: View {
         }
     }
 
+    private var advancedFlagsPanel: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 6) {
+                TextEditor(text: $store.settings.additionalFlags)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(height: 72)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.12)))
+                Text("每行一个 --flag。实例隔离、调试端口、代理和插件由 YTray 管理。")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(4)
+        } label: {
+            Label("Chrome 高级参数", systemImage: "terminal")
+        }
+    }
+
     private var updatePanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
                 Image(systemName: updater.isUpdateAvailable ? "arrow.down.circle.fill" : "checkmark.circle")
                     .font(.system(size: 22))
                     .foregroundStyle(updater.isUpdateAvailable ? Brand.orange : Color.secondary)
@@ -595,7 +615,9 @@ struct SettingsPage: View {
                         .font(.caption)
                         .foregroundStyle(updater.phase == .failed ? Color.red : Color.secondary)
                 }
-                Spacer(minLength: 16)
+                Spacer(minLength: 8)
+                Button("手动下载") { updater.openDownloads() }
+                    .disabled(!updater.updatesEnabled)
                 Button(updater.actionLabel) {
                     if updater.isUpdateAvailable {
                         updater.installUpdate()
@@ -603,7 +625,7 @@ struct SettingsPage: View {
                         Task { await updater.checkForUpdates() }
                     }
                 }
-                .buttonStyle(FilledOrangeButtonStyle())
+                .buttonStyle(ManagerButtonStyle(emphasis: .primary))
                 .disabled(updater.isBusy || !updater.updatesEnabled)
             }
             if let notes = updater.releaseNotesText, updater.isUpdateAvailable {
@@ -611,17 +633,18 @@ struct SettingsPage: View {
             }
             HStack {
                 Toggle("自动检查新版本", isOn: $updater.automaticallyChecks)
+                    .toggleStyle(.checkbox)
                     .disabled(!updater.updatesEnabled)
                 Spacer()
-                Button("手动下载") { updater.openDownloads() }.disabled(!updater.updatesEnabled)
+                if let date = updater.lastCheck {
+                    Text("上次检查：\(date.formatted())")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }.font(.caption)
             Text("更新 YTray 与内置 Yakit 插件，保留实例、配置和已安装的浏览器。运行中的浏览器继续运行。")
                 .font(.caption2).foregroundStyle(.secondary)
-            if let date = updater.lastCheck {
-                Text("上次检查：\(date.formatted())").font(.caption2).foregroundStyle(.secondary)
-            }
         }
-        .padding(14)
+        .padding(12)
         .frame(minHeight: 64)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))
@@ -629,31 +652,30 @@ struct SettingsPage: View {
 
     private var startupPanel: some View {
         GroupBox {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 13) {
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 GridRow {
                     Text("默认运行时").foregroundStyle(.secondary)
-                    Picker("", selection: $store.settings.defaultRuntimeID) {
+                    ManagerPicker(title: "默认运行时", selectedTitle: selectedRuntimeTitle,
+                                  selection: $store.settings.defaultRuntimeID) {
                         Text("未选择").tag(nil as UUID?)
                         ForEach(store.runtimes) {
                             Text("\($0.displayTitle) \($0.versionLabel) · \($0.source.title)")
                                 .tag(Optional($0.id))
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 GridRow {
                     Text("启动地址").foregroundStyle(.secondary)
                     TextField("chrome://newtab", text: $store.settings.homeURL)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(ManagerTextFieldStyle())
                 }
                 GridRow {
                     Text("调试端口").foregroundStyle(.secondary)
                     HStack(spacing: 8) {
                         TextField("9222", value: $store.settings.debugPort, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 100)
+                            .textFieldStyle(ManagerTextFieldStyle())
+                            .frame(width: 80)
                         Text("占用时自动递增")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -661,10 +683,17 @@ struct SettingsPage: View {
                 }
             }
             .font(.callout)
-            .padding(8)
+            .padding(4)
         } label: {
             Label("默认启动", systemImage: "play.circle")
         }
+    }
+
+    private var selectedRuntimeTitle: String {
+        guard let runtime = store.runtimes.first(where: { $0.id == store.settings.defaultRuntimeID }) else {
+            return "未选择"
+        }
+        return "\(runtime.displayTitle) \(runtime.versionLabel)"
     }
 
     private var browserBehaviorPanel: some View {
@@ -709,15 +738,7 @@ struct SettingsPage: View {
     }
 
     private func settingToggle(_ title: String, detail: String, isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout)
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .toggleStyle(.switch)
-        .tint(Brand.orange)
-        .padding(.vertical, 9)
+        ManagerToggleRow(title: title, detail: detail, isOn: isOn)
     }
 }
 
@@ -728,7 +749,7 @@ struct InstancesPage: View {
     @State private var showClearHistoryConfirmation = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: ManagerMetrics.sectionSpacing) {
             PageHeader(title: "运行与历史", subtitle: "运行中显示全部浏览器；停止后保存最后页面标题，并进入历史记录。")
             List {
                 Section("运行中 · \(store.runningInstances.count)") {
@@ -750,13 +771,13 @@ struct InstancesPage: View {
                             Button("清理全部", role: .destructive) {
                                 showClearHistoryConfirmation = true
                             }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(ManagerButtonStyle(emphasis: .destructive))
                         }
                     }
                 }
             }
         }
-        .padding(24)
+        .padding(ManagerMetrics.pagePadding)
         .alert("修改历史名称", isPresented: renamePresented) {
             TextField("名称", text: $draftName)
             Button("取消", role: .cancel) { renameTarget = nil }
@@ -781,8 +802,8 @@ struct InstancesPage: View {
             InstanceThumbnail(
                 instance: instance,
                 kind: runtimeKind(instance),
-                width: 92,
-                height: 58
+                width: 80,
+                height: 50
             )
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
@@ -796,9 +817,9 @@ struct InstancesPage: View {
                     .font(.caption).foregroundStyle(.tertiary)
             }
             Spacer()
-            Button("截图") { Task { await store.capture(instance) } }.buttonStyle(SmallSecondaryButtonStyle())
-            Button("目录") { store.revealProfile(instance) }.buttonStyle(SmallSecondaryButtonStyle())
-            Button("停止", role: .destructive) { store.stop(instance) }.buttonStyle(SmallDangerButtonStyle())
+            Button("截图") { Task { await store.capture(instance) } }.buttonStyle(ManagerButtonStyle())
+            Button("目录") { store.revealProfile(instance) }.buttonStyle(ManagerButtonStyle())
+            Button("停止", role: .destructive) { store.stop(instance) }.buttonStyle(ManagerButtonStyle(emphasis: .destructive))
         }.padding(.vertical, 6)
     }
 
@@ -807,8 +828,8 @@ struct InstancesPage: View {
             InstanceThumbnail(
                 instance: instance,
                 kind: runtimeKind(instance),
-                width: 78,
-                height: 48
+                width: 72,
+                height: 44
             )
             VStack(alignment: .leading, spacing: 3) {
                 Text(instance.lastPageTitle ?? "未记录页面标题").font(.headline).lineLimit(1)
@@ -831,14 +852,14 @@ struct InstancesPage: View {
                     }
                 }
             }
-            .buttonStyle(SmallOrangeButtonStyle())
+            .buttonStyle(ManagerButtonStyle(emphasis: .primary))
             .disabled(store.isLaunching)
             Button("重命名") {
                 draftName = instance.name
                 renameTarget = instance
-            }.buttonStyle(SmallSecondaryButtonStyle())
+            }.buttonStyle(ManagerButtonStyle())
             Button("删除", role: .destructive) { store.removeHistory(instance) }
-                .buttonStyle(SmallDangerButtonStyle())
+                .buttonStyle(ManagerButtonStyle(emphasis: .destructive))
         }.padding(.vertical, 6)
     }
 
@@ -867,7 +888,7 @@ struct InstancesPage: View {
 struct PluginsPage: View {
     @ObservedObject var store: InstanceStore
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: ManagerMetrics.sectionSpacing) {
             PageHeader(title: "插件管理", subtitle: "可分别设置默认加载和工具栏固定；修改将在下次启动实例时生效。")
             yakitExtensionSection
             HStack {
@@ -875,7 +896,7 @@ struct PluginsPage: View {
                     .font(.callout.weight(.semibold))
                 Spacer()
                 Button("添加或扫描插件目录…") { choosePlugin() }
-                    .buttonStyle(FilledOrangeButtonStyle())
+                    .buttonStyle(ManagerButtonStyle(emphasis: .primary))
             }
             Table(sortedPlugins) {
                 TableColumn("插件") { plugin in
@@ -895,7 +916,7 @@ struct PluginsPage: View {
                     .padding(.vertical, 4)
                     .help(Text(plugin.path))
                 }
-                .width(min: 300, ideal: 460)
+                .width(min: 220, ideal: 250)
                 TableColumn("默认加载") { plugin in
                     Toggle("", isOn: Binding(get: { plugin.enabled }, set: { enabled in
                         var changed = plugin
@@ -904,10 +925,11 @@ struct PluginsPage: View {
                     }))
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .tint(Brand.orange)
                     .help(Text(plugin.enabled ? "关闭后，新实例不再加载此插件" : "开启后，新实例默认加载此插件"))
                 }
-                .width(min: 78, ideal: 88)
+                .width(88)
                 TableColumn("固定到工具栏") { plugin in
                     Toggle("", isOn: Binding(get: { plugin.pinToToolbar == true }, set: { pinned in
                         var changed = plugin
@@ -916,16 +938,17 @@ struct PluginsPage: View {
                     }))
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .tint(Brand.orange)
                     .help("固定到浏览器工具栏；下次启动实例生效")
                 }
-                .width(min: 92, ideal: 104)
+                .width(104)
                 TableColumn("操作") { plugin in
                     if plugin.id != store.managedExtension?.id {
                         Button(role: .destructive) { store.removePlugin(plugin) } label: {
                             Image(systemName: "trash")
                         }
-                        .buttonStyle(HistoryDeleteButtonStyle())
+                        .buttonStyle(ManagerButtonStyle(emphasis: .destructive, iconOnly: true))
                         .help("移除此插件记录，不删除插件目录")
                         .accessibilityLabel(Text("移除插件 \(plugin.name)"))
                     } else {
@@ -945,7 +968,7 @@ struct PluginsPage: View {
                                            description: Text("添加一个已解压的 Chrome 插件目录"))
                 }
             }
-        }.padding(24)
+        }.padding(ManagerMetrics.pagePadding)
         .task { if store.extensionManifest == nil { await store.refreshExtensionManifest() } }
     }
 
@@ -1007,7 +1030,7 @@ struct PluginsPage: View {
             Button("检查更新") { Task { await store.refreshExtensionManifest() } }
                 .disabled(busy)
             Button(buttonTitle) { Task { await store.installExtension() } }
-                .buttonStyle(FilledOrangeButtonStyle())
+                .buttonStyle(ManagerButtonStyle(emphasis: .primary))
                 .disabled(busy || latest == nil && bundled == nil)
         }
         .padding(.horizontal, 14)

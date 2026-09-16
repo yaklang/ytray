@@ -400,6 +400,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func showManager(section: ManagerSection = .quick) {
         managerNavigation.selection = section
+        managerNavigation.columnVisibility = .all
         let window: NSWindow
         if let existing = managerWindow { window = existing }
         else {
@@ -413,7 +414,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.contentViewController = NSHostingController(rootView: ManagerView(
                 store: store,
                 navigation: managerNavigation,
-                launchAtLogin: launchAtLogin
+                launchAtLogin: launchAtLogin,
+                quitApplication: { [weak self] in self?.quit() }
             ))
             window.delegate = self
             if let screen = statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first {

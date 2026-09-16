@@ -1186,7 +1186,3 @@ private struct PlainHoverButton: View {
             .onHover { isHovered = $0 }
     }
 }
-
-// Manager pages use the same compact primary control instead of introducing a second size system.
-typealias FilledOrangeButtonStyle = SmallOrangeButtonStyle
-typealias OutlineOrangeButtonStyle = SmallSecondaryButtonStyle

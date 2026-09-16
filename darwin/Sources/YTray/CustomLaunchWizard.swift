@@ -9,7 +9,8 @@ struct CustomLaunchWizard: View {
     @State private var rememberBrowser = true
     @State private var usePresetProxy = false
 
-    init(store: InstanceStore, isPresented: Binding<Bool>) {
+    init(store: InstanceStore, isPresented: Binding<Bool>, initialStep: Int = 0) {
+        self._step = State(initialValue: min(max(initialStep, 0), 3))
         self.store = store
         self._isPresented = isPresented
         var settings = store.settings
@@ -26,26 +27,28 @@ struct CustomLaunchWizard: View {
                     Text("本次参数独立生效；浏览器选择可在确认页记住").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { isPresented = false } label: { Image(systemName: "xmark.circle.fill").font(.title2) }
-                    .buttonStyle(PlainHoverButtonStyle(cornerRadius: 8)).foregroundStyle(.secondary)
-            }.padding(22)
-            stepHeader.padding(.horizontal, 28).padding(.bottom, 18)
+                Button { isPresented = false } label: { Image(systemName: "xmark") }
+                    .buttonStyle(ManagerButtonStyle(iconOnly: true))
+                    .help("关闭自定义启动")
+                    .accessibilityLabel("关闭自定义启动")
+            }.padding(16)
+            stepHeader.padding(.horizontal, 16).padding(.bottom, 12)
             Divider()
             Group {
                 switch step {
-                case 0: runtimeStep
+                case 0: ScrollView { runtimeStep }
                 case 1: networkStep
                 case 2: pluginStep
                 default: reviewStep
                 }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(28)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(16)
             Divider()
             HStack {
-                Button("取消") { isPresented = false }.buttonStyle(SmallSecondaryButtonStyle())
+                Button("取消") { isPresented = false }.buttonStyle(ManagerButtonStyle())
                 Spacer()
-                if step > 0 { Button("上一步") { step -= 1 }.buttonStyle(SmallSecondaryButtonStyle()) }
+                if step > 0 { Button("上一步") { step -= 1 }.buttonStyle(ManagerButtonStyle()) }
                 if step < 3 {
-                    Button("下一步") { step += 1 }.buttonStyle(FilledOrangeButtonStyle()).disabled(step == 0 && draft.defaultRuntimeID == nil)
+                    Button("下一步") { step += 1 }.buttonStyle(ManagerButtonStyle(emphasis: .primary)).disabled(step == 0 && draft.defaultRuntimeID == nil)
                 } else {
                     Button {
                         var settings = draft
@@ -66,12 +69,14 @@ struct CustomLaunchWizard: View {
                         LaunchActionLabel(title: "启动实例", systemImage: "play.fill",
                                           isLoading: store.isLaunching && store.launchingMode == .custom)
                     }
-                    .buttonStyle(FilledOrangeButtonStyle())
+                    .buttonStyle(ManagerButtonStyle(emphasis: .primary))
                     .disabled(store.isLaunching)
                 }
-            }.padding(20)
+            }.padding(16)
         }
-        .frame(width: 720, height: 570)
+        .frame(width: 760, height: 580)
+        .buttonStyle(ManagerButtonStyle())
+        .controlSize(.regular)
         // The wizard is normally hosted by a SwiftUI sheet, whose presentation
         // surface supplies the background. It is also rendered directly for the
         // website and design-review artifacts, so the root view must own an
@@ -104,7 +109,7 @@ struct CustomLaunchWizard: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.caption.bold()).foregroundStyle(index <= step ? .primary : .secondary)
-                Text(subtitle).font(.system(size: 9)).foregroundStyle(.tertiary)
+                Text(subtitle).font(.system(size: 11)).foregroundStyle(.tertiary)
             }
         }
     }
@@ -136,7 +141,7 @@ struct CustomLaunchWizard: View {
                             Spacer()
                             Image(systemName: draft.defaultRuntimeID == runtime.id ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(draft.defaultRuntimeID == runtime.id ? Brand.orange : .secondary)
-                        }.padding(14)
+                        }.padding(10)
                     }.buttonStyle(PlainHoverButtonStyle(cornerRadius: 11))
                     // Keep the selected row adaptive. A fixed pale background makes
                     // macOS dark-mode primary text (white) effectively disappear.
@@ -151,31 +156,60 @@ struct CustomLaunchWizard: View {
     }
 
     private var networkStep: some View {
-        Form {
-            Picker("网络模式", selection: $usePresetProxy) {
-                Text("无代理（直连）").tag(false)
-                Text("HTTP 代理 · \(presetProxyAddress)").tag(true)
+        ScrollView {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                        GridRow {
+                            Text("网络模式")
+                            ManagerPicker(title: "网络模式",
+                                          selectedTitle: usePresetProxy ? "HTTP 代理" : "无代理（直连）",
+                                          selection: $usePresetProxy) {
+                                Text("无代理（直连）").tag(false)
+                                Text("HTTP 代理 · \(presetProxyAddress)").tag(true)
+                            }
+                        }
+                        GridRow {
+                            Text("启动地址")
+                            TextField("chrome://newtab", text: $draft.homeURL)
+                        }
+                        GridRow {
+                            Text("调试端口")
+                            TextField("9222", value: $draft.debugPort, format: .number)
+                        }
+                        GridRow {
+                            Text("Dock 角标")
+                            TextField("自动分配，也可填 1–2 个字母", text: $draft.dockBadge)
+                        }
+                    }
+                    .font(.system(size: 13))
+                    .textFieldStyle(ManagerTextFieldStyle())
+                    Text("附加参数 · 每行一个 --flag").font(.system(size: 12)).foregroundStyle(.secondary)
+                    TextEditor(text: $draft.additionalFlags)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(height: 72)
+                        .padding(6)
+                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.16)))
+                }
+                .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 0) {
+                    ManagerToggleRow(title: "限制 WebRTC", detail: "禁止非代理 UDP 与本地 IP 暴露", isOn: $draft.restrictWebRTC)
+                    Divider()
+                    ManagerToggleRow(title: "关闭通知", detail: "减少浏览器系统提示", isOn: $draft.disableNotifications)
+                    Divider()
+                    ManagerToggleRow(title: "忽略证书错误", detail: "用于本地代理与网络调试", isOn: $draft.ignoreCertificateErrors)
+                    Divider()
+                    ManagerToggleRow(title: "测试模式", detail: "添加 --test-type 启动参数", isOn: $draft.useTestType)
+                    Label(usePresetProxy ? "使用预设代理 \(presetProxyAddress)" : "忽略系统代理，以直连方式启动",
+                          systemImage: usePresetProxy ? "network" : "network.slash")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 12)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .pickerStyle(.segmented)
-            TextField("启动地址", text: $draft.homeURL)
-            TextField("调试端口", value: $draft.debugPort, format: .number)
-            TextField("Dock 角标（留空自动分配 A/B/C…，可填 1–2 个字母）", text: $draft.dockBadge)
-            Toggle("限制 WebRTC 非代理 UDP 与本地 IP 暴露", isOn: $draft.restrictWebRTC)
-            Toggle("关闭通知", isOn: $draft.disableNotifications)
-            Toggle("忽略证书错误", isOn: $draft.ignoreCertificateErrors)
-            Toggle("测试模式（--test-type）", isOn: $draft.useTestType)
-            VStack(alignment: .leading) {
-                Text("附加参数（每行一个）").font(.caption).foregroundStyle(.secondary)
-                TextEditor(text: $draft.additionalFlags).font(.system(.body, design: .monospaced)).frame(height: 90)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
-            }
-            Label(usePresetProxy
-                  ? "将使用已保存的 HTTP 代理 \(presetProxyAddress)。"
-                  : "将忽略系统代理并以直连方式启动。",
-                  systemImage: usePresetProxy ? "network" : "network.slash")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }.formStyle(.grouped)
+        }
     }
 
     private var pluginStep: some View {
@@ -217,9 +251,9 @@ struct CustomLaunchWizard: View {
     }
 
     private var reviewStep: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("确认本次启动配置").font(.headline)
-            Grid(alignment: .leading, horizontalSpacing: 30, verticalSpacing: 13) {
+            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
                 reviewRow("浏览器", selectedRuntimeDescription)
                 reviewRow("启动地址", draft.homeURL)
                 reviewRow("网络", usePresetProxy ? "HTTP 代理 · \(presetProxyAddress)" : "直连（无代理）")
@@ -228,7 +262,7 @@ struct CustomLaunchWizard: View {
                           ? "自动分配" : draft.dockBadge.uppercased())
                 reviewRow("WebRTC", draft.restrictWebRTC ? "限制非代理 UDP/IP 暴露" : "不限制")
                 reviewRow("插件", "\(pluginIDs.count) 个（启动时验证）")
-            }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(Brand.orange.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13))
             Toggle("记住此浏览器，作为下次快速启动的默认选择", isOn: $rememberBrowser)
                 .toggleStyle(.checkbox)

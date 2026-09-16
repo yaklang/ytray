@@ -53,7 +53,8 @@ final class InstanceStore: NSObject, ObservableObject {
         applicationDirectory: URL? = nil,
         discoverSystemBrowsers: Bool = true,
         legacyApplicationDirectory: URL? = nil,
-        browserProcessLauncher: URL? = nil
+        browserProcessLauncher: URL? = nil,
+        monitorProcesses: Bool = true
     ) {
         let usesDefaultApplicationDirectory = applicationDirectory == nil
         let supportDirectory = FileManager.default.urls(
@@ -84,8 +85,10 @@ final class InstanceStore: NSObject, ObservableObject {
         refreshProcessStates()
         NotificationCenter.default.addObserver(self, selector: #selector(processDidTerminate(_:)),
                                                name: .ytrayProcessDidTerminate, object: nil)
-        timer = Timer.scheduledTimer(timeInterval: 2, target: self,
-                                     selector: #selector(refreshTimerFired), userInfo: nil, repeats: true)
+        if monitorProcesses {
+            timer = Timer.scheduledTimer(timeInterval: 2, target: self,
+                                        selector: #selector(refreshTimerFired), userInfo: nil, repeats: true)
+        }
         DiagnosticLog.info(
             "store.ready",
             "state loaded; runtimes=\(runtimes.count); plugins=\(plugins.count); instances=\(instances.count)"
