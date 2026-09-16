@@ -1386,13 +1386,22 @@ final class BrowserLauncherTests: XCTestCase {
             plugins: [plugin],
             runtimeKind: .chromeForTesting,
             managedInstanceID: instanceID,
-            instanceBadge: "C"
+            instanceBadge: "C",
+            runtimeVersion: "152.0.7977.82"
         )
 
         let bootstrap = try XCTUnwrap(arguments.first { $0.contains("/ytray-bootstrap.html") })
         XCTAssertTrue(bootstrap.contains("manager=ytray"))
         XCTAssertTrue(bootstrap.contains("instanceId=00000000-0000-4000-8000-000000000003"))
         XCTAssertTrue(bootstrap.contains("badge=C"))
+        XCTAssertEqual(
+            URLComponents(string: bootstrap)?.queryItems?.first { $0.name == "browserName" }?.value,
+            "Chrome for Testing"
+        )
+        XCTAssertEqual(
+            URLComponents(string: bootstrap)?.queryItems?.first { $0.name == "browserVersion" }?.value,
+            "152.0.7977.82"
+        )
         XCTAssertEqual(
             URLComponents(string: bootstrap)?.queryItems?.first { $0.name == "target" }?.value,
             settings.homeURL

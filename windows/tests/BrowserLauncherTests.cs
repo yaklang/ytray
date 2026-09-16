@@ -462,12 +462,15 @@ namespace YTray.Tests
             var plugin = new BrowserPlugin { Name = ExtensionInstaller.ExtensionName, Path = "/tmp/yakit-extension" };
             var args = BrowserLauncher.BuildArguments(
                 LaunchMode.Quick, settings, "/tmp/profile-c", 9667, new List<BrowserPlugin> { plugin },
-                BrowserKind.ChromeForTesting, managedInstanceId: instanceId, instanceBadge: "C");
+                BrowserKind.ChromeForTesting, managedInstanceId: instanceId, instanceBadge: "C",
+                runtimeVersion: "152.0.7977.82");
 
             var bootstrap = args.Single(arg => arg.Contains("/ytray-bootstrap.html"));
             StringAssert.Contains(bootstrap, "manager=ytray");
             StringAssert.Contains(bootstrap, "instanceId=00000000-0000-4000-8000-000000000003");
             StringAssert.Contains(bootstrap, "badge=C");
+            StringAssert.Contains(bootstrap, "browserName=Chrome%20for%20Testing");
+            StringAssert.Contains(bootstrap, "browserVersion=152.0.7977.82");
             StringAssert.Contains(bootstrap, "target=https%3A%2F%2Fexample.test%2Faccount");
             Assert.IsFalse(args.Contains(settings.HomeURL));
         }
