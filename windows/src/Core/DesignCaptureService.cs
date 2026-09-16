@@ -134,6 +134,13 @@ namespace YTray.Core
                     await CaptureFloatingAsync(store, outputDirectory, captures);
                     CaptureIdentityIcons(outputDirectory, captures);
                     CaptureTrayContextMenu(outputDirectory, captures);
+                    await WidgetReviewCapture.RunAsync(Path.Combine(outputDirectory, "widget-parity"), preview: false);
+                    foreach (var state in new[] { "dark-expanded", "dark-collapsed", "light-expanded", "dark-empty" })
+                        captures.Add(new CaptureItem
+                        {
+                            RelativePath = $"widget-parity/widget-{state}.png",
+                            Caption = "macOS 尺寸对照 · " + state,
+                        });
                 }
                 CreateContactSheet(outputDirectory, captures);
                 WriteManifest(outputDirectory, captures);

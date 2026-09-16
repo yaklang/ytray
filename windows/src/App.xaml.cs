@@ -35,6 +35,12 @@ namespace YTray
             bool startupLaunch = false;
             for (int i = 0; i < args.Length; i++)
             {
+                if ((args[i] == "--capture-widget-review" || args[i] == "--preview-widget") && i + 1 < args.Length)
+                {
+                    var preview = args[i] == "--preview-widget";
+                    CrashGuard.Observe(RunWidgetReviewAsync(args[i + 1], preview), "widget-review");
+                    return;
+                }
                 if (args[i] == "--smoke-identities" && i + 2 < args.Length)
                 {
                     var executable = args[i + 1];
@@ -187,6 +193,21 @@ namespace YTray
                 bundledExtensionName = bundledName,
             });
             File.WriteAllText(fullPath, payload);
+        }
+
+        private async Task RunWidgetReviewAsync(string outputDirectory, bool preview)
+        {
+            try
+            {
+                await WidgetReviewCapture.RunAsync(outputDirectory, preview);
+                if (!preview) Shutdown();
+            }
+            catch (Exception ex)
+            {
+                Directory.CreateDirectory(outputDirectory);
+                File.WriteAllText(Path.Combine(outputDirectory, "capture-error.txt"), ex.ToString());
+                Shutdown(1);
+            }
         }
 
         private async Task RunDesignCaptureAsync(string outputDirectory, bool sitePreviewOnly)
