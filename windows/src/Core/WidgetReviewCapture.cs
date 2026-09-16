@@ -71,7 +71,7 @@ namespace YTray.Core
             };
             widget.Show();
             widget.PinBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await SettleAsync(widget);
+            await SettleAsync(widget, preview);
             // Unpin visually for the reference; the renderer executes before any focus change.
             widget.PinBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Render(widget, Path.Combine(directory, "widget-dark-expanded.png"));
@@ -111,12 +111,24 @@ namespace YTray.Core
             finally { widget.Close(); store.Dispose(); }
         }
 
-        private static async Task SettleAsync(WidgetView widget)
+        private static async Task SettleAsync(WidgetView widget, bool preview = false)
         {
             widget.CancelPendingDismiss();
             widget.RefreshAndMeasure();
             await Task.Delay(250);
-            await widget.Dispatcher.InvokeAsync(() => widget.RefreshAndMeasure(), DispatcherPriority.ApplicationIdle);
+            await widget.Dispatcher.InvokeAsync(() =>
+            {
+                widget.RefreshAndMeasure();
+                if (!preview) PrepareFullCapture(widget);
+            }, DispatcherPriority.ApplicationIdle);
+        }
+
+        internal static void PrepareFullCapture(WidgetView widget)
+        {
+            // CI desktops may be only 768 px tall. Render the complete fixture even when
+            // part of the HWND is offscreen; interactive widgets still respect the work area.
+            widget.MaxHeight = double.PositiveInfinity;
+            widget.UpdateLayout();
         }
 
         internal static void Render(WidgetView widget, string path)

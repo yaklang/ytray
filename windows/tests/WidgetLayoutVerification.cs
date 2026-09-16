@@ -85,7 +85,9 @@ namespace YTray.Tests
                     Assert.IsTrue(widget.InstanceScroll.ScrollableHeight > 0);
                     Assert.IsTrue(widget.InstanceScroll.ViewportHeight > 0);
                     Assert.IsTrue(widget.StartupBtn.TranslatePoint(new Point(0, widget.StartupBtn.ActualHeight), widget).Y <= widget.ActualHeight);
-                    widget.MaxHeight = 1200;
+                    WidgetReviewCapture.PrepareFullCapture(widget);
+                    Assert.AreEqual(746, widget.ActualHeight, 0.01, "The comparison capture must include every row even on a short CI desktop.");
+                    Assert.AreEqual(0, widget.InstanceScroll.ScrollableHeight, 0.01);
                     store.Instances.Clear();
                     widget.RefreshAndMeasure();
                     widget.UpdateLayout();
