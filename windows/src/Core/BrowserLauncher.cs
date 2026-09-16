@@ -110,7 +110,8 @@ namespace YTray.Core
             string profilePath, int debugPort, List<BrowserPlugin> plugins,
             BrowserKind? runtimeKind = null, List<string>? internalExtensionPaths = null,
             bool restoreLastSession = false, Guid? managedInstanceId = null,
-            string? instanceBadge = null, bool isNewProfile = true, bool deferExtensionStartup = false)
+            string? instanceBadge = null, bool isNewProfile = true, bool deferExtensionStartup = false,
+            string? runtimeVersion = null)
         {
             var arguments = new List<string>
             {
@@ -198,22 +199,29 @@ namespace YTray.Core
             {
                 arguments.Add("--restore-last-session");
                 if (managedExtensionLoaded)
-                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true, settings.ProxyServer));
+                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true, settings.ProxyServer, runtimeKind, runtimeVersion));
                 return arguments;
             }
             arguments.Add(managedExtensionLoaded
-                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false, settings.ProxyServer)
+                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false, settings.ProxyServer, runtimeKind, runtimeVersion)
                 : target);
             return arguments;
         }
 
-        internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target, bool restore, string? proxyServer = null)
+        internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target,
+            bool restore, string? proxyServer = null, BrowserKind? browserKind = null, string? browserVersion = null)
         {
+            var browserIdentity = browserKind.HasValue
+                ? $"&browserName={Uri.EscapeDataString(browserKind.Value.Title())}"
+                : "";
+            if (!string.IsNullOrWhiteSpace(browserVersion))
+                browserIdentity += $"&browserVersion={Uri.EscapeDataString(browserVersion!.Trim())}";
             return $"chrome-extension://{extensionId}/ytray-bootstrap.html" +
                 $"?manager=ytray&instanceId={Uri.EscapeDataString(instanceId.ToString())}" +
                 $"&badge={Uri.EscapeDataString(DockBadgeLabel.Normalize(badge))}" +
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
-                $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}";
+                $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
+                browserIdentity;
         }
 
         internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,
@@ -325,7 +333,8 @@ namespace YTray.Core
             {
                 arguments = BuildArguments(mode, launchSettings, profile, port, plugins, runtime.Kind,
                     internalPaths, restoring != null && !usesProxyAuth, id, normalizedBadge,
-                    isNewProfile: restoring == null, deferExtensionStartup: extensionPaths.Count > 0);
+                    isNewProfile: restoring == null, deferExtensionStartup: extensionPaths.Count > 0,
+                    runtimeVersion: runtime.Version);
                 // In branded Chrome 137+, this obsolete allowlist can discard a successful
                 // Extensions.loadUnpacked result. Keep it only for the supported legacy path.
                 if (!BrowserExtensionService.LegacyLoadingExpected(runtime))
@@ -471,7 +480,8 @@ namespace YTray.Core
                 ExtensionPaths = extensionPaths,
                 LegacyExtensionLoadingExpected = BrowserExtensionService.LegacyLoadingExpected(runtime),
                 DeferredStartupURL = extensionPaths.Count == 0 ? null : managedID == null ? startupURL
-                    : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null, settings.ProxyServer),
+                    : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null,
+                        settings.ProxyServer, runtime.Kind, runtime.Version),
             };
         }
 

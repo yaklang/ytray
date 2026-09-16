@@ -126,7 +126,8 @@ enum BrowserLauncher {
             if managedExtensionLoaded {
                 arguments.append(try managedBrowserBootstrapURL(
                     extensionID: managedExtensionID!, instanceID: managedInstanceID!,
-                    badge: instanceBadge!, target: target, restore: true, proxyServer: settings.proxyServer
+                    badge: instanceBadge!, target: target, restore: true, proxyServer: settings.proxyServer,
+                    browserKind: runtimeKind, browserVersion: runtimeVersion
                 ))
             }
             return arguments
@@ -134,7 +135,8 @@ enum BrowserLauncher {
         if managedExtensionLoaded {
             arguments.append(try managedBrowserBootstrapURL(
                 extensionID: managedExtensionID!, instanceID: managedInstanceID!,
-                badge: instanceBadge!, target: target, restore: false, proxyServer: settings.proxyServer
+                badge: instanceBadge!, target: target, restore: false, proxyServer: settings.proxyServer,
+                browserKind: runtimeKind, browserVersion: runtimeVersion
             ))
         } else {
             arguments.append(target)
@@ -143,13 +145,14 @@ enum BrowserLauncher {
     }
 
     static func managedBrowserBootstrapURL(
-        extensionID: String, instanceID: UUID, badge: String, target: String, restore: Bool, proxyServer: String = ""
+        extensionID: String, instanceID: UUID, badge: String, target: String, restore: Bool, proxyServer: String = "",
+        browserKind: BrowserKind? = nil, browserVersion: String? = nil
     ) throws -> String {
         var components = URLComponents()
         components.scheme = "chrome-extension"
         components.host = extensionID
         components.path = "/ytray-bootstrap.html"
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "manager", value: "ytray"),
             URLQueryItem(name: "instanceId", value: instanceID.uuidString),
             URLQueryItem(name: "badge", value: try DockBadgeLabel.normalize(badge)),
@@ -157,6 +160,11 @@ enum BrowserLauncher {
             URLQueryItem(name: "restore", value: restore ? "1" : "0"),
             URLQueryItem(name: "startupProxy", value: proxyServer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "direct" : try HTTPProxyAddress.normalize(proxyServer)),
         ]
+        if let browserKind { queryItems.append(URLQueryItem(name: "browserName", value: browserKind.title)) }
+        if let browserVersion, !browserVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            queryItems.append(URLQueryItem(name: "browserVersion", value: browserVersion))
+        }
+        components.queryItems = queryItems
         guard let value = components.string else { throw YTrayError.invalidURL(target) }
         return value
     }
@@ -222,7 +230,8 @@ enum BrowserLauncher {
         let extensionPaths = mode == .isolated ? []
             : (proxyAuthExtension.map { [$0.path] } ?? []) + plugins.filter(\.enabled).map(\.path)
         let startupURL = try deferredStartupURL(settings: settings, plugins: plugins,
-                                               instanceID: id, badge: normalizedBadge, history: history)
+                                               instanceID: id, badge: normalizedBadge, history: history,
+                                               browserKind: runtime.kind, browserVersion: runtime.version)
         let arguments: [String]
         let dockIdentityColor = AppEnvironment.instanceColorThemesEnabled
             ? BrowserIdentityColor.color(for: normalizedBadge)
@@ -333,14 +342,16 @@ enum BrowserLauncher {
     }
 
     static func deferredStartupURL(settings: LaunchSettings, plugins: [BrowserPlugin],
-                                   instanceID: UUID, badge: String, history: BrowserInstance?) throws -> String {
+                                   instanceID: UUID, badge: String, history: BrowserInstance?,
+                                   browserKind: BrowserKind? = nil, browserVersion: String? = nil) throws -> String {
         let restoredURL = history?.lastPageURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         let target = restoredURL.flatMap { $0.isEmpty ? nil : $0 } ?? settings.homeURL
         if let managed = plugins.first(where: { $0.enabled && $0.name == ExtensionInstaller.extensionName }),
            let extensionID = ExtensionInstaller.chromiumExtensionID(for: managed) {
             return try managedBrowserBootstrapURL(extensionID: extensionID, instanceID: instanceID,
                                                   badge: badge, target: target, restore: history != nil,
-                                                  proxyServer: settings.proxyServer)
+                                                  proxyServer: settings.proxyServer,
+                                                  browserKind: browserKind, browserVersion: browserVersion)
         }
         return target
     }

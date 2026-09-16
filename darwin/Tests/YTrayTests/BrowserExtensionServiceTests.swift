@@ -197,9 +197,12 @@ final class BrowserExtensionServiceTests: XCTestCase {
         for proxy in ["", "http://127.0.0.1:8083"] {
             settings.proxyServer = proxy
             let bootstrap = try BrowserLauncher.deferredStartupURL(settings: settings, plugins: [plugin],
-                instanceID: UUID(), badge: "A", history: nil)
+                instanceID: UUID(), badge: "A", history: nil,
+                browserKind: .chromeForTesting, browserVersion: "152.0.7977.82")
             let query = try XCTUnwrap(URLComponents(string: bootstrap)?.queryItems)
             XCTAssertEqual(query.first(where: { $0.name == "startupProxy" })?.value, proxy.isEmpty ? "direct" : proxy)
+            XCTAssertEqual(query.first(where: { $0.name == "browserName" })?.value, "Chrome for Testing")
+            XCTAssertEqual(query.first(where: { $0.name == "browserVersion" })?.value, "152.0.7977.82")
         }
     }
 
