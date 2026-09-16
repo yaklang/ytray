@@ -294,17 +294,21 @@ enum YTrayMain {
     private static func renderWizard(application: NSApplication, output: String) {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("ytray-wizard-render-\(UUID().uuidString)", isDirectory: true)
-        let store = InstanceStore(applicationDirectory: scratch)
+        let store = renderStore(in: scratch)
         if store.settings.defaultRuntimeID == nil {
             store.settings.defaultRuntimeID = store.runtimes.first?.id
         }
-        let size = NSSize(width: 720, height: 570)
-        let hosting = NSHostingView(rootView: CustomLaunchWizard(store: store, isPresented: .constant(true)))
+        let size = NSSize(width: 760, height: 580)
+        let stepIndex = CommandLine.arguments.firstIndex(of: "--wizard-step")
+        let step = stepIndex.flatMap { index in
+            index + 1 < CommandLine.arguments.count ? Int(CommandLine.arguments[index + 1]) : nil
+        } ?? 0
+        let hosting = NSHostingView(rootView: CustomLaunchWizard(store: store, isPresented: .constant(true), initialStep: step))
         hosting.frame = NSRect(origin: .zero, size: size)
-        hosting.appearance = NSAppearance(named: .darkAqua)
+        hosting.appearance = renderAppearance
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = hosting
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = renderAppearance
         window.backgroundColor = .windowBackgroundColor
         window.isOpaque = true
         window.orderFrontRegardless()
@@ -331,7 +335,7 @@ enum YTrayMain {
     private static func renderManager(application: NSApplication, output: String, section: String) {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("ytray-manager-render-\(UUID().uuidString)", isDirectory: true)
-        let store = InstanceStore(applicationDirectory: scratch)
+        let store = renderStore(in: scratch)
         let navigation = ManagerNavigation()
         navigation.selection = ManagerSection.allCases.first(where: {
             $0.rawValue == section || String(describing: $0) == section
@@ -340,14 +344,16 @@ enum YTrayMain {
             backend: PreviewLaunchAtLoginBackend(),
             packagedApplication: true
         )
-        let size = NSSize(width: 1080, height: 720)
+        let size = CommandLine.arguments.contains("--compact")
+            ? ManagerWindowMetrics.minimumSize : ManagerWindowMetrics.preferredSize
         let hosting = NSHostingView(rootView: ManagerView(
             store: store,
             navigation: navigation,
-            launchAtLogin: launchAtLogin
+            launchAtLogin: launchAtLogin,
+            quitApplication: { application.terminate(nil) }
         ))
         hosting.frame = NSRect(origin: .zero, size: size)
-        hosting.appearance = NSAppearance(named: .darkAqua)
+        hosting.appearance = renderAppearance
         let window = NSWindow(
             contentRect: hosting.frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -356,7 +362,7 @@ enum YTrayMain {
         )
         window.title = "YTray"
         window.contentView = hosting
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = renderAppearance
         window.orderFrontRegardless()
         application.setActivationPolicy(.prohibited)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -375,6 +381,57 @@ enum YTrayMain {
         }
         application.run()
         withExtendedLifetime(window) {}
+    }
+
+    private static var renderAppearance: NSAppearance? {
+        NSAppearance(named: CommandLine.arguments.contains("--light") ? .aqua : .darkAqua)
+    }
+
+    /// Explicit sample mode is isolated from user data, installed browsers and
+    /// process monitoring. Populated tables stay reproducible in CI screenshots.
+    @MainActor
+    private static func renderStore(in scratch: URL) -> InstanceStore {
+        let samples = CommandLine.arguments.contains("--sample-data")
+        let store = InstanceStore(applicationDirectory: scratch, discoverSystemBrowsers: !samples,
+                                  monitorProcesses: false)
+        guard samples else { return store }
+        let chrome = BrowserRuntime(name: "Google Chrome", version: "152.0.7977.83", architecture: "macos-arm64",
+                                    executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                                    source: .system, browserKind: .chrome)
+        let testing = BrowserRuntime(name: "Chrome for Testing", version: "151.0.7922.77", architecture: "macos-arm64",
+                                     executablePath: scratch.appendingPathComponent("Runtimes/Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing").path,
+                                     source: .managed, browserKind: .chromeForTesting)
+        store.runtimes = [chrome, testing]
+        store.settings.defaultRuntimeID = chrome.id
+        store.availableVersions = [MirrorVersion(version: testing.version, artifacts: [])]
+        let pluginVersion = ExtensionInstaller.bundledVersion() ?? "0.2.4"
+        let managed = BrowserPlugin(name: ExtensionInstaller.extensionName, version: pluginVersion,
+                                    path: ExtensionInstaller.pluginsRoot(applicationDirectory: scratch)
+                                        .appendingPathComponent("yakit-browser-agent/\(pluginVersion)").path,
+                                    manifestVersion: 3, pinToToolbar: true)
+        let custom = BrowserPlugin(name: "示例本地调试插件", version: "1.0.0",
+                                   path: scratch.appendingPathComponent("SampleExtension").path,
+                                   manifestVersion: 3, pinToToolbar: false)
+        store.plugins = [managed, custom]
+        store.settings.defaultPluginIDs = [managed.id, custom.id]
+        store.extensionManifest = ExtensionManifest(latest: managed.version, updatedAt: "2026-09-16", versions: [])
+        store.extensionStatusMessage = "内置插件随 YTray 更新；本地插件独立管理。"
+        for index in 0..<3 {
+            let running = index == 0
+            let title = ["示例 · 本地调试控制台", "示例 · 登录流程检查", "示例 · 项目文档"][index]
+            let thumbnail = renderSampleThumbnail(in: scratch, name: "console-\(index)", title: title,
+                                                  accent: [.systemOrange, .systemBlue, .systemGreen][index])
+            store.instances.append(BrowserInstance(
+                name: "示例实例 \(index + 1)", runtimeID: testing.id, runtimeName: testing.displayTitle,
+                runtimeVersion: testing.version, runtimeKind: testing.kind, runtimeSource: testing.source,
+                mode: .quick, processID: running ? 9527 : 0, debugPort: 9222 + index,
+                profilePath: scratch.appendingPathComponent("Profiles/sample-\(index)").path,
+                startURL: "chrome://newtab", status: running ? .running : .stopped,
+                thumbnailPath: thumbnail?.path, thumbnailUpdatedAt: Date(), lastPageTitle: title,
+                dockBadge: DockBadgeLabel.defaultLabel(for: index)
+            ))
+        }
+        return store
     }
 
     private static func renderSampleThumbnail(
