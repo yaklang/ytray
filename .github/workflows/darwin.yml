@@ -181,6 +181,7 @@ jobs:
       - name: Prepare native XCTest UI runner
         run: |
           command -v xcodegen >/dev/null || brew install xcodegen
+          mkdir -p "$RUNNER_TEMP/ytray-ui-project"
           xcodegen generate --spec script/macos-ui-tests/project.yml --project "$RUNNER_TEMP/ytray-ui-project"
       - name: Click through tray and management console
         run: |
