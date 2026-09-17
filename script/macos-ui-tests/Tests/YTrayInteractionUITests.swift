@@ -82,6 +82,10 @@ final class YTrayInteractionUITests: XCTestCase {
         capture("06-settings-saved")
 
         manager.buttons[XCUIIdentifierCloseWindow].click()
+        XCTAssertTrue(manager.waitForNonExistence(timeout: 5))
+        // Activate before opening the menu: XCTest's implicit activation during
+        // MenuItem.click can otherwise dismiss an accessory application's menu.
+        app.activate()
         tray.rightClick()
         capture("07-tray-context-menu")
         let management = app.menuItems["全部管理"].firstMatch
