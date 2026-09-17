@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Optional published release for startup investigation (e.g. v0.2.2)
+        default: ''
 
 permissions:
   contents: read
@@ -16,7 +20,11 @@ concurrency:
 jobs:
   build-test-package:
     name: Build, test, UI smoke, package
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-26]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +79,9 @@ jobs:
       - name: Exercise universal package with latest plugin
         run: ./script/package-macos.sh --arch universal --dmg
 
+      - name: Test packaged application startup
+        run: python3 script/test-macos-startup.py dist/darwin-universal/YTray.app --disposable-account --output "$RUNNER_TEMP/startup-evidence"
+
       - name: Verify mounted universal DMG
         shell: bash
         run: |
@@ -87,19 +98,28 @@ jobs:
           unzip -t "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: ytray-macos-ci
+          name: ytray-macos-ci-${{ matrix.os }}
           path: |
             dist/YTray-*-darwin-universal.dmg
             ${{ runner.temp }}/ytray-*.png
+            ${{ runner.temp }}/startup-evidence
           if-no-files-found: error
           retention-days: 14
 
   published-startup:
+    if: github.event_name == 'workflow_dispatch' && inputs.release != ''
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-26]
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-26
+            arch: arm64
+          - os: macos-26-intel
+            arch: amd64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -107,15 +127,16 @@ jobs:
       - name: Download and mount signed release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE: v0.2.2
+          RELEASE: ${{ inputs.release }}
+          ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p "$RUNNER_TEMP/startup"
-          gh release download "$RELEASE" --pattern '*darwin-arm64.dmg' --dir "$RUNNER_TEMP/startup"
+          gh release download "$RELEASE" --pattern "*darwin-$ARCH.dmg" --dir "$RUNNER_TEMP/startup"
           hdiutil attach "$RUNNER_TEMP"/startup/*.dmg -mountpoint "$RUNNER_TEMP/startup/mounted" -nobrowse -readonly
           ditto "$RUNNER_TEMP/startup/mounted/YTray.app" "$RUNNER_TEMP/startup/YTray.app"
           codesign --verify --deep --strict "$RUNNER_TEMP/startup/YTray.app"
       - name: Exercise first launch and subsequent launch
-        run: python3 script/test-macos-startup.py "$RUNNER_TEMP/startup/YTray.app" --output "$RUNNER_TEMP/startup/evidence"
+        run: python3 script/test-macos-startup.py "$RUNNER_TEMP/startup/YTray.app" --disposable-account --output "$RUNNER_TEMP/startup/evidence"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
