@@ -14,7 +14,7 @@ on:
         type: boolean
         default: false
       ui_release:
-        description: Published version to exercise with real Tahoe UI clicks (e.g. v0.2.2)
+        description: Published version (e.g. v0.2.2), or source to test this checkout with Tahoe UI clicks
         default: ''
       ui_only:
         description: Run only the requested published UI investigation
@@ -166,20 +166,30 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Build current application for native UI regression
+        if: inputs.ui_release == 'source'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          command -v magick >/dev/null || brew install imagemagick
+          ./script/package-macos.sh --arch arm64
+          ditto dist/darwin-arm64/YTray.app /Applications/YTray.app
+          codesign --verify --deep --strict /Applications/YTray.app
       - name: Install unmodified published application
+        if: inputs.ui_release != 'source'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE: ${{ inputs.ui_release }}
         run: |
-          mkdir -p "$RUNNER_TEMP/ui-evidence"
-          sw_vers > "$RUNNER_TEMP/ui-evidence/system.txt"
           gh release download "$RELEASE" --pattern '*darwin-arm64.dmg' --dir "$RUNNER_TEMP"
           hdiutil attach "$RUNNER_TEMP"/*.dmg -mountpoint "$RUNNER_TEMP/ytray-image" -nobrowse -readonly
           ditto "$RUNNER_TEMP/ytray-image/YTray.app" /Applications/YTray.app
           codesign --verify --deep --strict /Applications/YTray.app
-          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/YTray.app
       - name: Prepare native XCTest UI runner
         run: |
+          mkdir -p "$RUNNER_TEMP/ui-evidence"
+          sw_vers > "$RUNNER_TEMP/ui-evidence/system.txt"
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/YTray.app
           command -v xcodegen >/dev/null || brew install xcodegen
           mkdir -p "$RUNNER_TEMP/ytray-ui-project"
           xcodegen generate --spec script/macos-ui-tests/project.yml --project "$RUNNER_TEMP/ytray-ui-project"
@@ -190,7 +200,7 @@ jobs:
             -scheme YTrayInteraction -destination 'platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/ui-derived" \
             -resultBundlePath "$RUNNER_TEMP/ui-evidence/interaction.xcresult" \
-            -parallel-testing-enabled NO 2>&1 | tee "$RUNNER_TEMP/ui-evidence/xcodebuild.log"
+            -parallel-testing-enabled NO -test-iterations 3 2>&1 | tee "$RUNNER_TEMP/ui-evidence/xcodebuild.log"
       - name: Collect screenshots and crash evidence
         if: always()
         run: |

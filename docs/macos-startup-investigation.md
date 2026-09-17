@@ -86,3 +86,43 @@ The startup script requires `--disposable-account` because it exercises real
 startup, including login-item registration and application-data initialization.
 It is intended for disposable CI accounts. The read-only collection script above
 is the appropriate command on a user's Mac.
+
+## Native Tahoe interaction test
+
+Dispatch `darwin.yml` with `ui_release=v0.2.2` and `ui_only=true` to install the
+unmodified signed arm64 DMG on a disposable macOS 26 runner and drive it with
+XCTest UI automation. The test dismisses the first-launch login-item sheet,
+clicks the menu-bar item and management button, navigates all six console pages,
+opens and cancels the launch wizard, saves settings, and reopens the console
+from the tray context menu. Each checkpoint retains a desktop screenshot and
+accessibility tree; the job also collects application logs and crash reports.
+`tahoe-ui-interaction` contains the lightweight evidence and
+`tahoe-ui-xcresult` retains the full XCTest result bundle.
+
+The unmodified v0.2.2 release passed the complete interaction test on macOS
+26.6.2 (25G83), arm64, in [run 35236690262](https://github.com/yaklang/ytray/actions/runs/35236690262):
+46.797 seconds, zero failures, no collected YTray crash reports and an empty
+application error log. The retained screenshots show the real management
+console and launch wizard on the runner desktop.
+
+A failed selector or test setup is not an application crash. The result must be
+checked against screenshots, the surviving application state and crash reports.
+The published-binary investigation does not cover the user's existing local data
+or prove the reported crash resolved.
+
+The independent repeat [run 35237249245](https://github.com/yaklang/ytray/actions/runs/35237249245)
+found an actual interaction defect: leaving the runtime page while its manifest
+request was still pending produced a modal `已取消` error and prevented the next
+navigation. The application remained running. `RuntimePage.task` cancels on
+navigation, URLSession returns `NSURLErrorCancelled`, and `refreshManifest`
+previously forwarded every error to the shared modal alert. The plugin manifest
+refresh has the same path. 0.2.3 ignores task/request cancellation for these
+refreshes, retains reporting for genuine failures, and rejects results returned
+after cancellation. Deterministic tests cover Swift cancellation, URLSession
+cancellation, an in-flight cancellation and actual network failures.
+
+For the fixed checkout, dispatch `ui_release=source`, `ui_only=true`. The native
+interaction sequence runs three times, covering fresh and subsequent launches.
+The earlier minimize/reopen self-check now waits for AppKit/Dock transitions
+instead of inspecting the minimized flag synchronously; it still requires that
+the window actually minimized and was subsequently restored.

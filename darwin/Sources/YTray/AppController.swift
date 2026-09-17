@@ -66,23 +66,31 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func runReopenSmoke() {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { exit(1) }
             self.showManager()
             self.managerWindow?.close()
             let wasClosed = self.managerWindow?.isVisible == false
-            // Let windowWillClose's accessory transition complete before reopening.
-            DispatchQueue.main.async {
-                _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
-                let reopened = wasClosed && self.managerWindow?.isVisible == true
-                self.managerWindow?.miniaturize(nil)
-                let wasMinimized = self.managerWindow?.isMiniaturized == true
-                _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
-                let restored = wasMinimized && self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false
-                print("reopen smoke: closed=\(reopened) minimized=\(restored)")
-                if !reopened || !restored { exit(1) }
-                NSApp.terminate(nil)
+            // Window and Dock state changes settle on later main-loop turns.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+            let reopened = wasClosed && self.managerWindow?.isVisible == true
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self.managerWindow?.miniaturize(nil)
+            for _ in 0..<50 {
+                if self.managerWindow?.isMiniaturized == true { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
             }
+            let wasMinimized = self.managerWindow?.isMiniaturized == true
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+            for _ in 0..<50 {
+                if self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let restored = wasMinimized && self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false
+            print("reopen smoke: closed=\(reopened) minimized=\(restored)")
+            if !reopened || !restored { exit(1) }
+            NSApp.terminate(nil)
         }
     }
 
