@@ -94,3 +94,30 @@ jobs:
             ${{ runner.temp }}/ytray-*.png
           if-no-files-found: error
           retention-days: 14
+
+  published-startup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and mount signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: v0.2.2
+        run: |
+          mkdir -p "$RUNNER_TEMP/startup"
+          gh release download "$RELEASE" --pattern '*darwin-arm64.dmg' --dir "$RUNNER_TEMP/startup"
+          hdiutil attach "$RUNNER_TEMP"/startup/*.dmg -mountpoint "$RUNNER_TEMP/startup/mounted" -nobrowse -readonly
+          ditto "$RUNNER_TEMP/startup/mounted/YTray.app" "$RUNNER_TEMP/startup/YTray.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/startup/YTray.app"
+      - name: Exercise first launch and subsequent launch
+        run: python3 script/test-macos-startup.py "$RUNNER_TEMP/startup/YTray.app" --output "$RUNNER_TEMP/startup/evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: startup-${{ matrix.os }}
+          path: ${{ runner.temp }}/startup/evidence
