@@ -18,9 +18,23 @@ final class YTrayInteractionUITests: XCTestCase {
         XCTAssertNotEqual(app.state, .notRunning, "YTray exited at \(name)")
     }
 
-    private func clickButton(_ label: String) {
-        let button = app.descendants(matching: .window).descendants(matching: .button).matching(NSPredicate(format: "label == %@", label)).firstMatch
-        XCTAssertTrue(button.waitForExistence(timeout: 10), "Missing button: \(label)\n\(app.debugDescription)")
+    private func onScreenButton(_ label: String, timeout: TimeInterval = 10) -> XCUIElement? {
+        let query = app.descendants(matching: .button).matching(NSPredicate(format: "label == %@", label))
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            // macOS exposes duplicate buttons in Touch Bar (y=0). Select the
+            // desktop control from the full tree; accessory panels may not be
+            // returned by the windows query even when present in the snapshot.
+            if let button = query.allElementsBoundByIndex.first(where: {
+                $0.frame.minY >= 30 && $0.frame.width > 0 && $0.frame.height > 0
+            }) { return button }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        return nil
+    }
+
+    private func clickButton(_ label: String) throws {
+        let button = try XCTUnwrap(onScreenButton(label), "Missing desktop button: \(label)\n\(app.debugDescription)")
         button.click()
     }
 
@@ -28,8 +42,7 @@ final class YTrayInteractionUITests: XCTestCase {
         app.launch()
         capture("01-launched")
         // A fresh installation presents the login-item result. Exercise its real button.
-        let notice = app.descendants(matching: .window).descendants(matching: .button).matching(NSPredicate(format: "label == %@", "知道了")).firstMatch
-        if notice.waitForExistence(timeout: 8) { notice.click() }
+        if let notice = onScreenButton("知道了", timeout: 8) { notice.click() }
         capture("02-first-launch-notice-dismissed")
 
         let manager = app.windows["YTray"].firstMatch
@@ -38,7 +51,7 @@ final class YTrayInteractionUITests: XCTestCase {
         XCTAssertTrue(tray.waitForExistence(timeout: 10), "Missing status item\n\(app.debugDescription)")
         tray.click()
         capture("03-tray-widget")
-        clickButton("全部管理")
+        try clickButton("全部管理")
         XCTAssertTrue(manager.waitForExistence(timeout: 10))
         capture("04-console-opened-from-widget")
 
@@ -50,19 +63,19 @@ final class YTrayInteractionUITests: XCTestCase {
             ("开机启动", "刷新状态"),
             ("快速配置", "开始配置"),
         ] {
-            clickButton(page)
+            try clickButton(page)
             let content = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR value == %@", marker, marker)).firstMatch
             XCTAssertTrue(content.waitForExistence(timeout: 10), "Page did not change to \(page)\n\(app.debugDescription)")
             capture("page-" + page)
         }
 
-        clickButton("开始配置")
+        try clickButton("开始配置")
         XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 5))
         capture("05-custom-launch-wizard")
-        clickButton("取消")
+        try clickButton("取消")
         XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5))
-        clickButton("启动设置")
-        clickButton("保存设置")
+        try clickButton("启动设置")
+        try clickButton("保存设置")
         capture("06-settings-saved")
 
         manager.buttons[XCUIIdentifierCloseWindow].click()
