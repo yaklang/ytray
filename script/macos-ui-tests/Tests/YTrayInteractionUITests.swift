@@ -19,7 +19,7 @@ final class YTrayInteractionUITests: XCTestCase {
     }
 
     private func clickButton(_ label: String) {
-        let button = app.windows.buttons[label].firstMatch
+        let button = app.descendants(matching: .window).descendants(matching: .button).matching(NSPredicate(format: "label == %@", label)).firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 10), "Missing button: \(label)\n\(app.debugDescription)")
         button.click()
     }
@@ -28,7 +28,7 @@ final class YTrayInteractionUITests: XCTestCase {
         app.launch()
         capture("01-launched")
         // A fresh installation presents the login-item result. Exercise its real button.
-        let notice = app.windows.buttons["知道了"].firstMatch
+        let notice = app.descendants(matching: .window).descendants(matching: .button).matching(NSPredicate(format: "label == %@", "知道了")).firstMatch
         if notice.waitForExistence(timeout: 8) { notice.click() }
         capture("02-first-launch-notice-dismissed")
 
@@ -51,7 +51,7 @@ final class YTrayInteractionUITests: XCTestCase {
             ("快速配置", "开始配置"),
         ] {
             clickButton(page)
-            let content = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", marker)).firstMatch
+            let content = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR value == %@", marker, marker)).firstMatch
             XCTAssertTrue(content.waitForExistence(timeout: 10), "Page did not change to \(page)\n\(app.debugDescription)")
             capture("page-" + page)
         }
