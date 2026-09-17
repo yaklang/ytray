@@ -9,6 +9,10 @@ on:
       release:
         description: Optional published release for startup investigation (e.g. v0.2.2)
         default: ''
+      verify_presentation:
+        description: Require foreground and reopen behavior (0.2.3 or later)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -80,7 +84,7 @@ jobs:
         run: ./script/package-macos.sh --arch universal --dmg
 
       - name: Test packaged application startup
-        run: python3 script/test-macos-startup.py dist/darwin-universal/YTray.app --disposable-account --output "$RUNNER_TEMP/startup-evidence"
+        run: python3 script/test-macos-startup.py dist/darwin-universal/YTray.app --disposable-account --expect-foreground --output "$RUNNER_TEMP/startup-evidence"
 
       - name: Verify mounted universal DMG
         shell: bash
@@ -136,7 +140,12 @@ jobs:
           ditto "$RUNNER_TEMP/startup/mounted/YTray.app" "$RUNNER_TEMP/startup/YTray.app"
           codesign --verify --deep --strict "$RUNNER_TEMP/startup/YTray.app"
       - name: Exercise first launch and subsequent launch
-        run: python3 script/test-macos-startup.py "$RUNNER_TEMP/startup/YTray.app" --disposable-account --output "$RUNNER_TEMP/startup/evidence"
+        env:
+          VERIFY_PRESENTATION: ${{ inputs.verify_presentation }}
+        run: |
+          args=()
+          if [[ "$VERIFY_PRESENTATION" == true ]]; then args+=(--expect-foreground); fi
+          python3 script/test-macos-startup.py "$RUNNER_TEMP/startup/YTray.app" --disposable-account "${args[@]}" --output "$RUNNER_TEMP/startup/evidence"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

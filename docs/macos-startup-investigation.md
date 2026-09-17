@@ -21,9 +21,24 @@ Reported symptom: launching YTray on macOS Tahoe makes the app disappear.
   are still needed. A clean CI account does not cover existing user data, menu-bar
   utilities, display configurations or every Tahoe patch release.
 
-YTray intentionally uses `LSUIElement` and `.accessory` activation policy. It does
-not normally keep a Dock icon or open a management window on every launch.
-An absent Dock icon alone is not evidence of process termination.
+YTray 0.2.2 uses `LSUIElement` and `.accessory` activation policy. It does not
+normally keep a Dock icon or open a management window on every launch. Its
+delegate also has no reopen handler, so a second Finder launch cannot recover a
+hidden management window. An absent Dock icon alone is not evidence of process
+termination.
+
+## 0.2.3 changes
+
+Manual startup now shows the management window. A Finder reopen restores the
+same window, including when closed or minimized. Login/service launches remain
+quiet, as does an explicit `--background` launch. The application delegate is
+retained explicitly throughout the event loop. Startup logs identify menu-bar
+and edge-widget setup, and `app.ready` is emitted after initialization finishes.
+
+These changes fix the confirmed missing-UI/reopen behavior and improve lifecycle
+diagnostics. They are not proof that the unobserved process crash on the user's
+Mac is resolved. The crash-report investigation remains open if the process
+actually exits.
 
 ## Collect evidence on the affected Mac
 
@@ -57,6 +72,10 @@ executable and Launch Services (`open`, as used for Finder launches). Each launc
 must reach `app.ready` for its own PID and remain alive for 20 seconds. A clean
 early exit also fails. Results, application output and crash reports are retained
 as CI artifacts.
+
+Current-build tests also require a visible manager after manual startup, send a
+real Launch Services reopen to the same PID, and exercise closing/minimizing and
+restoring the window. Login/service event handling is covered by unit tests.
 
 For an investigation of a published binary, dispatch the macOS workflow with a
 `release` input, for example `v0.2.2`. This additionally downloads and validates

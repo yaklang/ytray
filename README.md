@@ -187,7 +187,7 @@ React Bits Pro 授权只保存在本机的 `site/.env.local`；其授权信息�
 
 ## CI、Pages 与发版
 
-- `macOS`：Swift Release 构建、测试、真实 UI 渲染、最新版插件打包、通用 DMG 挂载验证。
+- `macOS`：在 macOS 14 和 Tahoe 26 上执行 Swift Release 构建、测试、真实 UI 渲染、更新器验证、最新版插件打包、通用 DMG 挂载及真实启动/窗口唤回检查；可指定已发布版本测试 Apple 芯片和 Intel 正式包。
 - `Windows`：WPF 构建、测试、独立 EXE 冒烟、真实设计截图和 Inno Setup 安装包。
 - `Pages`：安装锁定依赖、装配版本化真实截图、静态导出 Next.js 官网，发布后用 `deploy-meta.json` 验证线上 commit。
 - `Release`：仅由 `v*` tag 触发；分别构建 macOS arm64/amd64 与 Windows amd64/386，确认四个安装包使用同一最新插件版本，再发布到 GitHub 与 OSS。
