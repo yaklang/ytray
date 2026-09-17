@@ -19,7 +19,7 @@ final class YTrayInteractionUITests: XCTestCase {
     }
 
     private func onScreenButton(_ label: String, timeout: TimeInterval = 10) -> XCUIElement? {
-        let query = app.descendants(matching: .button).matching(NSPredicate(format: "label == %@", label))
+        let query = app.descendants(matching: .button).matching(identifier: label)
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             // macOS exposes duplicate buttons in Touch Bar (y=0). Select the
@@ -42,7 +42,10 @@ final class YTrayInteractionUITests: XCTestCase {
         app.launch()
         capture("01-launched")
         // A fresh installation presents the login-item result. Exercise its real button.
-        if let notice = onScreenButton("知道了", timeout: 8) { notice.click() }
+        if let notice = onScreenButton("知道了", timeout: 8) {
+            notice.click()
+            XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5), "First-launch notice did not close")
+        }
         capture("02-first-launch-notice-dismissed")
 
         let manager = app.windows["YTray"].firstMatch
