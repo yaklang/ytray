@@ -92,7 +92,9 @@ enum YTrayMain {
         let controller = AppController()
         application.delegate = controller
         application.setActivationPolicy(.accessory)
-        application.run()
+        // NSApplication's delegate is weak. Own it for the entire event loop,
+        // including optimized builds and system-managed launch/reopen events.
+        withExtendedLifetime(controller) { application.run() }
     }
 
     @MainActor

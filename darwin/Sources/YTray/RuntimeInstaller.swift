@@ -54,7 +54,7 @@ enum RuntimeInstaller {
             DiagnosticLog.info("runtime.manifest", "loaded \(versions.count) versions; latest=\(versions.first?.version ?? "none")")
             return versions
         } catch {
-            DiagnosticLog.error("runtime.manifest", error)
+            if !AsyncCancellation.isExpected(error) { DiagnosticLog.error("runtime.manifest", error) }
             throw error
         }
     }

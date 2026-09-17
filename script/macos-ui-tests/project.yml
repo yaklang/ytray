@@ -1,0 +1,30 @@
+name: YTrayInteractionTests
+options:
+  bundleIdPrefix: io.yaklang.ytray.ci
+  deploymentTarget:
+    macOS: '14.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    CODE_SIGN_IDENTITY: '-'
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  InteractionHost:
+    type: application
+    platform: macOS
+    sources: [Host]
+  YTrayInteractionUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: InteractionHost
+schemes:
+  YTrayInteraction:
+    build:
+      targets:
+        InteractionHost: all
+        YTrayInteractionUITests: [test]
+    test:
+      targets: [YTrayInteractionUITests]
+      gatherCoverageData: false

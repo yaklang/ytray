@@ -5,6 +5,21 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Optional published release for startup investigation (e.g. v0.2.2)
+        default: ''
+      verify_presentation:
+        description: Require foreground and reopen behavior (0.2.3 or later)
+        type: boolean
+        default: false
+      ui_release:
+        description: Published version (e.g. v0.2.2), or source to test this checkout with Tahoe UI clicks
+        default: ''
+      ui_only:
+        description: Run only the requested published UI investigation
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,8 +30,13 @@ concurrency:
 
 jobs:
   build-test-package:
+    if: github.event_name != 'workflow_dispatch' || inputs.ui_only != true
     name: Build, test, UI smoke, package
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-26]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +91,9 @@ jobs:
       - name: Exercise universal package with latest plugin
         run: ./script/package-macos.sh --arch universal --dmg
 
+      - name: Test packaged application startup
+        run: python3 script/test-macos-startup.py dist/darwin-universal/YTray.app --disposable-account --expect-foreground --output "$RUNNER_TEMP/startup-evidence"
+
       - name: Verify mounted universal DMG
         shell: bash
         run: |
@@ -87,10 +110,117 @@ jobs:
           unzip -t "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: ytray-macos-ci
+          name: ytray-macos-ci-${{ matrix.os }}
           path: |
             dist/YTray-*-darwin-universal.dmg
             ${{ runner.temp }}/ytray-*.png
+            ${{ runner.temp }}/startup-evidence
           if-no-files-found: error
           retention-days: 14
+
+  published-startup:
+    if: github.event_name == 'workflow_dispatch' && inputs.release != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-26
+            arch: arm64
+          - os: macos-26-intel
+            arch: amd64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and mount signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/startup"
+          gh release download "$RELEASE" --pattern "*darwin-$ARCH.dmg" --dir "$RUNNER_TEMP/startup"
+          hdiutil attach "$RUNNER_TEMP"/startup/*.dmg -mountpoint "$RUNNER_TEMP/startup/mounted" -nobrowse -readonly
+          ditto "$RUNNER_TEMP/startup/mounted/YTray.app" "$RUNNER_TEMP/startup/YTray.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/startup/YTray.app"
+      - name: Exercise first launch and subsequent launch
+        env:
+          VERIFY_PRESENTATION: ${{ inputs.verify_presentation }}
+        run: |
+          args=()
+          if [[ "$VERIFY_PRESENTATION" == true ]]; then args+=(--expect-foreground); fi
+          python3 script/test-macos-startup.py "$RUNNER_TEMP/startup/YTray.app" --disposable-account "${args[@]}" --output "$RUNNER_TEMP/startup/evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: startup-${{ matrix.os }}
+          path: ${{ runner.temp }}/startup/evidence
+
+  tahoe-ui:
+    if: github.event_name == 'workflow_dispatch' && inputs.ui_release != ''
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build current application for native UI regression
+        if: inputs.ui_release == 'source'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          command -v magick >/dev/null || brew install imagemagick
+          ./script/package-macos.sh --arch arm64
+          ditto dist/darwin-arm64/YTray.app /Applications/YTray.app
+          codesign --verify --deep --strict /Applications/YTray.app
+      - name: Install unmodified published application
+        if: inputs.ui_release != 'source'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.ui_release }}
+        run: |
+          gh release download "$RELEASE" --pattern '*darwin-arm64.dmg' --dir "$RUNNER_TEMP"
+          hdiutil attach "$RUNNER_TEMP"/*.dmg -mountpoint "$RUNNER_TEMP/ytray-image" -nobrowse -readonly
+          ditto "$RUNNER_TEMP/ytray-image/YTray.app" /Applications/YTray.app
+          codesign --verify --deep --strict /Applications/YTray.app
+      - name: Prepare native XCTest UI runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-evidence"
+          sw_vers > "$RUNNER_TEMP/ui-evidence/system.txt"
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/YTray.app
+          command -v xcodegen >/dev/null || brew install xcodegen
+          mkdir -p "$RUNNER_TEMP/ytray-ui-project"
+          xcodegen generate --spec script/macos-ui-tests/project.yml --project "$RUNNER_TEMP/ytray-ui-project"
+      - name: Click through tray and management console
+        run: |
+          set -o pipefail
+          xcodebuild test -project "$RUNNER_TEMP/ytray-ui-project/YTrayInteractionTests.xcodeproj" \
+            -scheme YTrayInteraction -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/ui-derived" \
+            -resultBundlePath "$RUNNER_TEMP/ui-evidence/interaction.xcresult" \
+            -parallel-testing-enabled NO -test-iterations 3 2>&1 | tee "$RUNNER_TEMP/ui-evidence/xcodebuild.log"
+      - name: Collect screenshots and crash evidence
+        if: always()
+        run: |
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ui-evidence/interaction.xcresult" \
+            --output-path "$RUNNER_TEMP/ui-evidence/screenshots" || true
+          if [[ -d "$HOME/Library/Application Support/YTray/Logs" ]]; then
+            ditto "$HOME/Library/Application Support/YTray/Logs" "$RUNNER_TEMP/ui-evidence/logs"
+          fi
+          mkdir -p "$RUNNER_TEMP/ui-evidence/crashes"
+          find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -type f -name 'YTray*' \
+            -exec cp {} "$RUNNER_TEMP/ui-evidence/crashes/" \;
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tahoe-ui-interaction
+          path: |
+            ${{ runner.temp }}/ui-evidence
+            !${{ runner.temp }}/ui-evidence/interaction.xcresult
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tahoe-ui-xcresult
+          path: ${{ runner.temp }}/ui-evidence/interaction.xcresult

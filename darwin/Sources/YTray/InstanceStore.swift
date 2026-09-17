@@ -158,9 +158,15 @@ final class InstanceStore: NSObject, ObservableObject {
         runtimes.first(where: { $0.id == settings.defaultRuntimeID }) ?? systemRuntimes.first ?? runtimes.first
     }
 
-    func refreshManifest() async {
-        do { availableVersions = try await RuntimeInstaller.fetchVersions() }
-        catch { report(error) }
+    func refreshManifest(fetch: () async throws -> [MirrorVersion] = RuntimeInstaller.fetchVersions) async {
+        do {
+            let versions = try await fetch()
+            try Task.checkCancellation()
+            availableVersions = versions
+        } catch {
+            guard !AsyncCancellation.isExpected(error) else { return }
+            report(error)
+        }
     }
 
     func install(version: MirrorVersion) async {
@@ -206,12 +212,18 @@ final class InstanceStore: NSObject, ObservableObject {
         return ExtensionInstaller.compareVersions(latest.version, installed.version) == .orderedDescending
     }
 
-    func refreshExtensionManifest() async {
+    func refreshExtensionManifest(fetch: () async throws -> ExtensionManifest = ExtensionInstaller.fetchManifest) async {
         extensionStatusMessage = "正在获取插件版本…"
         do {
-            extensionManifest = try await ExtensionInstaller.fetchManifest()
+            let manifest = try await fetch()
+            try Task.checkCancellation()
+            extensionManifest = manifest
             extensionStatusMessage = ""
         } catch {
+            guard !AsyncCancellation.isExpected(error) else {
+                extensionStatusMessage = ""
+                return
+            }
             extensionStatusMessage = error.localizedDescription
             report(error)
         }

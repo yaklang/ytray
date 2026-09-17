@@ -31,11 +31,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let edgeWidgetSmoke = CommandLine.arguments.contains("--smoke-edge-widget-focus")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DiagnosticLog.info("app.ready", "application finished launching")
+        DiagnosticLog.info("app.startup", "configuring status item")
         EdgeDockPreferences.migrateLegacyIfNeeded()
         configureStatusItem()
+        DiagnosticLog.info("app.startup", "configuring edge widget")
         edgeDock.update()
-        presentFirstLaunchAtLoginNoticeIfNeeded()
+        let presentsManager = AppLaunchPolicy.shouldPresentManager(
+            event: NSAppleEventManager.shared().currentAppleEvent, arguments: CommandLine.arguments)
+        if presentsManager {
+            showManager()
+            DiagnosticLog.info("app.presentation", "manual launch; manager_visible=\(managerWindow?.isVisible == true)")
+            presentFirstLaunchAtLoginNoticeIfNeeded()
+        }
         UserDefaults.standard.removeObject(forKey: "ytray.widget-position.v1")
         if edgeWidgetSmoke {
             runEdgeWidgetSmoke()
@@ -48,6 +55,43 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 && NSApp.modalWindow == nil && NSApp.windows.allSatisfy { $0.attachedSheet == nil }
         }
         appUpdater.start()
+        DiagnosticLog.info("app.ready", "startup completed; foreground=\(presentsManager)")
+        if CommandLine.arguments.contains("--smoke-reopen") { runReopenSmoke() }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showManager(section: managerNavigation.selection ?? .quick)
+        DiagnosticLog.info("app.reopen", "manager_visible=\(managerWindow?.isVisible == true); minimized=\(managerWindow?.isMiniaturized == true)")
+        return false
+    }
+
+    private func runReopenSmoke() {
+        Task { @MainActor [weak self] in
+            guard let self else { exit(1) }
+            self.showManager()
+            self.managerWindow?.close()
+            let wasClosed = self.managerWindow?.isVisible == false
+            // Window and Dock state changes settle on later main-loop turns.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+            let reopened = wasClosed && self.managerWindow?.isVisible == true
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self.managerWindow?.miniaturize(nil)
+            for _ in 0..<50 {
+                if self.managerWindow?.isMiniaturized == true { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let wasMinimized = self.managerWindow?.isMiniaturized == true
+            _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
+            for _ in 0..<50 {
+                if self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let restored = wasMinimized && self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false
+            print("reopen smoke: closed=\(reopened) minimized=\(restored)")
+            if !reopened || !restored { exit(1) }
+            NSApp.terminate(nil)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -425,6 +469,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             managerWindow = window
         }
         NSApp.setActivationPolicy(.regular)
+        if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -450,7 +495,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === managerWindow else { return }
-        DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
+        DispatchQueue.main.async { [weak self] in
+            guard self?.managerWindow?.isVisible != true else { return }
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) {
