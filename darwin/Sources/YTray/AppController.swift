@@ -70,13 +70,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self else { exit(1) }
             self.showManager()
             self.managerWindow?.close()
+            let wasClosed = self.managerWindow?.isVisible == false
             // Let windowWillClose's accessory transition complete before reopening.
             DispatchQueue.main.async {
                 _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
-                let reopened = self.managerWindow?.isVisible == true
+                let reopened = wasClosed && self.managerWindow?.isVisible == true
                 self.managerWindow?.miniaturize(nil)
+                let wasMinimized = self.managerWindow?.isMiniaturized == true
                 _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: true)
-                let restored = self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false
+                let restored = wasMinimized && self.managerWindow?.isVisible == true && self.managerWindow?.isMiniaturized == false
                 print("reopen smoke: closed=\(reopened) minimized=\(restored)")
                 if !reopened || !restored { exit(1) }
                 NSApp.terminate(nil)
