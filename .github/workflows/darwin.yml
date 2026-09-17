@@ -13,6 +13,13 @@ on:
         description: Require foreground and reopen behavior (0.2.3 or later)
         type: boolean
         default: false
+      ui_release:
+        description: Published version to exercise with real Tahoe UI clicks (e.g. v0.2.2)
+        default: ''
+      ui_only:
+        description: Run only the requested published UI investigation
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,6 +30,7 @@ concurrency:
 
 jobs:
   build-test-package:
+    if: github.event_name != 'workflow_dispatch' || inputs.ui_only != true
     name: Build, test, UI smoke, package
     strategy:
       fail-fast: false
@@ -151,3 +159,50 @@ jobs:
         with:
           name: startup-${{ matrix.os }}
           path: ${{ runner.temp }}/startup/evidence
+
+  tahoe-ui:
+    if: github.event_name == 'workflow_dispatch' && inputs.ui_release != ''
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install unmodified published application
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.ui_release }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-evidence"
+          sw_vers > "$RUNNER_TEMP/ui-evidence/system.txt"
+          gh release download "$RELEASE" --pattern '*darwin-arm64.dmg' --dir "$RUNNER_TEMP"
+          hdiutil attach "$RUNNER_TEMP"/*.dmg -mountpoint "$RUNNER_TEMP/ytray-image" -nobrowse -readonly
+          ditto "$RUNNER_TEMP/ytray-image/YTray.app" /Applications/YTray.app
+          codesign --verify --deep --strict /Applications/YTray.app
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/YTray.app
+      - name: Prepare native XCTest UI runner
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate --spec script/macos-ui-tests/project.yml --project "$RUNNER_TEMP/ytray-ui-project"
+      - name: Click through tray and management console
+        run: |
+          set -o pipefail
+          xcodebuild test -project "$RUNNER_TEMP/ytray-ui-project/YTrayInteractionTests.xcodeproj" \
+            -scheme YTrayInteraction -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/ui-derived" \
+            -resultBundlePath "$RUNNER_TEMP/ui-evidence/interaction.xcresult" \
+            -parallel-testing-enabled NO 2>&1 | tee "$RUNNER_TEMP/ui-evidence/xcodebuild.log"
+      - name: Collect screenshots and crash evidence
+        if: always()
+        run: |
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ui-evidence/interaction.xcresult" \
+            --output-path "$RUNNER_TEMP/ui-evidence/screenshots" || true
+          if [[ -d "$HOME/Library/Application Support/YTray/Logs" ]]; then
+            ditto "$HOME/Library/Application Support/YTray/Logs" "$RUNNER_TEMP/ui-evidence/logs"
+          fi
+          mkdir -p "$RUNNER_TEMP/ui-evidence/crashes"
+          find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -type f -name 'YTray*' \
+            -exec cp {} "$RUNNER_TEMP/ui-evidence/crashes/" \;
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tahoe-ui-interaction
+          path: ${{ runner.temp }}/ui-evidence
