@@ -14,11 +14,12 @@ final class YTrayInteractionUITests: XCTestCase {
         tree.name = name + "-accessibility"
         tree.lifetime = .keepAlways
         add(tree)
+        print("UI checkpoint: \(name)\n\(app.debugDescription)")
         XCTAssertNotEqual(app.state, .notRunning, "YTray exited at \(name)")
     }
 
     private func clickButton(_ label: String) {
-        let button = app.buttons[label].firstMatch
+        let button = app.windows.buttons[label].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 10), "Missing button: \(label)\n\(app.debugDescription)")
         button.click()
     }
@@ -27,7 +28,7 @@ final class YTrayInteractionUITests: XCTestCase {
         app.launch()
         capture("01-launched")
         // A fresh installation presents the login-item result. Exercise its real button.
-        let notice = app.buttons["知道了"].firstMatch
+        let notice = app.windows.buttons["知道了"].firstMatch
         if notice.waitForExistence(timeout: 8) { notice.click() }
         capture("02-first-launch-notice-dismissed")
 
