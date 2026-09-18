@@ -49,8 +49,11 @@ class Updates(unittest.TestCase):
                 self.assertEqual(enclosure.attrib['url'], f'https://aliyun-oss.yaklang.com/ytray/0.2.0/YTray-0.2.0-{suffix}')
                 self.assertEqual(len(base64.b64decode(enclosure.attrib[ns + 'edSignature'])), 64)
                 if system == 'windows':
+                    self.assertIsNone(feed.find(f'.//{ns}minimumSystemVersion'))
                     self.assertEqual(enclosure.attrib[ns + 'os'], 'windows-x86' if arch == '386' else 'windows-x64')
                     self.assertEqual(enclosure.attrib[ns + 'installerArguments'], '/SILENT /SP- /NORESTART /NOFORCECLOSEAPPLICATIONS /YTRAYAUTOUPDATE=1')
+                else:
+                    self.assertEqual(feed.findtext(f'.//{ns}minimumSystemVersion'), '14.0')
             with self.assertRaises(ValueError): signer.generate(directory, key.read_text(), base64.b64encode(bytes(32)).decode())
             (directory / ('YTray-0.2.0-' + payloads[0])).write_bytes(b'tampered')
             with self.assertRaises(ValueError): signer.generate(directory, key.read_text(), public)

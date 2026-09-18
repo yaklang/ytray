@@ -167,6 +167,31 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public async Task NativeNoUpdateCannotHideACatalogUpdate()
+        {
+            var architecture = Environment.Is64BitProcess ? "amd64" : "386";
+            var filename = $"YTray-99.0.0-windows-{architecture}-setup.exe";
+            var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"99.0.0\","
+                + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\"" + architecture
+                + "\",\"kind\":\"setup\",\"filename\":\"" + filename + "\",\"url\":\"https://aliyun-oss.yaklang.com/ytray/99.0.0/"
+                + filename + "\",\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}]}";
+            using (var service = new AppUpdateService(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(manifest, Encoding.UTF8, "application/json"),
+                }), enabled: true))
+            {
+                await service.CheckAsync();
+                service.FinishNativeUpdate(NativeUpdateResult.Current, "已经是最新版本。");
+
+                Assert.AreEqual(AppUpdatePhase.Failed, service.Phase);
+                Assert.IsTrue(service.IsUpdateAvailable);
+                Assert.AreEqual("99.0.0", service.AvailableVersion);
+                StringAssert.Contains(service.StatusText, "请手动下载");
+            }
+        }
+
+        [TestMethod]
         public async Task InvalidManifestUsesAChineseUserFacingMessage()
         {
             using (var service = new AppUpdateService(new StaticResponseHandler(() =>
