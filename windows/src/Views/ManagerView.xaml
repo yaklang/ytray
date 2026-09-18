@@ -74,6 +74,36 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         </Style>
+        <Style x:Key="UpdateVersionButton" TargetType="Button">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="MinWidth" Value="58"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="12">
+                            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="Tag" Value="Available">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource UpdatePaleBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource UpdateTextBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Geometry x:Key="ThemeSystemIcon">M 1.5 2.5 L 14.5 2.5 L 14.5 11 L 1.5 11 Z M 5.5 13.5 L 10.5 13.5 M 8 11 L 8 13.5</Geometry>
         <Geometry x:Key="ThemeLightIcon">M 8 4.7 A 3.3 3.3 0 1 1 7.99 4.7 Z M 8 0.8 L 8 2.2 M 8 13.8 L 8 15.2 M 0.8 8 L 2.2 8 M 13.8 8 L 15.2 8 M 2.9 2.9 L 3.9 3.9 M 12.1 12.1 L 13.1 13.1 M 13.1 2.9 L 12.1 3.9 M 3.9 12.1 L 2.9 13.1</Geometry>
         <Geometry x:Key="ThemeDarkIcon">M 12.7 12.4 C 8.3 13.9 3.5 11.2 2.7 6.7 C 2.3 4.2 3.2 2 4.9 0.8 C 4.4 5.1 7.5 9.2 11.8 9.2 C 12.7 9.2 13.5 9 14.2 8.6 C 14 10.2 13.5 11.4 12.7 12.4 Z</Geometry>
@@ -98,6 +128,17 @@
                                RenderOptions.BitmapScalingMode="HighQuality"/>
                         <TextBlock Text="YTray" Margin="12,0,0,0" FontSize="15" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                        <Button x:Name="VersionButton" Click="VersionButton_Click" Style="{StaticResource UpdateVersionButton}"
+                                Tag="Current" shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                                AutomationProperties.Name="YTray 版本与更新">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock x:Name="VersionButtonText" Text="v0.0.0" FontSize="11.5" FontWeight="Medium"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                           VerticalAlignment="Center"/>
+                                <Ellipse x:Name="VersionUpdateDot" Width="7" Height="7" Margin="6,0,0,0"
+                                         Fill="{DynamicResource BrandOrangeBrush}" Visibility="Collapsed" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
                         <Button x:Name="ThemeButton" Style="{StaticResource WindowControlButton}" Width="45" Height="49"
@@ -156,6 +197,49 @@
                                     </Grid>
                                 </Button>
                             </StackPanel>
+                        </Border>
+                    </Popup>
+                    <Popup x:Name="UpdatePopup" PlacementTarget="{Binding ElementName=VersionButton}"
+                           Placement="Bottom" VerticalOffset="5" AllowsTransparency="True"
+                           PopupAnimation="Fade" StaysOpen="False" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <Border Width="400" MaxHeight="450" Padding="17,16,17,14" CornerRadius="8"
+                                Background="{DynamicResource SurfaceRaisedBrush}"
+                                BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1">
+                            <Border.Effect><DropShadowEffect BlurRadius="22" ShadowDepth="5" Opacity="0.25"/></Border.Effect>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="5"/><RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="10"/><RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="UpdatePopupTitle" Text="YTray" FontSize="16" FontWeight="SemiBold"/>
+                                    <Border x:Name="UpdatePopupBadge" Grid.Column="1" Padding="8,3" CornerRadius="9"
+                                            Background="{DynamicResource UpdatePaleBrush}" Visibility="Collapsed">
+                                        <TextBlock Text="新版本" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource UpdateTextBrush}"/>
+                                    </Border>
+                                </Grid>
+                                <TextBlock x:Name="UpdatePopupStatus" Grid.Row="2" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                <Border Grid.Row="3" VerticalAlignment="Center" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0"/>
+                                <TextBox x:Name="UpdatePopupNotes" Grid.Row="4" MaxHeight="235" MinHeight="36"
+                                         IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                         BorderThickness="0" Padding="0" Background="Transparent" FontSize="11.5"
+                                         Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="UpdatePopupLastCheck" Grid.Row="6" FontSize="10"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                <Grid Grid.Row="8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="8"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Button x:Name="UpdateReleaseNotesButton" Content="查看完整说明" Click="OpenReleaseNotes_Click"
+                                            Style="{StaticResource YTrayGhostButton}" Padding="8,0" Height="32"/>
+                                    <Button x:Name="UpdateDownloadButton" Grid.Column="2" Content="手动下载" Click="DownloadUpdate_Click"
+                                            Style="{StaticResource YTrayGhostButton}" Padding="10,0" Height="32"/>
+                                    <Button x:Name="UpdateActionButton" Grid.Column="4" Content="检查更新" Click="UpdateAction_Click"
+                                            Style="{StaticResource YTrayPrimaryButton}" MinWidth="92" Height="32" Padding="12,0"/>
+                                </Grid>
+                            </Grid>
                         </Border>
                     </Popup>
                 </Grid>

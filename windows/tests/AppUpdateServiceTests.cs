@@ -111,6 +111,33 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public async Task CurrentReleaseKeepsItsNotesForTheVersionPopover()
+        {
+            var version = YTrayBuildInfo.Version;
+            var architecture = Environment.Is64BitProcess ? "amd64" : "386";
+            var filename = $"YTray-{version}-windows-{architecture}-setup.exe";
+            var notesUrl = $"https://github.com/yaklang/ytray/releases/tag/v{version}";
+            var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"" + version + "\","
+                + "\"release_notes\":\"" + notesUrl + "\",\"release_notes_text\":\"本版本说明\","
+                + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\"" + architecture
+                + "\",\"kind\":\"setup\",\"filename\":\"" + filename + "\",\"url\":\"https://aliyun-oss.yaklang.com/ytray/"
+                + version + "/" + filename + "\",\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}]}";
+            using (var service = new AppUpdateService(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(manifest, Encoding.UTF8, "application/json"),
+                }), enabled: true))
+            {
+                await service.CheckAsync();
+
+                Assert.AreEqual(AppUpdatePhase.UpToDate, service.Phase);
+                Assert.IsFalse(service.IsUpdateAvailable);
+                Assert.AreEqual("本版本说明", service.ReleaseNotesText);
+                Assert.AreEqual(notesUrl, service.ReleaseNotesUrl);
+            }
+        }
+
+        [TestMethod]
         public async Task InvalidManifestUsesAChineseUserFacingMessage()
         {
             using (var service = new AppUpdateService(new StaticResponseHandler(() =>

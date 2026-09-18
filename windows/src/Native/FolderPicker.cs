@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -11,16 +12,34 @@ namespace YTray.Native
     {
         private const int Cancelled = unchecked((int)0x800704C7);
 
-        public static IReadOnlyList<string> PickMultiple(Window? owner, string title)
+        public static string? PickSingle(Window? owner, string title, string? initialPath = null)
+        {
+            var paths = Pick(owner, title, allowMultiple: false, okButtonLabel: "选择", initialPath);
+            return paths.Count == 0 ? null : paths[0];
+        }
+
+        public static IReadOnlyList<string> PickMultiple(Window? owner, string title) =>
+            Pick(owner, title, allowMultiple: true, okButtonLabel: "添加", initialPath: null);
+
+        private static IReadOnlyList<string> Pick(Window? owner, string title, bool allowMultiple,
+            string okButtonLabel, string? initialPath)
         {
             var dialog = (IFileOpenDialog)new FileOpenDialog();
             try
             {
                 dialog.GetOptions(out var options);
-                dialog.SetOptions(options | FileOpenOptions.PickFolders | FileOpenOptions.ForceFileSystem
-                    | FileOpenOptions.AllowMultiSelect | FileOpenOptions.PathMustExist);
+                options |= FileOpenOptions.PickFolders | FileOpenOptions.ForceFileSystem | FileOpenOptions.PathMustExist;
+                if (allowMultiple) options |= FileOpenOptions.AllowMultiSelect;
+                dialog.SetOptions(options);
                 dialog.SetTitle(title);
-                dialog.SetOkButtonLabel("添加");
+                dialog.SetOkButtonLabel(okButtonLabel);
+                if (!string.IsNullOrWhiteSpace(initialPath) && Directory.Exists(initialPath))
+                {
+                    var interfaceId = typeof(IShellItem).GUID;
+                    SHCreateItemFromParsingName(initialPath!, IntPtr.Zero, ref interfaceId, out var initialFolder);
+                    try { dialog.SetFolder(initialFolder); }
+                    finally { Marshal.FinalReleaseComObject(initialFolder); }
+                }
                 var result = dialog.Show(owner == null ? IntPtr.Zero : new WindowInteropHelper(owner).Handle);
                 if (result == Cancelled) return Array.Empty<string>();
                 Marshal.ThrowExceptionForHR(result);
@@ -62,6 +81,10 @@ namespace YTray.Native
         }
 
         private enum DisplayName : uint { FileSystemPath = 0x80058000 }
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+        private static extern void SHCreateItemFromParsingName(string path, IntPtr bindingContext,
+            ref Guid interfaceId, out IShellItem item);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct FilterSpec

@@ -36,8 +36,8 @@
             <RowDefinition Height="142"/>
             <RowDefinition Height="13"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="13"/>
-            <RowDefinition Height="145"/>
+            <RowDefinition x:Name="DetailsGapRow" Height="0"/>
+            <RowDefinition x:Name="DetailsRow" Height="0"/>
         </Grid.RowDefinitions>
 
         <Grid>
@@ -107,19 +107,43 @@
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="38"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid Margin="14,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="可用浏览器" Style="{StaticResource RuntimeSectionTitle}"/>
                         <Border Margin="10,0,0,0" Padding="7,2" CornerRadius="8" Background="{DynamicResource SurfaceMutedBrush}">
                             <TextBlock x:Name="RuntimeCountLabel" Text="0" FontSize="10.5" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </Border>
                     </StackPanel>
-                    <TextBlock x:Name="DefaultRuntimeLabel" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    <Grid Grid.Column="1" Margin="18,0,18,0" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="新实例数据" FontSize="10.5" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Button x:Name="ProfileRootButton" Grid.Column="1" Click="ChooseProfileRoot_Click" Margin="8,0,0,0"
+                                Height="27" Padding="7,0" MaxWidth="360" HorizontalAlignment="Left"
+                                Style="{StaticResource YTrayGhostButton}" AutomationProperties.Name="修改新实例数据位置">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="13" Height="13" Margin="0,0,6,0"><Path Data="M 1.5 4 L 6.2 4 L 7.7 5.5 L 14.5 5.5 L 14.5 13.5 L 1.5 13.5 Z M 1.5 5.5 L 1.5 2.5 L 6 2.5 L 7.2 4" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/></Viewbox>
+                                <TextBlock x:Name="ProfileRootText" MaxWidth="300" TextTrimming="CharacterEllipsis" FontSize="10.5"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ResetProfileRootButton" Grid.Column="2" Content="恢复默认" Click="ResetProfileRoot_Click"
+                                Margin="7,0,0,0" Height="27" Padding="8,0"
+                                Style="{StaticResource YTrayGhostButton}" FontSize="10.5"/>
+                    </Grid>
+                    <TextBlock x:Name="DefaultRuntimeLabel" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
                                FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 </Grid>
 
                 <Border Grid.Row="1" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1">
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="174"/></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="88"/><ColumnDefinition Width="184"/></Grid.ColumnDefinitions>
                         <Border Padding="14,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="浏览器" Style="{StaticResource RuntimeTableHeader}"/></Border>
                         <Border Grid.Column="1" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="来源" Style="{StaticResource RuntimeTableHeader}"/></Border>
                         <Border Grid.Column="2" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="版本" Style="{StaticResource RuntimeTableHeader}"/></Border>
@@ -139,6 +163,7 @@
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                <EventSetter Event="PreviewMouseLeftButtonDown" Handler="RuntimeRow_PreviewMouseLeftButtonDown"/>
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
@@ -165,7 +190,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="174"/></Grid.ColumnDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="90"/><ColumnDefinition Width="115"/><ColumnDefinition Width="82"/><ColumnDefinition Width="*"/><ColumnDefinition Width="88"/><ColumnDefinition Width="184"/></Grid.ColumnDefinitions>
                                     <Border Padding="14,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Image Source="{Binding IconSource}" Width="36" Height="36" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
@@ -178,13 +203,20 @@
                                     <Border Grid.Column="3" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="{Binding Runtime.Architecture}" Style="{StaticResource RuntimeTableCell}"/></Border>
                                     <Border Grid.Column="4" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
                                         <TextBlock Text="{Binding Runtime.ExecutablePath}" VerticalAlignment="Center" FontSize="10.5"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" MaxHeight="37"/>
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" MaxHeight="37"
+                                                   ToolTip="{Binding Runtime.ExecutablePath}"/>
                                     </Border>
                                     <Border Grid.Column="5" Padding="12,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
-                                        <Border Visibility="{Binding DefaultVisibility}" Style="{StaticResource PillBadge}"
-                                                Background="{DynamicResource SuccessPaleBrush}" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                            <TextBlock Text="默认" FontSize="10" Foreground="{DynamicResource SuccessBrush}"/>
-                                        </Border>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Visibility="{Binding DefaultVisibility}" Style="{StaticResource PillBadge}"
+                                                    Background="{DynamicResource SuccessPaleBrush}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="默认" FontSize="10" Foreground="{DynamicResource SuccessBrush}"/>
+                                            </Border>
+                                            <Border Visibility="{Binding InvalidVisibility}" Style="{StaticResource PillBadge}" Margin="6,0,0,0"
+                                                    Background="{DynamicResource DangerPaleBrush}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="路径失效" FontSize="10" Foreground="{DynamicResource DangerBrush}"/>
+                                            </Border>
+                                        </StackPanel>
                                     </Border>
                                     <Border Grid.Column="6" Padding="10,0">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -193,17 +225,17 @@
                                                     AutomationProperties.Name="打开浏览器所在文件夹">
                                                 <Viewbox Width="16" Height="16"><Path Data="M 1.5 4 L 6.2 4 L 7.7 5.5 L 14.5 5.5 L 14.5 13.5 L 1.5 13.5 Z M 1.5 5.5 L 1.5 2.5 L 6 2.5 L 7.2 4" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.2" Fill="Transparent"/></Viewbox>
                                             </Button>
-                                            <Button Tag="{Binding Runtime}" Click="SetDefault_Click">
+                                            <Button Tag="{Binding Runtime}" Click="SetDefault_Click" IsEnabled="{Binding CanSetDefault}">
                                                 <Button.Style>
                                                     <Style TargetType="Button" BasedOn="{StaticResource RuntimeActionButton}">
                                                         <Setter Property="Content" Value="设为默认"/>
-                                                        <Style.Triggers><DataTrigger Binding="{Binding IsDefault}" Value="True"><Setter Property="Content" Value="当前默认"/><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers>
+                                                        <Style.Triggers><DataTrigger Binding="{Binding IsDefault}" Value="True"><Setter Property="Content" Value="当前默认"/></DataTrigger></Style.Triggers>
                                                     </Style>
                                                 </Button.Style>
                                             </Button>
-                                            <Button Tag="{Binding Runtime}" Click="Uninstall_Click" Margin="7,0,0,0"
-                                                    Style="{StaticResource YTrayDangerIconButton}" ToolTip="卸载 Chrome for Testing"
-                                                    Visibility="{Binding ManagedVisibility}">
+                                            <Button Tag="{Binding Runtime}" Click="Remove_Click" Margin="7,0,0,0"
+                                                    Style="{StaticResource YTrayDangerIconButton}" ToolTip="{Binding RemoveTooltip}"
+                                                    Visibility="{Binding RemovableVisibility}">
                                                 <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets"/>
                                             </Button>
                                         </StackPanel>
@@ -216,7 +248,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="5" Style="{StaticResource SurfaceBorder}" Padding="17,14">
+        <Border x:Name="RuntimeDetails" Grid.Row="5" Style="{StaticResource SurfaceBorder}" Padding="17,14" Visibility="Collapsed">
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="270"/><ColumnDefinition Width="1"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <Grid>

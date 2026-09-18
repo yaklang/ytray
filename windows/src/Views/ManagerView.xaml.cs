@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -16,9 +17,11 @@ namespace YTray.Views
     {
         private readonly InstanceStore _store;
         private readonly LaunchAtLoginManager _launchAtLogin;
+        private readonly AppUpdateService _updater = AppUpdateService.Shared;
         private readonly Dictionary<string, Page> _pageCache = new Dictionary<string, Page>();
         private bool _loaded;
         private bool _sidebarRefreshScheduled;
+        private bool _updateRefreshScheduled;
         private string? _currentPageTag;
 
         public ManagerView(InstanceStore store, LaunchAtLoginManager launchAtLogin)
@@ -42,14 +45,17 @@ namespace YTray.Views
                 NavQuick.IsSelected = true;
                 ShowPage("overview");
                 _store.PropertyChanged += OnStorePropertyChanged;
+                _updater.PropertyChanged += OnUpdaterPropertyChanged;
                 ThemeManager.ThemeChanged += OnThemeChanged;
             }
             RefreshSidebarStatus();
+            RefreshUpdateControls();
         }
 
         private void OnClosed(object sender, EventArgs e)
         {
             _store.PropertyChanged -= OnStorePropertyChanged;
+            _updater.PropertyChanged -= OnUpdaterPropertyChanged;
             ThemeManager.ThemeChanged -= OnThemeChanged;
             ContentFrame.Content = null;
             _pageCache.Clear();
@@ -70,6 +76,49 @@ namespace YTray.Views
         }
 
         private void RefreshSidebarStatus() => RefreshStatusBar();
+
+        private void OnUpdaterPropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (_updateRefreshScheduled || Dispatcher.HasShutdownStarted) return;
+            _updateRefreshScheduled = true;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _updateRefreshScheduled = false;
+                if (IsLoaded) RefreshUpdateControls();
+            }), DispatcherPriority.Background);
+        }
+
+        private void RefreshUpdateControls()
+        {
+            if (VersionButton == null) return;
+            var available = _updater.IsUpdateAvailable;
+            var version = available ? _updater.AvailableVersion! : _updater.CurrentVersion;
+            VersionButtonText.Text = "v" + version;
+            VersionButton.Tag = available ? "Available" : "Current";
+            VersionUpdateDot.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+            VersionButton.ToolTip = available
+                ? $"发现新版本 v{version}，当前版本 v{_updater.CurrentVersion}"
+                : $"YTray v{_updater.CurrentVersion} · 查看版本与更新";
+            AutomationProperties.SetName(VersionButton, available
+                ? $"YTray v{version} 可更新，当前版本 v{_updater.CurrentVersion}"
+                : $"YTray 当前版本 v{_updater.CurrentVersion}");
+
+            UpdatePopupTitle.Text = "YTray v" + version;
+            UpdatePopupBadge.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+            UpdatePopupStatus.Text = _updater.StatusText;
+            UpdatePopupStatus.SetResourceReference(ForegroundProperty,
+                _updater.Phase == AppUpdatePhase.Failed ? "DangerBrush" : "TextSecondaryBrush");
+            UpdatePopupNotes.Text = !string.IsNullOrWhiteSpace(_updater.ReleaseNotesText)
+                ? _updater.ReleaseNotesText
+                : _updater.IsBusy ? "正在获取版本说明…" : "检查更新后可查看当前版本说明。";
+            UpdatePopupLastCheck.Text = _updater.LastCheck.HasValue
+                ? "上次检查：" + _updater.LastCheck.Value.ToString("g") : "尚未检查更新";
+            UpdateReleaseNotesButton.Visibility = string.IsNullOrWhiteSpace(_updater.ReleaseNotesUrl)
+                ? Visibility.Collapsed : Visibility.Visible;
+            UpdateDownloadButton.IsEnabled = _updater.Enabled;
+            UpdateActionButton.Content = available ? "立即更新" : _updater.ActionLabel;
+            UpdateActionButton.IsEnabled = _updater.Enabled && !_updater.IsBusy;
+        }
 
         private void RefreshStatusBar()
         {
@@ -128,6 +177,28 @@ namespace YTray.Views
             ThemePopup.IsOpen = false;
             RefreshSidebarStatus();
         }
+
+        private async void VersionButton_Click(object sender, RoutedEventArgs e)
+        {
+            UpdatePopup.IsOpen = !UpdatePopup.IsOpen;
+            if (UpdatePopup.IsOpen && _updater.Enabled && _updater.Phase == AppUpdatePhase.Idle)
+                await _updater.CheckAsync();
+        }
+
+        private async void UpdateAction_Click(object sender, RoutedEventArgs e)
+        {
+            if (_updater.IsBusy) return;
+            if (_updater.IsUpdateAvailable)
+            {
+                UpdatePopup.IsOpen = false;
+                _updater.InstallUpdate();
+            }
+            else await _updater.CheckAsync();
+        }
+
+        private void DownloadUpdate_Click(object sender, RoutedEventArgs e) => _updater.OpenDownloads();
+
+        private void OpenReleaseNotes_Click(object sender, RoutedEventArgs e) => _updater.OpenReleaseNotes();
 
         private void Nav_Selected(object sender, RoutedEventArgs e)
         {

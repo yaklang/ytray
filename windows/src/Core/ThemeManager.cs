@@ -164,6 +164,8 @@ namespace YTray.Core
                 ["PressedColor"] = "PressedBrush",
                 ["SuccessPaleColor"] = "SuccessPaleBrush",
                 ["DangerPaleColor"] = "DangerPaleBrush",
+                ["UpdatePaleColor"] = "UpdatePaleBrush",
+                ["UpdateTextColor"] = "UpdateTextBrush",
             };
 
         private static readonly IReadOnlyDictionary<string, string> FloatingBrushKeys =
@@ -201,6 +203,8 @@ namespace YTray.Core
                 ["PressedColor"] = "#E7E5E1",
                 ["SuccessPaleColor"] = "#E8F6EE",
                 ["DangerPaleColor"] = "#FCEBEA",
+                ["UpdatePaleColor"] = "#FFF1B8",
+                ["UpdateTextColor"] = "#9A5A00",
                 ["FloatingTopColor"] = "#FFFCFCFB",
                 ["FloatingBottomColor"] = "#FFF7F7F5",
                 ["FloatingRaisedColor"] = "#FFFFFFFF",
@@ -235,6 +239,8 @@ namespace YTray.Core
                 ["PressedColor"] = "#2D3134",
                 ["SuccessPaleColor"] = "#1B2D23",
                 ["DangerPaleColor"] = "#332123",
+                ["UpdatePaleColor"] = "#4A3A12",
+                ["UpdateTextColor"] = "#FFD166",
                 ["FloatingTopColor"] = "#FF212226",
                 ["FloatingBottomColor"] = "#FF1A1B1E",
                 ["FloatingRaisedColor"] = "#FF232428",

@@ -228,6 +228,7 @@ struct LaunchSettings: Codable, Equatable {
 
     var configurationVersion = Self.currentConfigurationVersion
     var defaultRuntimeID: UUID?
+    var profileRootPath = ""
     var homeURL = "chrome://newtab"
     var proxyServer = ""
     var proxyUsername = ""
@@ -260,7 +261,7 @@ struct LaunchSettings: Codable, Equatable {
     ]
 
     private enum CodingKeys: String, CodingKey {
-        case configurationVersion, defaultRuntimeID, homeURL, proxyServer, proxyUsername
+        case configurationVersion, defaultRuntimeID, profileRootPath, homeURL, proxyServer, proxyUsername
         case presetProxyServer, presetProxyScheme, presetProxyHost, presetProxyPort
         case presetProxyUsername, presetProxyPassword, presetProxyRemark, presetProxyCheckTarget
         case recentProxyPresets
@@ -276,6 +277,7 @@ extension LaunchSettings {
         let savedVersion = try container.decodeIfPresent(Int.self, forKey: .configurationVersion) ?? 0
         configurationVersion = Self.currentConfigurationVersion
         defaultRuntimeID = try container.decodeIfPresent(UUID.self, forKey: .defaultRuntimeID)
+        profileRootPath = try container.decodeIfPresent(String.self, forKey: .profileRootPath) ?? ""
         homeURL = try container.decodeIfPresent(String.self, forKey: .homeURL) ?? "chrome://newtab"
         proxyServer = try container.decodeIfPresent(String.self, forKey: .proxyServer) ?? ""
         proxyUsername = try container.decodeIfPresent(String.self, forKey: .proxyUsername) ?? ""

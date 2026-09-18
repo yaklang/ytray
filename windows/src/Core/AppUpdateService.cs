@@ -95,6 +95,7 @@ namespace YTray.Core
         internal bool Enabled => _enabled;
         internal DateTime? LastCheck { get; private set; }
         internal string? ReleaseNotesText => _release?.ReleaseNotesText;
+        internal string? ReleaseNotesUrl => _release?.ReleaseNotes;
         private readonly SemaphoreSlim _operationGate = new SemaphoreSlim(1, 1);
         private AppReleaseManifest? _release;
         private AppReleaseAsset? _asset;
@@ -269,6 +270,13 @@ namespace YTray.Core
             var architecture = Environment.Is64BitProcess ? "amd64" : "386";
             try { Process.Start(new ProcessStartInfo($"https://aliyun-oss.yaklang.com/ytray/{version}/YTray-{version}-windows-{architecture}-setup.exe") { UseShellExecute = true }); }
             catch (Exception ex) { SetPhase(AppUpdatePhase.Failed, "无法打开浏览器：" + ex.Message); }
+        }
+
+        internal void OpenReleaseNotes()
+        {
+            if (string.IsNullOrWhiteSpace(ReleaseNotesUrl)) return;
+            try { Process.Start(new ProcessStartInfo(ReleaseNotesUrl!) { UseShellExecute = true }); }
+            catch (Exception ex) { SetPhase(AppUpdatePhase.Failed, "无法打开更新说明：" + ex.Message); }
         }
 
         private static async Task<string> ReadManifestJsonAsync(HttpContent content)

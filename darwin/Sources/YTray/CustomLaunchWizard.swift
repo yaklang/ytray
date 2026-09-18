@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct CustomLaunchWizard: View {
@@ -152,7 +153,34 @@ struct CustomLaunchWizard: View {
                     .overlay(RoundedRectangle(cornerRadius: 11).stroke(draft.defaultRuntimeID == runtime.id ? Brand.orange : Color.secondary.opacity(0.2)))
                 }
             }
+            profileRootChoice
         }
+    }
+
+    private var profileRootChoice: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("本次实例数据").font(.callout.weight(.semibold))
+                Text(store.resolveProfileRoot(draft).path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+                    .help(Text(store.resolveProfileRoot(draft).path))
+                Text("YTray 会在该父目录下创建独立子目录")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            if draft.profileRootPath != store.settings.profileRootPath {
+                Button("使用默认") { draft.profileRootPath = store.settings.profileRootPath }
+                    .buttonStyle(ManagerButtonStyle())
+            }
+            Button("选择目录…") { chooseProfileRoot() }
+                .buttonStyle(ManagerButtonStyle())
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))
     }
 
     private var networkStep: some View {
@@ -262,6 +290,7 @@ struct CustomLaunchWizard: View {
                           ? "自动分配" : draft.dockBadge.uppercased())
                 reviewRow("WebRTC", draft.restrictWebRTC ? "限制非代理 UDP/IP 暴露" : "不限制")
                 reviewRow("插件", "\(pluginIDs.count) 个（启动时验证）")
+                reviewRow("实例数据", store.resolveProfileRoot(draft).path)
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(Brand.orange.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 13))
             Toggle("记住此浏览器，作为下次快速启动的默认选择", isOn: $rememberBrowser)
@@ -313,6 +342,24 @@ struct CustomLaunchWizard: View {
             settings.proxyServer = ""
             settings.proxyUsername = ""
             settings.proxyPassword = ""
+        }
+    }
+
+    private func chooseProfileRoot() {
+        let panel = NSOpenPanel()
+        panel.title = "选择本次浏览器实例数据的父目录"
+        panel.message = "YTray 会为本次实例创建独立子目录。"
+        panel.prompt = "选择"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        let current = store.resolveProfileRoot(draft)
+        panel.directoryURL = FileManager.default.fileExists(atPath: current.path)
+            ? current : current.deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url,
+           let path = store.prepareProfileRoot(url) {
+            draft.profileRootPath = path
         }
     }
 }

@@ -500,7 +500,10 @@ final class InstanceStore: NSObject, ObservableObject {
         errorMessage = nil
         var configuration = customSettings ?? settings
         if mode == .isolated {
-            configuration = LaunchSettings(defaultRuntimeID: configuration.defaultRuntimeID ?? settings.defaultRuntimeID)
+            configuration = LaunchSettings(
+                defaultRuntimeID: configuration.defaultRuntimeID ?? settings.defaultRuntimeID,
+                profileRootPath: configuration.profileRootPath
+            )
         }
         if let history {
             configuration.defaultRuntimeID = history.runtimeID
@@ -535,7 +538,8 @@ final class InstanceStore: NSObject, ObservableObject {
                 dockBadge: badge,
                 restoring: history,
                 configuredPlugins: plugins,
-                launcherExecutable: browserProcessLauncher
+                launcherExecutable: browserProcessLauncher,
+                profileRoot: resolveProfileRoot(configuration)
             )
             processes[result.instance.id] = result.process
             result.process.terminationHandler = { terminatedProcess in
@@ -836,6 +840,44 @@ final class InstanceStore: NSObject, ObservableObject {
 
     func saveSettings() { save() }
 
+    var defaultProfileRoot: URL {
+        applicationDirectory.appendingPathComponent("Profiles", isDirectory: true).standardizedFileURL
+    }
+
+    func resolveProfileRoot(_ configuration: LaunchSettings? = nil) -> URL {
+        let path = (configuration ?? settings).profileRootPath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? defaultProfileRoot
+            : URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    }
+
+    func prepareProfileRoot(_ selectedURL: URL) -> String? {
+        let root = selectedURL.standardizedFileURL
+        let probe = root.appendingPathComponent(".ytray-write-test-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Data().write(to: probe, options: .atomic)
+            try FileManager.default.removeItem(at: probe)
+            return root == defaultProfileRoot ? "" : root.path
+        } catch {
+            try? FileManager.default.removeItem(at: probe)
+            report(NSError(domain: "YTray.ProfileRoot", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "无法使用该数据目录：\(error.localizedDescription)"
+            ]))
+            return nil
+        }
+    }
+
+    func setProfileRoot(_ selectedURL: URL?) {
+        if let selectedURL {
+            guard let path = prepareProfileRoot(selectedURL) else { return }
+            settings.profileRootPath = path
+        } else {
+            settings.profileRootPath = ""
+        }
+        save()
+    }
+
     var diagnosticLogPath: String {
         applicationDirectory
             .appendingPathComponent("Logs/ytray.log")
@@ -1133,7 +1175,7 @@ final class InstanceStore: NSObject, ObservableObject {
             let detail = stillRunning
                 ? "浏览器进程已经创建，但调试端口未在 15 秒内就绪"
                 : "浏览器进程在完成启动前退出"
-            _ = await discardFailedLaunch(launch, history: history)
+            _ = await discardFailedLaunch(launch, configuration: configuration, history: history)
             finishLaunchFailure(YTrayError.launchFailed(detail), token: token)
             return
         }
@@ -1152,7 +1194,7 @@ final class InstanceStore: NSObject, ObservableObject {
             }
         }
         guard launchToken == token, launch.process.isRunning else {
-            _ = await discardFailedLaunch(launch, history: history)
+            _ = await discardFailedLaunch(launch, configuration: configuration, history: history)
             finishLaunchFailure(YTrayError.launchFailed("浏览器进程在完成启动前退出"), token: token)
             return
         }
@@ -1169,7 +1211,7 @@ final class InstanceStore: NSObject, ObservableObject {
                 }
                 try await ScreenshotService.navigate(debugPort: instance.debugPort, to: navigationTarget)
             } catch {
-                _ = await discardFailedLaunch(launch, history: history)
+                _ = await discardFailedLaunch(launch, configuration: configuration, history: history)
                 finishLaunchFailure(error, token: token)
                 return
             }
@@ -1201,7 +1243,7 @@ final class InstanceStore: NSObject, ObservableObject {
         guard launchToken == token else { return }
         DiagnosticLog.error("extension.load", failure)
         let usesProxy = launchingUsesProxy
-        guard await discardFailedLaunch(launch, history: history) else {
+        guard await discardFailedLaunch(launch, configuration: configuration, history: history) else {
             finishLaunchFailure(YTrayError.launchFailed("插件加载失败，且未能关闭未完成的浏览器实例"), token: token)
             return
         }
@@ -1223,7 +1265,9 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     @discardableResult
-    private func discardFailedLaunch(_ launch: BrowserLauncher.LaunchResult, history: BrowserInstance?) async -> Bool {
+    private func discardFailedLaunch(_ launch: BrowserLauncher.LaunchResult,
+                                     configuration: LaunchSettings,
+                                     history: BrowserInstance?) async -> Bool {
         let instance = launch.instance
         discardingLaunchID = instance.id
         launchingInstanceID = nil
@@ -1247,7 +1291,11 @@ final class InstanceStore: NSObject, ObservableObject {
         instances.removeAll { $0.id == instance.id }
         if let history { instances.insert(history, at: 0) }
         else {
-            let ownedProfile = applicationDirectory.appendingPathComponent("Profiles/\(instance.id.uuidString)")
+            let ownedProfile = BrowserLauncher.newProfileURL(
+                applicationDirectory: applicationDirectory,
+                profileRoot: resolveProfileRoot(configuration),
+                instanceID: instance.id
+            )
             if URL(fileURLWithPath: instance.profilePath).standardizedFileURL == ownedProfile.standardizedFileURL {
                 do { try FileManager.default.removeItem(at: ownedProfile) }
                 catch { DiagnosticLog.error("failed-profile-cleanup", error) }

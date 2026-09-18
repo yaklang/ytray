@@ -214,17 +214,19 @@ namespace YTray.Core
             return runtime;
         }
 
-        public void RemoveRuntime(BrowserRuntime runtime)
+        public bool RemoveRuntime(BrowserRuntime runtime)
         {
             if (RunningInstances.Any(i => i.RuntimeID == runtime.Id))
             {
                 Report(new YTrayException(YTrayError.LaunchFailed, "该运行时仍有实例正在运行"));
-                return;
+                return false;
             }
             var r = Runtimes.FirstOrDefault(x => x.Id == runtime.Id);
-            if (r != null) Runtimes.Remove(r);
+            if (r == null) return false;
+            Runtimes.Remove(r);
             if (Settings.DefaultRuntimeID == runtime.Id) Settings.DefaultRuntimeID = Runtimes.FirstOrDefault()?.Id;
             Save();
+            return true;
         }
 
         public bool UninstallRuntime(BrowserRuntime runtime)
@@ -252,7 +254,7 @@ namespace YTray.Core
                 if (versionDirectory != null && Directory.Exists(versionDirectory)
                     && !Directory.EnumerateFileSystemEntries(versionDirectory).Any())
                     Directory.Delete(versionDirectory);
-                RemoveRuntime(runtime);
+                if (!RemoveRuntime(runtime)) return false;
                 DiagnosticLog.Info("runtime.uninstall", $"uninstalled Chrome for Testing {runtime.Version}");
                 return true;
             }
@@ -546,6 +548,50 @@ namespace YTray.Core
 
         public void SaveSettings() => Save();
 
+        public string DefaultProfileRoot => Path.GetFullPath(Path.Combine(ApplicationDirectory, "Profiles"));
+
+        public string ResolveProfileRoot(LaunchSettings? settings = null)
+        {
+            var configured = (settings ?? Settings).ProfileRootPath?.Trim();
+            return string.IsNullOrWhiteSpace(configured) ? DefaultProfileRoot : Path.GetFullPath(configured!);
+        }
+
+        public bool TryPrepareProfileRoot(string? selectedPath, out string normalizedPath, out string error)
+        {
+            normalizedPath = "";
+            error = "";
+            string probe = "";
+            try
+            {
+                var root = string.IsNullOrWhiteSpace(selectedPath)
+                    ? DefaultProfileRoot
+                    : Path.GetFullPath(selectedPath!.Trim());
+                Directory.CreateDirectory(root);
+                probe = Path.Combine(root, ".ytray-write-test-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(probe);
+                Directory.Delete(probe);
+                normalizedPath = string.Equals(root.TrimEnd(Path.DirectorySeparatorChar),
+                    DefaultProfileRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                    ? ""
+                    : root;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { if (!string.IsNullOrEmpty(probe) && Directory.Exists(probe)) Directory.Delete(probe); } catch { }
+                error = "无法使用该数据目录：" + ex.Message;
+                return false;
+            }
+        }
+
+        public bool SetProfileRoot(string? selectedPath, out string error)
+        {
+            if (!TryPrepareProfileRoot(selectedPath, out var normalizedPath, out error)) return false;
+            Settings.ProfileRootPath = normalizedPath;
+            Save();
+            return true;
+        }
+
         public void SetThemePreference(AppThemePreference preference)
         {
             if (!Enum.IsDefined(typeof(AppThemePreference), preference))
@@ -577,6 +623,7 @@ namespace YTray.Core
                 configuration = new LaunchSettings(configuration.DefaultRuntimeID ?? Settings.DefaultRuntimeID)
                 {
                     ColorizeBrowserInstances = configuration.ColorizeBrowserInstances,
+                    ProfileRootPath = configuration.ProfileRootPath,
                 };
             if (restoring != null)
             {
@@ -607,7 +654,7 @@ namespace YTray.Core
 
                 var result = BrowserLauncher.Launch(runtime, mode, configuration, selectedPlugins,
                     ApplicationDirectory, Instances.Count + 1, badge, restoring,
-                    configuredPlugins: Plugins.ToList());
+                    configuredPlugins: Plugins.ToList(), profileRoot: ResolveProfileRoot(configuration));
                 if (_launches.TryGetValue(result.Instance.Id, out var previousLaunch))
                 {
                     _launches.Remove(result.Instance.Id);
@@ -675,6 +722,7 @@ namespace YTray.Core
                 UseTestType = Settings.UseTestType,
                 ColorizeBrowserInstances = Settings.ColorizeBrowserInstances,
                 AdditionalFlags = Settings.AdditionalFlags,
+                ProfileRootPath = Settings.ProfileRootPath,
                 DefaultPluginIDs = Settings.DefaultPluginIDs.ToList(),
                 DockBadge = Settings.DockBadge,
             };
@@ -842,7 +890,8 @@ namespace YTray.Core
             else
             {
                 // Only remove the new profile owned by this failed launch, never a restored profile.
-                var root = Path.GetFullPath(Path.Combine(ApplicationDirectory, "Profiles")) + Path.DirectorySeparatorChar;
+                var root = ResolveProfileRoot(configuration).TrimEnd(Path.DirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
                 var profile = Path.GetFullPath(launch.Instance.ProfilePath);
                 if (profile.StartsWith(root, StringComparison.OrdinalIgnoreCase)
                     && Path.GetFileName(profile) == launch.Instance.Id.ToString())
@@ -1475,6 +1524,7 @@ namespace YTray.Core
             Settings.PresetProxyRemark = Settings.PresetProxyRemark ?? "";
             Settings.PresetProxyCheckTarget = Settings.PresetProxyCheckTarget ?? "";
             Settings.AdditionalFlags = Settings.AdditionalFlags ?? "";
+            Settings.ProfileRootPath = Settings.ProfileRootPath ?? "";
             Settings.DockBadge = Settings.DockBadge ?? "";
             Settings.DefaultPluginIDs = Settings.DefaultPluginIDs ?? new List<Guid>();
             Settings.RecentProxyPresets = Settings.RecentProxyPresets ?? new List<ProxyPreset>();

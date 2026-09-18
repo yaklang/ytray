@@ -34,6 +34,8 @@
             <Color x:Key="SuccessPaleColor">#E8F6EE</Color>
             <Color x:Key="DangerColor">#D94A45</Color>
             <Color x:Key="DangerPaleColor">#FCEBEA</Color>
+            <Color x:Key="UpdatePaleColor">#FFF1B8</Color>
+            <Color x:Key="UpdateTextColor">#9A5A00</Color>
             <Color x:Key="FloatingTopColor">#FFFCFCFB</Color>
             <Color x:Key="FloatingBottomColor">#FFF7F7F5</Color>
             <Color x:Key="FloatingRaisedColor">#FFFFFFFF</Color>
@@ -69,6 +71,8 @@
             <SolidColorBrush x:Key="SuccessPaleBrush" Color="{DynamicResource SuccessPaleColor}"/>
             <SolidColorBrush x:Key="DangerBrush" Color="{DynamicResource DangerColor}"/>
             <SolidColorBrush x:Key="DangerPaleBrush" Color="{DynamicResource DangerPaleColor}"/>
+            <SolidColorBrush x:Key="UpdatePaleBrush" Color="{DynamicResource UpdatePaleColor}"/>
+            <SolidColorBrush x:Key="UpdateTextBrush" Color="{DynamicResource UpdateTextColor}"/>
 
             <!-- HandyControl compatibility aliases. -->
             <SolidColorBrush x:Key="PrimaryBrush" Color="{DynamicResource BrandOrangeColor}"/>
