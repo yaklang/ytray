@@ -181,8 +181,7 @@ namespace YTray.Views
         private async void VersionButton_Click(object sender, RoutedEventArgs e)
         {
             UpdatePopup.IsOpen = !UpdatePopup.IsOpen;
-            if (UpdatePopup.IsOpen && _updater.Enabled && _updater.Phase == AppUpdatePhase.Idle)
-                await _updater.CheckAsync();
+            if (UpdatePopup.IsOpen) await _updater.CheckAsync();
         }
 
         private async void UpdateAction_Click(object sender, RoutedEventArgs e)

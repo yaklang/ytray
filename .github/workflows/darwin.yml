@@ -161,13 +161,13 @@ jobs:
           path: ${{ runner.temp }}/startup/evidence
 
   tahoe-ui:
-    if: github.event_name == 'workflow_dispatch' && inputs.ui_release != ''
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.ui_release != '')
     runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Build current application for native UI regression
-        if: inputs.ui_release == 'source'
+        if: github.event_name == 'pull_request' || inputs.ui_release == 'source'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -176,7 +176,7 @@ jobs:
           ditto dist/darwin-arm64/YTray.app /Applications/YTray.app
           codesign --verify --deep --strict /Applications/YTray.app
       - name: Install unmodified published application
-        if: inputs.ui_release != 'source'
+        if: github.event_name == 'workflow_dispatch' && inputs.ui_release != 'source'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE: ${{ inputs.ui_release }}
