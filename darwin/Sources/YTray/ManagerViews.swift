@@ -163,7 +163,7 @@ private struct AppUpdateVersionButton: View {
 /// Keeps popover ownership outside the SwiftUI toolbar item, whose native host can be
 /// replaced during state updates on macOS 26.
 @MainActor
-private final class AppUpdatePopoverPresenter: NSObject, ObservableObject {
+private final class AppUpdatePopoverPresenter: NSObject, ObservableObject, NSPopoverDelegate {
     private let updater: AppUpdateManager
     private let popover = NSPopover()
     private weak var anchor: NSView?
@@ -171,6 +171,7 @@ private final class AppUpdatePopoverPresenter: NSObject, ObservableObject {
     init(updater: AppUpdateManager) {
         self.updater = updater
         super.init()
+        popover.delegate = self
         popover.behavior = .transient
         popover.animates = true
     }
@@ -192,6 +193,15 @@ private final class AppUpdatePopoverPresenter: NSObject, ObservableObject {
         popover.contentViewController = hosting
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         Task { await updater.checkForUpdates() }
+    }
+
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        guard let event = NSApp.currentEvent,
+              event.type == .leftMouseDown,
+              let anchor,
+              event.window === anchor.window
+        else { return true }
+        return !anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil))
     }
 }
 
