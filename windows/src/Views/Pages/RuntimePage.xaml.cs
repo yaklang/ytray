@@ -14,6 +14,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using YTray.Core;
 using YTray.Models;
+using YTray.Native;
 
 namespace YTray.Views.Pages
 {
@@ -26,8 +27,13 @@ namespace YTray.Views.Pages
             public string SourceTitle => Runtime.Source.Title();
             public ImageSource? IconSource => BrowserIconSource.FromExecutable(Runtime.ExecutablePath);
             public Visibility DefaultVisibility => IsDefault ? Visibility.Visible : Visibility.Collapsed;
-            public Visibility ManagedVisibility => Runtime.Source == RuntimeSource.Managed
-                ? Visibility.Visible : Visibility.Collapsed;
+            public bool IsAvailable => File.Exists(Runtime.ExecutablePath);
+            public bool CanSetDefault => IsAvailable && !IsDefault;
+            public Visibility InvalidVisibility => IsAvailable ? Visibility.Collapsed : Visibility.Visible;
+            public Visibility RemovableVisibility => Runtime.Source == RuntimeSource.System
+                ? Visibility.Collapsed : Visibility.Visible;
+            public string RemoveTooltip => Runtime.Source == RuntimeSource.Managed
+                ? "卸载 Chrome for Testing" : "移除此浏览器记录";
         }
 
         private readonly InstanceStore _store;
@@ -94,13 +100,19 @@ namespace YTray.Views.Pages
             RuntimeList.ItemsSource = rows;
             RuntimeEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             RuntimeList.Visibility = rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-            var selectedId = _selectedRow?.Runtime.Id ?? defaultId;
-            _selectedRow = rows.FirstOrDefault(row => row.Runtime.Id == selectedId) ?? rows.FirstOrDefault();
+            var selectedId = _selectedRow?.Runtime.Id;
+            _selectedRow = selectedId.HasValue
+                ? rows.FirstOrDefault(row => row.Runtime.Id == selectedId.Value)
+                : null;
             RuntimeList.SelectedItem = _selectedRow;
             RefreshDetails();
             RuntimeCountLabel.Text = rows.Count.ToString();
             var current = _store.DefaultRuntime;
             DefaultRuntimeLabel.Text = current == null ? "尚未选择默认浏览器" : $"默认 · {current.DisplayTitle} {current.VersionLabel}";
+            ProfileRootText.Text = _store.ResolveProfileRoot();
+            ProfileRootButton.ToolTip = _store.ResolveProfileRoot();
+            ResetProfileRootButton.Visibility = string.IsNullOrWhiteSpace(_store.Settings.ProfileRootPath)
+                ? Visibility.Collapsed : Visibility.Visible;
 
             InstallBtn.IsEnabled = !_store.IsInstalling && VersionCombo.SelectedItem != null;
             RefreshManifestBtn.IsEnabled = !_store.IsInstalling && !_loadingManifest;
@@ -202,20 +214,72 @@ namespace YTray.Views.Pages
         private void SetDefault_Click(object sender, RoutedEventArgs e)
         {
             if (!(((FrameworkElement)sender).Tag is BrowserRuntime runtime)) return;
+            if (!File.Exists(runtime.ExecutablePath))
+            {
+                ShowFeedback("浏览器路径已经失效");
+                return;
+            }
             _store.SelectDefaultRuntime(runtime);
             Refresh();
             ShowFeedback($"{runtime.DisplayTitle} 已设为默认");
         }
 
-        private void Uninstall_Click(object sender, RoutedEventArgs e)
+        private void Remove_Click(object sender, RoutedEventArgs e)
         {
             if (!(((FrameworkElement)sender).Tag is BrowserRuntime runtime)) return;
-            if (MessageBox.Show($"卸载 Chrome for Testing {runtime.VersionLabel}？\n\n浏览器程序文件会被删除，实例历史和用户数据不会删除。",
-                    "YTray", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
-            ShowFeedback(_store.UninstallRuntime(runtime)
-                ? $"Chrome for Testing {runtime.VersionLabel} 已卸载"
-                : (_store.ErrorMessage ?? "卸载失败"));
+            if (runtime.Source == RuntimeSource.Managed)
+            {
+                if (MessageBox.Show($"卸载 Chrome for Testing {runtime.VersionLabel}？\n\n浏览器程序文件会被删除，实例历史和用户数据不会删除。",
+                        "YTray", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+                ShowFeedback(_store.UninstallRuntime(runtime)
+                    ? $"Chrome for Testing {runtime.VersionLabel} 已卸载"
+                    : (_store.ErrorMessage ?? "卸载失败"));
+            }
+            else
+            {
+                if (MessageBox.Show($"移除 {runtime.DisplayTitle}？\n\n只会移除 YTray 中的浏览器记录，不会删除浏览器文件、实例历史或用户数据。",
+                        "YTray", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+                ShowFeedback(_store.RemoveRuntime(runtime)
+                    ? $"{runtime.DisplayTitle} 记录已移除"
+                    : (_store.ErrorMessage ?? "移除失败"));
+            }
             Refresh();
+        }
+
+        private void ChooseProfileRoot_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var path = FolderPicker.PickSingle(Window.GetWindow(this),
+                    "选择浏览器实例数据的父目录（YTray 会为每个实例创建独立子目录）",
+                    _store.ResolveProfileRoot());
+                if (path == null) return;
+                if (!_store.SetProfileRoot(path, out var error))
+                {
+                    MessageBox.Show(error, "无法使用数据目录", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("pick-profile-root", ex);
+                MessageBox.Show("无法打开目录选择器：" + ex.Message,
+                    "YTray", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            Refresh();
+            ShowFeedback("新实例数据位置已更新");
+        }
+
+        private void ResetProfileRoot_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_store.SetProfileRoot(null, out var error))
+            {
+                MessageBox.Show(error, "无法恢复默认目录", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            Refresh();
+            ShowFeedback("已恢复默认数据位置");
         }
 
         private void OpenFolder_Click(object sender, RoutedEventArgs e)
@@ -249,6 +313,22 @@ namespace YTray.Views.Pages
             RefreshDetails();
         }
 
+        private void RuntimeRow_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (!(sender is ListBoxItem item) || !item.IsSelected) return;
+            for (var source = e.OriginalSource as DependencyObject; source != null;
+                 source = ParentOf(source))
+                if (source is Button) return;
+            RuntimeList.SelectedItem = null;
+            e.Handled = true;
+        }
+
+        private static DependencyObject? ParentOf(DependencyObject source)
+        {
+            if (source is FrameworkContentElement content) return content.Parent;
+            return (source as FrameworkElement)?.Parent ?? VisualTreeHelper.GetParent(source);
+        }
+
         private void RefreshDetails()
         {
             if (DetailBrowser == null) return;
@@ -258,6 +338,10 @@ namespace YTray.Views.Pages
             DetailVersion.Text = runtime == null ? "—" : $"{runtime.VersionLabel} ({runtime.Architecture})";
             DetailPath.Text = runtime?.ExecutablePath ?? "—";
             DetailCommand.Text = runtime == null ? "—" : $"\"{runtime.ExecutablePath}\" --remote-debugging-port={_store.Settings.DebugPort}";
+            var show = runtime == null ? Visibility.Collapsed : Visibility.Visible;
+            RuntimeDetails.Visibility = show;
+            DetailsGapRow.Height = show == Visibility.Visible ? new GridLength(13) : new GridLength(0);
+            DetailsRow.Height = show == Visibility.Visible ? new GridLength(145) : new GridLength(0);
         }
 
         private void OpenSelectedFolder_Click(object sender, RoutedEventArgs e)

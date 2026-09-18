@@ -27,10 +27,12 @@ final class ManagerNavigation: ObservableObject {
     @Published var columnVisibility: NavigationSplitViewVisibility = .all
 }
 
+@MainActor
 struct ManagerView: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject var navigation: ManagerNavigation
     @ObservedObject var launchAtLogin: LaunchAtLoginManager
+    @ObservedObject private var updater = AppUpdateManager.shared
     let quitApplication: () -> Void
     @State private var showWizard = false
 
@@ -87,6 +89,11 @@ struct ManagerView: View {
         .controlSize(.regular)
         .tint(Brand.orange)
         .accentColor(Brand.orange)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                AppUpdateVersionButton(updater: updater)
+            }
+        }
         .sheet(isPresented: $showWizard) { CustomLaunchWizard(store: store, isPresented: $showWizard) }
         .overlay(alignment: .topTrailing) {
             if store.launchPhase != .idle {
@@ -106,6 +113,122 @@ struct ManagerView: View {
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
         )) { Button("知道了") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
+    }
+}
+
+@MainActor
+private struct AppUpdateVersionButton: View {
+    @ObservedObject var updater: AppUpdateManager
+    @State private var isPresented = false
+    @State private var isHovered = false
+
+    private var displayVersion: String {
+        updater.isUpdateAvailable ? updater.availableVersion ?? updater.currentVersion : updater.currentVersion
+    }
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+            if isPresented, updater.updatesEnabled, updater.phase == .idle {
+                Task { await updater.checkForUpdates() }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text("v\(displayVersion)").monospacedDigit()
+                if updater.isUpdateAvailable {
+                    Circle().fill(Brand.orange).frame(width: 7, height: 7)
+                }
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(updater.isUpdateAvailable ? Color.orange : Color.secondary)
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(
+                updater.isUpdateAvailable ? Color.yellow.opacity(0.30)
+                    : Color.primary.opacity(isHovered ? 0.06 : 0),
+                in: Capsule()
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(Text(updater.isUpdateAvailable
+            ? "发现新版本 v\(displayVersion)，当前版本 v\(updater.currentVersion)"
+            : "YTray v\(updater.currentVersion) · 查看版本与更新"))
+        .accessibilityLabel(Text(updater.isUpdateAvailable
+            ? "YTray v\(displayVersion) 可更新，当前版本 v\(updater.currentVersion)"
+            : "YTray 当前版本 v\(updater.currentVersion)"))
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            AppUpdatePopover(updater: updater) {
+                isPresented = false
+            }
+        }
+    }
+}
+
+@MainActor
+private struct AppUpdatePopover: View {
+    @ObservedObject var updater: AppUpdateManager
+    let dismiss: () -> Void
+
+    private var displayVersion: String {
+        updater.isUpdateAvailable ? updater.availableVersion ?? updater.currentVersion : updater.currentVersion
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 9) {
+                Text("YTray v\(displayVersion)")
+                    .font(.system(size: 16, weight: .semibold))
+                if updater.isUpdateAvailable {
+                    Text("新版本")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(Color.orange)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Color.yellow.opacity(0.30), in: Capsule())
+                }
+                Spacer()
+            }
+            Text(updater.statusText)
+                .font(.caption)
+                .foregroundStyle(updater.phase == .failed ? Color.red : Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            ScrollView {
+                Text(notes)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 235)
+            Text(updater.lastCheck.map { "上次检查：\($0.formatted())" } ?? "尚未检查更新")
+                .font(.caption2).foregroundStyle(.tertiary)
+            HStack(spacing: 8) {
+                if updater.releaseNotesURL != nil {
+                    Button("查看完整说明") { updater.openReleaseNotes() }
+                }
+                Spacer()
+                Button("手动下载") { updater.openDownloads() }
+                    .disabled(!updater.updatesEnabled)
+                Button(updater.isUpdateAvailable ? "立即更新" : updater.actionLabel) {
+                    if updater.isUpdateAvailable {
+                        dismiss()
+                        updater.installUpdate()
+                    } else {
+                        Task { await updater.checkForUpdates() }
+                    }
+                }
+                .buttonStyle(ManagerButtonStyle(emphasis: .primary))
+                .disabled(updater.isBusy || !updater.updatesEnabled)
+            }
+        }
+        .padding(16)
+        .frame(width: 400)
+    }
+
+    private var notes: String {
+        if let notes = updater.releaseNotesText, !notes.isEmpty { return notes }
+        return updater.isBusy ? "正在获取版本说明…" : "检查更新后可查看当前版本说明。"
     }
 }
 
@@ -398,6 +521,7 @@ struct RuntimePage: View {
                 .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            profileRootBar
             Table(store.runtimes) {
                 TableColumn("浏览器") { runtime in
                     HStack(spacing: 10) {
@@ -486,6 +610,37 @@ struct RuntimePage: View {
         }
     }
 
+    private var profileRootBar: some View {
+        HStack(spacing: 10) {
+            Label("可用浏览器", systemImage: "globe")
+                .font(.callout.weight(.semibold))
+            Text("\(store.runtimes.count)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Color.primary.opacity(0.06), in: Capsule())
+            Divider().frame(height: 18)
+            Text("新实例数据").font(.caption).foregroundStyle(.secondary)
+            Text(store.resolveProfileRoot().path)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .textSelection(.enabled)
+                .help(Text(store.resolveProfileRoot().path))
+            Spacer()
+            if !store.settings.profileRootPath.isEmpty {
+                Button("恢复默认") { store.setProfileRoot(nil) }
+                    .buttonStyle(ManagerButtonStyle())
+            }
+            Button("选择目录…") { chooseProfileRoot() }
+                .buttonStyle(ManagerButtonStyle())
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 42)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))
+    }
+
     private var runtimeInstallDetail: String {
         if let summary = store.runtimeInstallProgress?.byteSummary { return summary }
         switch store.runtimeInstallProgress?.phase {
@@ -503,6 +658,21 @@ struct RuntimePage: View {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url { store.addLocalRuntime(selectedURL: url) }
+    }
+
+    private func chooseProfileRoot() {
+        let panel = NSOpenPanel()
+        panel.title = "选择浏览器实例数据的父目录"
+        panel.message = "YTray 会为每个实例创建独立子目录。"
+        panel.prompt = "选择"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        let current = store.resolveProfileRoot()
+        panel.directoryURL = FileManager.default.fileExists(atPath: current.path)
+            ? current : current.deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url { store.setProfileRoot(url) }
     }
 }
 
@@ -547,7 +717,7 @@ struct SettingsPage: View {
                         .buttonStyle(ManagerButtonStyle(emphasis: .primary))
                 }
 
-                updatePanel
+                updatePreferencesPanel
 
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: ManagerMetrics.sectionSpacing) {
@@ -569,9 +739,6 @@ struct SettingsPage: View {
             .padding(ManagerMetrics.pagePadding)
         }
         .tint(Brand.orange)
-        .task {
-            if updater.phase == .idle { await updater.checkForUpdates() }
-        }
     }
 
     private var advancedFlagsPanel: some View {
@@ -594,60 +761,20 @@ struct SettingsPage: View {
         }
     }
 
-    private var updatePanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: updater.isUpdateAvailable ? "arrow.down.circle.fill" : "checkmark.circle")
-                    .font(.system(size: 22))
-                    .foregroundStyle(updater.isUpdateAvailable ? Brand.orange : Color.secondary)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Text("YTray 更新").font(.headline)
-                        Text("当前 v\(updater.currentVersion)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        if let version = updater.availableVersion, updater.isUpdateAvailable {
-                            StatusBadge(text: "v\(version) 可用", color: Brand.orange)
-                        }
-                    }
-                    Text(updater.statusText)
-                        .font(.caption)
-                        .foregroundStyle(updater.phase == .failed ? Color.red : Color.secondary)
-                }
-                Spacer(minLength: 8)
-                Button("手动下载") { updater.openDownloads() }
-                    .disabled(!updater.updatesEnabled)
-                Button(updater.actionLabel) {
-                    if updater.isUpdateAvailable {
-                        updater.installUpdate()
-                    } else {
-                        Task { await updater.checkForUpdates() }
-                    }
-                }
-                .buttonStyle(ManagerButtonStyle(emphasis: .primary))
-                .disabled(updater.isBusy || !updater.updatesEnabled)
-            }
-            if let notes = updater.releaseNotesText, updater.isUpdateAvailable {
-                Text(notes).font(.caption).textSelection(.enabled)
-            }
-            HStack {
+    private var updatePreferencesPanel: some View {
+        GroupBox {
+            HStack(spacing: 12) {
                 Toggle("自动检查新版本", isOn: $updater.automaticallyChecks)
                     .toggleStyle(.checkbox)
                     .disabled(!updater.updatesEnabled)
                 Spacer()
-                if let date = updater.lastCheck {
-                    Text("上次检查：\(date.formatted())")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }.font(.caption)
-            Text("更新 YTray 与内置 Yakit 插件，保留实例、配置和已安装的浏览器。运行中的浏览器继续运行。")
-                .font(.caption2).foregroundStyle(.secondary)
+                Text("后台定期检查，不会自动下载或安装。版本与更新说明可在窗口顶部查看。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(4)
+        } label: {
+            Label("应用更新", systemImage: "arrow.down.circle")
         }
-        .padding(12)
-        .frame(minHeight: 64)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))
     }
 
     private var startupPanel: some View {

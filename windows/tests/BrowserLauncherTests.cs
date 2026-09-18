@@ -309,6 +309,75 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void CustomProfileRootPersistsAndStillCreatesIsolatedInstanceDirectories()
+        {
+            var applicationDirectory = Path.Combine(Path.GetTempPath(), "YTrayProfileRootTests", Guid.NewGuid().ToString("N"));
+            var profileRoot = Path.Combine(Path.GetTempPath(), "YTrayCustomProfiles", Guid.NewGuid().ToString("N"));
+            try
+            {
+                using (var store = new InstanceStore(applicationDirectory, discoverSystemBrowsers: false))
+                {
+                    Assert.IsTrue(store.SetProfileRoot(profileRoot, out var error), error);
+                    Assert.AreEqual(Path.GetFullPath(profileRoot), store.ResolveProfileRoot());
+                    var first = Guid.NewGuid();
+                    var second = Guid.NewGuid();
+                    Assert.AreEqual(Path.Combine(profileRoot, "InstA", first.ToString()),
+                        BrowserLauncher.NewProfilePath(applicationDirectory, store.ResolveProfileRoot(), "A", first));
+                    Assert.AreEqual(Path.Combine(profileRoot, "InstB", second.ToString()),
+                        BrowserLauncher.NewProfilePath(applicationDirectory, store.ResolveProfileRoot(), "B", second));
+                }
+
+                using (var reloaded = new InstanceStore(applicationDirectory, discoverSystemBrowsers: false))
+                    Assert.AreEqual(Path.GetFullPath(profileRoot), reloaded.ResolveProfileRoot());
+            }
+            finally
+            {
+                if (Directory.Exists(applicationDirectory)) Directory.Delete(applicationDirectory, true);
+                if (Directory.Exists(profileRoot)) Directory.Delete(profileRoot, true);
+            }
+        }
+
+        [TestMethod]
+        public void RemovingLocalRuntimeKeepsExternalBrowserFiles()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "YTrayLocalRuntimeRemovalTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var systemExecutable = Path.Combine(directory, "system", "chrome.exe");
+                var localExecutable = Path.Combine(directory, "local", "chrome.exe");
+                Directory.CreateDirectory(Path.GetDirectoryName(systemExecutable));
+                Directory.CreateDirectory(Path.GetDirectoryName(localExecutable));
+                File.WriteAllText(systemExecutable, "system");
+                File.WriteAllText(localExecutable, "local");
+                using (var store = new InstanceStore(directory, discoverSystemBrowsers: false))
+                {
+                    var system = store.Upsert(new BrowserRuntime
+                    {
+                        Name = "Google Chrome",
+                        ExecutablePath = systemExecutable,
+                        Source = RuntimeSource.System,
+                    });
+                    var local = store.Upsert(new BrowserRuntime
+                    {
+                        Name = "Chrome for Testing",
+                        ExecutablePath = localExecutable,
+                        Source = RuntimeSource.Local,
+                    });
+                    store.SelectDefaultRuntime(local);
+
+                    Assert.IsTrue(store.RemoveRuntime(local));
+                    Assert.IsTrue(File.Exists(localExecutable));
+                    Assert.IsFalse(store.Runtimes.Any(runtime => runtime.Id == local.Id));
+                    Assert.AreEqual(system.Id, store.Settings.DefaultRuntimeID);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
         public void ProxyProbeBuildsBasicAuthAndInterpretsResponses()
         {
             var req = ProxyConnectivityChecker.ProbeRequest(new Uri("https://example.com/"), "yak", "secret");

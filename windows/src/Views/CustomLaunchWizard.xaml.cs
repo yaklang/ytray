@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using YTray.Core;
 using YTray.Models;
+using YTray.Native;
 
 namespace YTray.Views
 {
@@ -33,6 +34,7 @@ namespace YTray.Views
                 UseTestType = store.Settings.UseTestType,
                 ColorizeBrowserInstances = store.Settings.ColorizeBrowserInstances,
                 AdditionalFlags = store.Settings.AdditionalFlags,
+                ProfileRootPath = store.Settings.ProfileRootPath,
                 DockBadge = store.Settings.DockBadge,
             };
             _pluginIDs = store.Settings.DefaultPluginIDs.ToList();
@@ -166,7 +168,85 @@ namespace YTray.Views
                 btn.Click += (s, e) => { _draft.DefaultRuntimeID = ((BrowserRuntime)((Button)s).Tag).Id; ShowStep(); };
                 sp.Children.Add(btn);
             }
+            sp.Children.Add(BuildProfileRootChoice());
             return sp;
+        }
+
+        private UIElement BuildProfileRootChoice()
+        {
+            var grid = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock { Text = "本次实例数据", FontWeight = FontWeights.SemiBold, FontSize = 11.5 });
+            var path = new TextBlock
+            {
+                Text = _store.ResolveProfileRoot(_draft),
+                FontSize = 10,
+                Margin = new Thickness(0, 3, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = _store.ResolveProfileRoot(_draft),
+            };
+            path.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            text.Children.Add(path);
+            text.Children.Add(new TextBlock
+            {
+                Text = "YTray 会在该父目录下创建独立子目录",
+                FontSize = 9.5,
+                Margin = new Thickness(0, 2, 0, 0),
+                Foreground = (Brush)FindResource("TextTertiaryBrush"),
+            });
+            grid.Children.Add(text);
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            if (!string.Equals(_draft.ProfileRootPath ?? "", _store.Settings.ProfileRootPath ?? "",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var reset = new Button { Content = "使用默认", Height = 32, Margin = new Thickness(0, 0, 7, 0) };
+                reset.Style = (Style)FindResource("YTrayGhostButton");
+                reset.Click += (s, e) => { _draft.ProfileRootPath = _store.Settings.ProfileRootPath ?? ""; ShowStep(); };
+                actions.Children.Add(reset);
+            }
+            var choose = new Button { Content = "选择目录", Height = 32 };
+            choose.Style = (Style)FindResource("YTrayButton");
+            choose.Click += (s, e) => ChooseLaunchProfileRoot();
+            actions.Children.Add(choose);
+            Grid.SetColumn(actions, 1);
+            grid.Children.Add(actions);
+            var border = new Border
+            {
+                Child = grid,
+                CornerRadius = new CornerRadius(7),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12, 9, 10, 9),
+            };
+            border.SetResourceReference(Border.BackgroundProperty, "SurfaceMutedBrush");
+            border.SetResourceReference(Border.BorderBrushProperty, "HairlineBrush");
+            return border;
+        }
+
+        private void ChooseLaunchProfileRoot()
+        {
+            try
+            {
+                var path = FolderPicker.PickSingle(this,
+                    "选择本次浏览器实例数据的父目录（YTray 会创建独立子目录）",
+                    _store.ResolveProfileRoot(_draft));
+                if (path == null) return;
+                if (!_store.TryPrepareProfileRoot(path, out var normalizedPath, out var error))
+                {
+                    MessageBox.Show(this, error, "无法使用数据目录", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                _draft.ProfileRootPath = normalizedPath;
+            }
+            catch (Exception ex)
+            {
+                CrashGuard.Record("pick-launch-profile-root", ex);
+                MessageBox.Show(this, "无法打开目录选择器：" + ex.Message,
+                    "YTray", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            ShowStep();
         }
 
         private UIElement BuildNetworkStep()
@@ -340,7 +420,7 @@ namespace YTray.Views
             sp.Children.Add(new TextBlock { Text = "确认本次启动配置", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 18) });
             var rt = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
             var grid = new Grid { Margin = new Thickness(18) };
-            for (int i = 0; i < 8; i++) grid.RowDefinitions.Add(new RowDefinition());
+            for (int i = 0; i < 9; i++) grid.RowDefinitions.Add(new RowDefinition());
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             AddReviewRow(grid, 0, "浏览器", rt != null ? $"{rt.DisplayTitle} {rt.VersionLabel} · {rt.Source.Title()}" : "未选择");
@@ -354,6 +434,7 @@ namespace YTray.Views
             AddReviewRow(grid, 5, "WebRTC", _draft.RestrictWebRTC ? "限制" : "不限制");
             AddReviewRow(grid, 6, "插件", $"{_pluginIDs.Count} 个（启动时验证）");
             AddReviewRow(grid, 7, "Profile 主题", _draft.ColorizeBrowserInstances ? "按角标分配独立主题色" : "使用浏览器默认主题");
+            AddReviewRow(grid, 8, "实例数据", _store.ResolveProfileRoot(_draft));
             sp.Children.Add(grid);
             return sp;
         }

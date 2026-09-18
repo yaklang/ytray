@@ -60,6 +60,7 @@ final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var statusText: String
     @Published private(set) var availableVersion: String?
     @Published private(set) var releaseNotesText: String?
+    @Published private(set) var releaseNotesURL: URL?
     @Published private(set) var lastCheck: Date?
     @Published var automaticallyChecks: Bool {
         didSet { if updatesEnabled { defaults.set(automaticallyChecks, forKey: "YTrayCheckUpdates") } }
@@ -138,6 +139,7 @@ final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate {
             let release = try Self.parseManifest(data, architecture: Self.architecture)
             availableVersion = release.version
             releaseNotesText = release.releaseNotesText
+            releaseNotesURL = release.releaseNotes.flatMap(URL.init(string:))
             lastCheck = Date()
             setPhase(isUpdateAvailable ? .available : .upToDate,
                 isUpdateAvailable ? "发现新版本 v\(release.version) · 当前 v\(currentVersion)" : "YTray v\(currentVersion) 已是最新版本")
@@ -196,6 +198,11 @@ final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate {
         let version = isUpdateAvailable ? availableVersion! : currentVersion
         guard let url = URL(string: "\(Self.baseURL)/\(version)/YTray-\(version)-darwin-\(Self.architecture).dmg") else { return }
         if !NSWorkspace.shared.open(url) { setPhase(.failed, "无法打开浏览器，请前往 yaklang.io/ytray/ 下载。") }
+    }
+
+    func openReleaseNotes() {
+        guard let releaseNotesURL else { return }
+        if !NSWorkspace.shared.open(releaseNotesURL) { setPhase(.failed, "无法打开更新说明，请稍后重试。") }
     }
 
     nonisolated static func parseManifest(_ data: Data, architecture: String) throws -> AppReleaseManifest {

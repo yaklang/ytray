@@ -298,7 +298,7 @@ namespace YTray.Core
         public static LaunchResult Launch(BrowserRuntime runtime, LaunchMode mode, LaunchSettings settings,
             List<BrowserPlugin> plugins, string applicationDirectory, int ordinal, string dockBadge,
             BrowserInstance? restoring = null, Func<int, Task>? onWindowReady = null,
-            IEnumerable<BrowserPlugin>? configuredPlugins = null)
+            IEnumerable<BrowserPlugin>? configuredPlugins = null, string? profileRoot = null)
         {
             if (runtime == null) throw new ArgumentNullException(nameof(runtime));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
@@ -312,7 +312,7 @@ namespace YTray.Core
             var normalizedBadge = DockBadgeLabel.Normalize(dockBadge);
             var profile = restoring != null
                 ? restoring.ProfilePath
-                : Path.Combine(applicationDirectory, "Profiles", "Inst" + normalizedBadge, id.ToString());
+                : NewProfilePath(applicationDirectory, profileRoot, normalizedBadge, id);
             Directory.CreateDirectory(profile);
 
             var port = NextAvailablePort(Math.Max(1024, settings.DebugPort));
@@ -483,6 +483,15 @@ namespace YTray.Core
                     : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null,
                         settings.ProxyServer, runtime.Kind, runtime.Version),
             };
+        }
+
+        internal static string NewProfilePath(string applicationDirectory, string? profileRoot,
+            string normalizedBadge, Guid instanceId)
+        {
+            var root = string.IsNullOrWhiteSpace(profileRoot)
+                ? Path.Combine(applicationDirectory, "Profiles")
+                : Path.GetFullPath(profileRoot!);
+            return Path.Combine(root, "Inst" + normalizedBadge, instanceId.ToString());
         }
 
         private static void LogLine(FileStream stream, string line)

@@ -1,7 +1,5 @@
 #nullable enable
 using System;
-using System.ComponentModel;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -30,18 +28,14 @@ namespace YTray.Views.Pages
         {
             ThemeManager.ThemeChanged -= OnThemeChanged;
             ThemeManager.ThemeChanged += OnThemeChanged;
-            _updater.PropertyChanged -= OnUpdaterPropertyChanged;
-            _updater.PropertyChanged += OnUpdaterPropertyChanged;
             SyncThemeSelection();
-            RefreshUpdateControls();
-            if (_updater.Phase == AppUpdatePhase.Idle && !IsCaptureProcess())
-                CrashGuard.Observe(_updater.CheckAsync(), "check-app-update-settings");
+            AutomaticUpdatesCheck.IsChecked = _store.Settings.CheckForAppUpdates;
+            AutomaticUpdatesCheck.IsEnabled = _updater.Enabled;
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             ThemeManager.ThemeChanged -= OnThemeChanged;
-            _updater.PropertyChanged -= OnUpdaterPropertyChanged;
         }
 
         private void OnThemeChanged(object sender, EventArgs e)
@@ -161,61 +155,11 @@ namespace YTray.Views.Pages
             ShowFeedback("已填入推荐参数");
         }
 
-        private void OnUpdaterPropertyChanged(object sender, PropertyChangedEventArgs e)
-        {
-            // AppUpdateService deliberately performs network and checksum work away from
-            // the UI thread. Do not touch IsLoaded (a DependencyObject property) until the
-            // notification has been marshalled back to this page's dispatcher.
-            var dispatcher = Dispatcher;
-            if (!dispatcher.CheckAccess())
-            {
-                if (!dispatcher.HasShutdownStarted)
-                    dispatcher.BeginInvoke(new Action(RefreshUpdateControlsIfLoaded));
-                return;
-            }
-            RefreshUpdateControlsIfLoaded();
-        }
-
-        private void RefreshUpdateControlsIfLoaded()
-        {
-            if (IsLoaded) RefreshUpdateControls();
-        }
-
-        private void RefreshUpdateControls()
-        {
-            if (UpdateButton == null) return;
-            CurrentVersionText.Text = $"当前 v{_updater.CurrentVersion}";
-            UpdateStatusText.Text = _updater.StatusText;
-            UpdateStatusText.Foreground = (Brush)FindResource(
-                _updater.Phase == AppUpdatePhase.Failed ? "DangerBrush"
-                : _updater.IsUpdateAvailable ? "BrandOrangeBrush"
-                : _updater.Phase == AppUpdatePhase.UpToDate ? "SuccessBrush"
-                : "TextSecondaryBrush");
-            UpdateButton.Content = _updater.ActionLabel;
-            UpdateButton.IsEnabled = _updater.Enabled && !_updater.IsBusy;
-            UpdateNotesText.Text = _updater.IsUpdateAvailable ? _updater.ReleaseNotesText ?? "" : "";
-            UpdateLastCheckText.Text = _updater.LastCheck.HasValue ? "上次检查：" + _updater.LastCheck.Value.ToString("g") : "";
-            AutomaticUpdatesCheck.IsChecked = _store.Settings.CheckForAppUpdates;
-            AutomaticUpdatesCheck.IsEnabled = _updater.Enabled;
-        }
-
-        private async void Update_Click(object sender, RoutedEventArgs e)
-        {
-            if (_updater.IsBusy) return;
-            if (_updater.IsUpdateAvailable) _updater.InstallUpdate();
-            else await _updater.CheckAsync();
-        }
-
         private void AutomaticUpdates_Click(object sender, RoutedEventArgs e)
         {
             _store.Settings.CheckForAppUpdates = AutomaticUpdatesCheck.IsChecked == true;
             _store.SaveSettings();
         }
-
-        private void DownloadUpdate_Click(object sender, RoutedEventArgs e) => _updater.OpenDownloads();
-
-        private static bool IsCaptureProcess() => Environment.GetCommandLineArgs().Any(argument =>
-            argument.StartsWith("--capture-", StringComparison.OrdinalIgnoreCase));
 
         private async void ShowFeedback(string message, bool isError = false)
         {

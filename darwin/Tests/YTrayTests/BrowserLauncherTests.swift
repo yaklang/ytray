@@ -121,6 +121,41 @@ final class BrowserLauncherTests: XCTestCase {
     }
 
     @MainActor
+    func testCustomProfileRootPersistsAndKeepsInstanceDirectoriesIsolated() throws {
+        let applicationDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-profile-root-test-\(UUID().uuidString)", isDirectory: true)
+        let profileRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-custom-profiles-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: applicationDirectory)
+            try? FileManager.default.removeItem(at: profileRoot)
+        }
+
+        let store = InstanceStore(applicationDirectory: applicationDirectory,
+                                  discoverSystemBrowsers: false, monitorProcesses: false)
+        store.setProfileRoot(profileRoot)
+        XCTAssertEqual(store.resolveProfileRoot(), profileRoot.standardizedFileURL)
+
+        let first = UUID()
+        let second = UUID()
+        XCTAssertEqual(
+            BrowserLauncher.newProfileURL(applicationDirectory: applicationDirectory,
+                                          profileRoot: store.resolveProfileRoot(), instanceID: first),
+            profileRoot.appendingPathComponent(first.uuidString, isDirectory: true)
+        )
+        XCTAssertNotEqual(
+            BrowserLauncher.newProfileURL(applicationDirectory: applicationDirectory,
+                                          profileRoot: store.resolveProfileRoot(), instanceID: first),
+            BrowserLauncher.newProfileURL(applicationDirectory: applicationDirectory,
+                                          profileRoot: store.resolveProfileRoot(), instanceID: second)
+        )
+
+        let restored = InstanceStore(applicationDirectory: applicationDirectory,
+                                     discoverSystemBrowsers: false, monitorProcesses: false)
+        XCTAssertEqual(restored.resolveProfileRoot(), profileRoot.standardizedFileURL)
+    }
+
+    @MainActor
     func testPluginRootScanFindsDirectAndBrowserProfileExtensions() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ytray-plugin-scan-test-\(UUID().uuidString)", isDirectory: true)

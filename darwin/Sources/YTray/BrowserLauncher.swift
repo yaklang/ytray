@@ -207,7 +207,8 @@ enum BrowserLauncher {
                        plugins: [BrowserPlugin], applicationDirectory: URL, ordinal: Int,
                        dockBadge: String, restoring history: BrowserInstance? = nil,
                        configuredPlugins: [BrowserPlugin]? = nil,
-                       launcherExecutable: URL? = nil) throws -> LaunchResult {
+                       launcherExecutable: URL? = nil,
+                       profileRoot: URL? = nil) throws -> LaunchResult {
         let executable = URL(fileURLWithPath: runtime.executablePath)
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw YTrayError.invalidExecutable(executable.path)
@@ -215,7 +216,8 @@ enum BrowserLauncher {
         let id = history?.id ?? UUID()
         let normalizedBadge = try DockBadgeLabel.normalize(dockBadge)
         let profile = history.map { URL(fileURLWithPath: $0.profilePath, isDirectory: true) }
-            ?? applicationDirectory.appendingPathComponent("Profiles/\(id.uuidString)", isDirectory: true)
+            ?? newProfileURL(applicationDirectory: applicationDirectory, profileRoot: profileRoot,
+                             instanceID: id)
         try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
         let port = nextAvailablePort(startingAt: max(1024, settings.debugPort))
         let usesProxyAuthentication = mode != .isolated
@@ -339,6 +341,11 @@ enum BrowserLauncher {
             ),
             deferredStartupURL: extensionPaths.isEmpty ? nil : startupURL
         )
+    }
+
+    static func newProfileURL(applicationDirectory: URL, profileRoot: URL?, instanceID: UUID) -> URL {
+        (profileRoot ?? applicationDirectory.appendingPathComponent("Profiles", isDirectory: true))
+            .appendingPathComponent(instanceID.uuidString, isDirectory: true)
     }
 
     static func deferredStartupURL(settings: LaunchSettings, plugins: [BrowserPlugin],

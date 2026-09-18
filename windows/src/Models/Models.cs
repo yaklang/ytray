@@ -308,6 +308,7 @@ namespace YTray.Models
         public bool UseTestType { get; set; } = true;
         public bool ColorizeBrowserInstances { get; set; } = true;
         public string AdditionalFlags { get; set; } = "";
+        public string ProfileRootPath { get; set; } = "";
         public List<Guid> DefaultPluginIDs { get; set; } = new List<Guid>();
         public string DockBadge { get; set; } = "";
         public bool EdgeDockEnabled { get; set; } = true;
@@ -369,6 +370,7 @@ namespace YTray.Models
                 UseTestType = UseTestType,
                 ColorizeBrowserInstances = ColorizeBrowserInstances,
                 AdditionalFlags = AdditionalFlags ?? "",
+                ProfileRootPath = ProfileRootPath ?? "",
                 DefaultPluginIDs = (DefaultPluginIDs ?? new List<Guid>()).ToList(),
                 DockBadge = DockBadge ?? "",
                 EdgeDockEnabled = EdgeDockEnabled,
