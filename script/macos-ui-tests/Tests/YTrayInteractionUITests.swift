@@ -58,6 +58,18 @@ final class YTrayInteractionUITests: XCTestCase {
         XCTAssertTrue(manager.waitForExistence(timeout: 10))
         capture("04-console-opened-from-widget")
 
+        let versionButton = app.buttons["YTray 版本与更新"].firstMatch
+        XCTAssertTrue(versionButton.waitForExistence(timeout: 5), "Missing version button\n\(app.debugDescription)")
+        versionButton.click()
+        let updatePopover = app.descendants(matching: .any)
+            .matching(identifier: "YTray 版本更新弹层").firstMatch
+        XCTAssertTrue(updatePopover.waitForExistence(timeout: 5), "Update popover did not open\n\(app.debugDescription)")
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertTrue(updatePopover.exists, "Update popover closed during the update state refresh")
+        capture("04-update-popover")
+        versionButton.click()
+        XCTAssertTrue(updatePopover.waitForNonExistence(timeout: 5), "Update popover did not close")
+
         for (page, marker) in [
             ("浏览器运行时", "添加本地浏览器…"),
             ("启动设置", "保存设置"),

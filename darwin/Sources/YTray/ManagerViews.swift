@@ -33,6 +33,7 @@ struct ManagerView: View {
     @ObservedObject var navigation: ManagerNavigation
     @ObservedObject var launchAtLogin: LaunchAtLoginManager
     @ObservedObject private var updater = AppUpdateManager.shared
+    @StateObject private var updatePopover = AppUpdatePopoverPresenter(updater: .shared)
     let quitApplication: () -> Void
     @State private var showWizard = false
 
@@ -91,7 +92,7 @@ struct ManagerView: View {
         .accentColor(Brand.orange)
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                AppUpdateVersionButton(updater: updater)
+                AppUpdateVersionButton(updater: updater, presenter: updatePopover)
             }
         }
         .sheet(isPresented: $showWizard) { CustomLaunchWizard(store: store, isPresented: $showWizard) }
@@ -119,7 +120,7 @@ struct ManagerView: View {
 @MainActor
 private struct AppUpdateVersionButton: View {
     @ObservedObject var updater: AppUpdateManager
-    @State private var isPresented = false
+    let presenter: AppUpdatePopoverPresenter
     @State private var isHovered = false
 
     private var displayVersion: String {
@@ -128,10 +129,7 @@ private struct AppUpdateVersionButton: View {
 
     var body: some View {
         Button {
-            isPresented.toggle()
-            if isPresented, updater.updatesEnabled, updater.phase == .idle {
-                Task { await updater.checkForUpdates() }
-            }
+            presenter.toggle()
         } label: {
             HStack(spacing: 6) {
                 Text("v\(displayVersion)").monospacedDigit()
@@ -150,6 +148,7 @@ private struct AppUpdateVersionButton: View {
             )
         }
         .buttonStyle(.plain)
+        .background(AppUpdatePopoverAnchor(presenter: presenter))
         .onHover { isHovered = $0 }
         .help(Text(updater.isUpdateAvailable
             ? "发现新版本 v\(displayVersion)，当前版本 v\(updater.currentVersion)"
@@ -157,11 +156,57 @@ private struct AppUpdateVersionButton: View {
         .accessibilityLabel(Text(updater.isUpdateAvailable
             ? "YTray v\(displayVersion) 可更新，当前版本 v\(updater.currentVersion)"
             : "YTray 当前版本 v\(updater.currentVersion)"))
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            AppUpdatePopover(updater: updater) {
-                isPresented = false
-            }
+        .accessibilityIdentifier("YTray 版本与更新")
+    }
+}
+
+/// Keeps popover ownership outside the SwiftUI toolbar item, whose native host can be
+/// replaced during state updates on macOS 26.
+@MainActor
+private final class AppUpdatePopoverPresenter: NSObject, ObservableObject {
+    private let updater: AppUpdateManager
+    private let popover = NSPopover()
+    private weak var anchor: NSView?
+
+    init(updater: AppUpdateManager) {
+        self.updater = updater
+        super.init()
+        popover.behavior = .transient
+        popover.animates = true
+    }
+
+    func attach(to view: NSView) { anchor = view }
+
+    func toggle() {
+        if popover.isShown {
+            popover.performClose(nil)
+            return
         }
+        guard let anchor, anchor.window != nil else { return }
+        let hosting = NSHostingController(rootView: AppUpdatePopover(updater: updater) { [weak self] in
+            self?.popover.performClose(nil)
+        })
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitting = hosting.view.fittingSize
+        popover.contentSize = NSSize(width: 400, height: min(450, max(230, fitting.height)))
+        popover.contentViewController = hosting
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        Task { await updater.checkForUpdates() }
+    }
+}
+
+@MainActor
+private struct AppUpdatePopoverAnchor: NSViewRepresentable {
+    let presenter: AppUpdatePopoverPresenter
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        presenter.attach(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        presenter.attach(to: nsView)
     }
 }
 
@@ -224,6 +269,8 @@ private struct AppUpdatePopover: View {
         }
         .padding(16)
         .frame(width: 400)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("YTray 版本更新弹层")
     }
 
     private var notes: String {

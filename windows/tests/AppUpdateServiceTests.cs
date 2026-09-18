@@ -138,6 +138,35 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public async Task RepeatedChecksReplaceAnOlderAvailableRelease()
+        {
+            var requestCount = 0;
+            var architecture = Environment.Is64BitProcess ? "amd64" : "386";
+            using (var service = new AppUpdateService(new StaticResponseHandler(() =>
+            {
+                var version = ++requestCount == 1 ? "98.0.0" : "99.0.0";
+                var filename = $"YTray-{version}-windows-{architecture}-setup.exe";
+                var manifest = "{\"schema_version\":1,\"product\":\"ytray\",\"version\":\"" + version + "\","
+                    + "\"assets\":[{\"platform\":\"windows\",\"architecture\":\"" + architecture
+                    + "\",\"kind\":\"setup\",\"filename\":\"" + filename + "\",\"url\":\"https://aliyun-oss.yaklang.com/ytray/"
+                    + version + "/" + filename + "\",\"sha256\":\"" + new string('a', 64) + "\",\"size\":123}]}";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(manifest, Encoding.UTF8, "application/json"),
+                };
+            }), enabled: true))
+            {
+                await service.CheckAsync();
+                Assert.AreEqual("98.0.0", service.AvailableVersion);
+
+                await service.CheckAsync();
+                Assert.AreEqual(2, requestCount);
+                Assert.AreEqual("99.0.0", service.AvailableVersion);
+                Assert.AreEqual(AppUpdatePhase.Available, service.Phase);
+            }
+        }
+
+        [TestMethod]
         public async Task InvalidManifestUsesAChineseUserFacingMessage()
         {
             using (var service = new AppUpdateService(new StaticResponseHandler(() =>
