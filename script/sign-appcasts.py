@@ -49,7 +49,8 @@ def generate(directory, private_key, public_key):
             build = str(manifest['build_number']) if platform == 'darwin' else manifest['version']
             ET.SubElement(item, f'{{{NS}}}version').text = build
             ET.SubElement(item, f'{{{NS}}}shortVersionString').text = manifest['version']
-            ET.SubElement(item, f'{{{NS}}}minimumSystemVersion').text = '14.0' if platform == 'darwin' else '10.0'
+            if platform == 'darwin':
+                ET.SubElement(item, f'{{{NS}}}minimumSystemVersion').text = '14.0'
             ET.SubElement(item, 'description').text = '<html><body>' + ''.join('<p>' + html.escape(line) + '</p>' for line in manifest['release_notes_text'].splitlines() if line.strip()) + '</body></html>'
             enclosure = ET.SubElement(item, 'enclosure', url=asset['url'], length=str(asset['size']), type='application/octet-stream')
             for field, value in [('version', build), ('shortVersionString', manifest['version']), ('edSignature', base64.b64encode(signature).decode()), ('os', 'macos' if platform == 'darwin' else ('windows-x64' if arch == 'amd64' else 'windows-x86'))]:

@@ -247,13 +247,7 @@ namespace YTray.Core
                     MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
             try
             {
-                if (_native == null) _native = new NativeAppUpdater(CurrentVersion, CanInstall,
-                    (result, message) =>
-                    {
-                        if (result == NativeUpdateResult.Current) { _release = null; _asset = null; }
-                        SetPhase(result == NativeUpdateResult.Failed ? AppUpdatePhase.Failed
-                            : result == NativeUpdateResult.Current ? AppUpdatePhase.UpToDate : AppUpdatePhase.Idle, message);
-                    });
+                if (_native == null) _native = new NativeAppUpdater(CurrentVersion, CanInstall, FinishNativeUpdate);
                 SetPhase(AppUpdatePhase.Installing, "正在下载并校验，安装完成后会重新打开 YTray。");
                 _native.Install();
             }
@@ -262,6 +256,19 @@ namespace YTray.Core
                 DiagnosticLog.Error("app.update.native", ex);
                 SetPhase(AppUpdatePhase.Failed, "更新组件不可用，请重试或手动下载。");
             }
+        }
+
+        internal void FinishNativeUpdate(NativeUpdateResult result, string message)
+        {
+            if (result == NativeUpdateResult.Current && IsUpdateAvailable)
+            {
+                SetPhase(AppUpdatePhase.Failed,
+                    $"已发现新版本 v{AvailableVersion}，但自动更新器未找到安装包，请手动下载。");
+                return;
+            }
+            if (result == NativeUpdateResult.Current) { _release = null; _asset = null; }
+            SetPhase(result == NativeUpdateResult.Failed ? AppUpdatePhase.Failed
+                : result == NativeUpdateResult.Current ? AppUpdatePhase.UpToDate : AppUpdatePhase.Idle, message);
         }
 
         internal void OpenDownloads()
