@@ -725,7 +725,7 @@ struct HistoryInstanceRow: View {
             }
             .buttonStyle(SmallOrangeButtonStyle())
             .disabled(store.isLaunching)
-            .help("使用原序号、用户目录和 Dock 角标恢复此历史")
+            .help("使用原序号、用户目录和实例标识恢复此历史")
             Button {
                 draftName = instance.name
                 showRename = true
@@ -995,7 +995,7 @@ struct DockBadgeMark: View {
             .background(Brand.orange)
             .clipShape(Circle())
             .overlay(Circle().stroke(.white, lineWidth: 1.2))
-            .accessibilityLabel("Dock 角标 \(label)")
+            .accessibilityLabel("实例标识 \(label)")
     }
 }
 

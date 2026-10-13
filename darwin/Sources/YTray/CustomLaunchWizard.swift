@@ -206,7 +206,7 @@ struct CustomLaunchWizard: View {
                             TextField("9222", value: $draft.debugPort, format: .number)
                         }
                         GridRow {
-                            Text("Dock 角标")
+                            Text("实例标识")
                             TextField("自动分配，也可填 1–2 个字母", text: $draft.dockBadge)
                         }
                     }
@@ -286,7 +286,7 @@ struct CustomLaunchWizard: View {
                 reviewRow("启动地址", draft.homeURL)
                 reviewRow("网络", usePresetProxy ? "HTTP 代理 · \(presetProxyAddress)" : "直连（无代理）")
                 reviewRow("调试", "127.0.0.1:\(draft.debugPort) 起自动避让")
-                reviewRow("Dock 角标", draft.dockBadge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                reviewRow("实例标识", draft.dockBadge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                           ? "自动分配" : draft.dockBadge.uppercased())
                 reviewRow("WebRTC", draft.restrictWebRTC ? "限制非代理 UDP/IP 暴露" : "不限制")
                 reviewRow("插件", "\(pluginIDs.count) 个（启动时验证）")

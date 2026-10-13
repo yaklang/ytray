@@ -17,7 +17,7 @@ enum DockBadgeLabel {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard (1...2).contains(normalized.count),
               normalized.unicodeScalars.allSatisfy({ (65...90).contains(Int($0.value)) }) else {
-            throw YTrayError.launchFailed("Dock 角标只能是 1–2 个英文字母")
+            throw YTrayError.launchFailed("实例标识只能是 1–2 个英文字母")
         }
         return normalized
     }
@@ -29,33 +29,8 @@ enum BrowserProcessIcon {
             .appendingPathComponent("\(instanceID.uuidString).png")
     }
 
-    static func write(
-        sourceExecutable: URL,
-        badge: String,
-        instanceID: UUID,
-        applicationDirectory: URL,
-        identityColor: BrowserIdentityColor? = nil
-    ) throws -> URL {
-        let label = try DockBadgeLabel.normalize(badge)
-        let directory = applicationDirectory.appendingPathComponent("ProcessIcons", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let source = enclosingApplication(for: sourceExecutable) ?? sourceExecutable
-        let rendered = renderIcon(
-            baseIcon: NSWorkspace.shared.icon(forFile: source.path),
-            badge: label,
-            identityColor: identityColor
-        )
-        guard let tiff = rendered.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else {
-            throw YTrayError.launchFailed("无法生成浏览器进程图标")
-        }
-        let output = iconURL(instanceID: instanceID, applicationDirectory: applicationDirectory)
-        try png.write(to: output, options: .atomic)
-        return output
-    }
-
     static func remove(instanceID: UUID, applicationDirectory: URL) {
+        // Clean up icons left by instances launched with the older AppKit bootstrap.
         let output = iconURL(instanceID: instanceID, applicationDirectory: applicationDirectory)
         guard FileManager.default.fileExists(atPath: output.path) else { return }
         try? FileManager.default.removeItem(at: output)
@@ -98,7 +73,7 @@ enum BrowserProcessIcon {
         return output
     }
 
-    private static func enclosingApplication(for executable: URL) -> URL? {
+    static func enclosingApplication(for executable: URL) -> URL? {
         var candidate = executable.deletingLastPathComponent()
         while candidate.path != "/" {
             if candidate.pathExtension.lowercased() == "app" { return candidate }

@@ -29,7 +29,6 @@ mkdir -p /tmp/ytray-test-agent
 unzip -oq /tmp/ytray-test-bundled/yakit-browser-agent.zip -d /tmp/ytray-test-agent
 
 YTRAY_CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
-YTRAY_LAUNCHER_PATH="$PWD/darwin/.build/debug/YTray" \
 YTRAY_TEST_EXTENSION_PATH='/tmp/ytray-test-agent' \
 YTRAY_CFT_PATH='/path/to/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing' \
 swift test --package-path darwin

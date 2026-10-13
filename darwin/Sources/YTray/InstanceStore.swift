@@ -31,7 +31,6 @@ final class InstanceStore: NSObject, ObservableObject {
 
     let applicationDirectory: URL
     var confirmLaunchWithoutPlugins: (ExtensionLaunchPrompt) -> Bool = { $0.present() }
-    private let browserProcessLauncher: URL?
     private var discardingLaunchID: UUID?
     private let stateURL: URL
     private var processes: [UUID: Process] = [:]
@@ -105,7 +104,6 @@ final class InstanceStore: NSObject, ObservableObject {
         applicationDirectory: URL? = nil,
         discoverSystemBrowsers: Bool = true,
         legacyApplicationDirectory: URL? = nil,
-        browserProcessLauncher: URL? = nil,
         monitorProcesses: Bool = true
     ) {
         let usesDefaultApplicationDirectory = applicationDirectory == nil
@@ -122,7 +120,6 @@ final class InstanceStore: NSObject, ObservableObject {
             Self.moveLegacyApplicationDirectoryIfNeeded(from: legacyBase, to: base)
         }
         self.applicationDirectory = base
-        self.browserProcessLauncher = browserProcessLauncher
         self.stateURL = base.appendingPathComponent("state.json")
         super.init()
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
@@ -578,7 +575,7 @@ final class InstanceStore: NSObject, ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let badge = requestedBadge.isEmpty ? nextAvailableDockBadge() : try DockBadgeLabel.normalize(requestedBadge)
             if runningInstances.contains(where: { $0.dockBadge == badge }) {
-                throw YTrayError.launchFailed("Dock 角标 \(badge) 已被运行中的实例使用")
+                throw YTrayError.launchFailed("实例标识 \(badge) 已被运行中的实例使用")
             }
             let result = try BrowserLauncher.launch(
                 runtime: runtime,
@@ -590,7 +587,6 @@ final class InstanceStore: NSObject, ObservableObject {
                 dockBadge: badge,
                 restoring: history,
                 configuredPlugins: plugins,
-                launcherExecutable: browserProcessLauncher,
                 profileRoot: resolveProfileRoot(configuration)
             )
             processes[result.instance.id] = result.process
@@ -888,7 +884,12 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     func focus(_ instance: BrowserInstance) {
-        NSRunningApplication(processIdentifier: instance.processID)?.activate(options: [.activateAllWindows])
+        guard let application = NSRunningApplication(processIdentifier: instance.processID) else { return }
+        // macOS 14+ coordinates activation with the app giving up the foreground.
+        NSApplication.shared.yieldActivation(to: application)
+        if !application.activate(from: .current, options: [.activateAllWindows]) {
+            DiagnosticLog.warning("instance.focus", "activation refused; pid=\(instance.processID)")
+        }
     }
 
     func saveSettings() {

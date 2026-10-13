@@ -3,21 +3,18 @@ import Network
 import XCTest
 @testable import YTray
 
-/// Opt in with YTRAY_CHROME_PATH and YTRAY_LAUNCHER_PATH. All profiles and traffic
+/// Opt in with YTRAY_CHROME_PATH. All profiles and traffic
 /// belong to a temporary test directory/local server, never the user's browser.
 @MainActor
 final class BrowserExtensionIntegrationTests: XCTestCase {
     private func makeStore() throws -> InstanceStore {
         let environment = ProcessInfo.processInfo.environment
         guard let chrome = environment["YTRAY_CHROME_PATH"],
-              let launcher = environment["YTRAY_LAUNCHER_PATH"],
-              FileManager.default.isExecutableFile(atPath: chrome),
-              FileManager.default.isExecutableFile(atPath: launcher) else {
-            throw XCTSkip("Set YTRAY_CHROME_PATH and YTRAY_LAUNCHER_PATH for real Chrome integration")
+              FileManager.default.isExecutableFile(atPath: chrome) else {
+            throw XCTSkip("Set YTRAY_CHROME_PATH for real Chrome integration")
         }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ytray-extension-integration-\(UUID().uuidString)")
-        let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false,
-                                  browserProcessLauncher: URL(fileURLWithPath: launcher))
+        let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
         let runtime = BrowserRuntime(name: "Google Chrome", version: "152.0", architecture: "arm64",
                                      executablePath: chrome, source: .local, browserKind: .chrome)
         store.runtimes = [runtime]
