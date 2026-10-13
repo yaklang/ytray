@@ -30,11 +30,6 @@ enum BrowserLauncher {
         var deferredStartupURL: String? = nil
     }
 
-    static func buildProcessArguments(iconURL: URL, browserExecutable: URL,
-                                      browserArguments: [String]) -> [String] {
-        ["--browser-process", iconURL.path, browserExecutable.path] + browserArguments
-    }
-
     static func buildArguments(mode: LaunchMode, settings: LaunchSettings, profilePath: String,
                                debugPort: Int, plugins: [BrowserPlugin],
                                runtimeKind: BrowserKind? = nil,
@@ -207,7 +202,6 @@ enum BrowserLauncher {
                        plugins: [BrowserPlugin], applicationDirectory: URL, ordinal: Int,
                        dockBadge: String, restoring history: BrowserInstance? = nil,
                        configuredPlugins: [BrowserPlugin]? = nil,
-                       launcherExecutable: URL? = nil,
                        profileRoot: URL? = nil) throws -> LaunchResult {
         let executable = URL(fileURLWithPath: runtime.executablePath)
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
@@ -235,9 +229,6 @@ enum BrowserLauncher {
                                                instanceID: id, badge: normalizedBadge, history: history,
                                                browserKind: runtime.kind, browserVersion: runtime.version)
         let arguments: [String]
-        let dockIdentityColor = AppEnvironment.instanceColorThemesEnabled
-            ? BrowserIdentityColor.color(for: normalizedBadge)
-            : nil
         let themeIdentityColor = resolvedIdentityColor(badge: normalizedBadge, settings: settings)
         do {
             // A generated theme is installed only for a brand-new profile.
@@ -278,33 +269,15 @@ enum BrowserLauncher {
             ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
             throw error
         }
-        let iconURL: URL
-        do {
-            iconURL = try BrowserProcessIcon.write(
-                sourceExecutable: executable,
-                badge: normalizedBadge,
-                instanceID: id,
-                applicationDirectory: applicationDirectory,
-                identityColor: dockIdentityColor
-            )
-        } catch {
-            try? log.close()
-            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
-            throw error
-        }
         let process = Process()
-        guard let launcher = launcherExecutable ?? Bundle.main.executableURL else {
-            try? log.close()
-            BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
-            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
-            throw YTrayError.launchFailed("找不到 YTray 启动器")
-        }
-        process.executableURL = launcher
-        process.arguments = buildProcessArguments(
-            iconURL: iconURL,
-            browserExecutable: executable,
-            browserArguments: arguments
-        )
+        // Register the browser's own AppKit/Accessibility application. Registering
+        // YTray first and then exec'ing Chromium under the same PID leaves window
+        // switchers holding the launcher's application identity and AX connection.
+        process.executableURL = executable
+        process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "__CFBundleIdentifier")
+        process.environment = environment
         process.standardOutput = log
         process.standardError = log
         do {

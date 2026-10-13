@@ -41,6 +41,8 @@ macOS 版本使用 Swift、AppKit 与 SwiftUI；Windows 版本使用 C# 与 WPF�
 
 YTray 不修改系统浏览器的名称、Bundle ID、签名或默认浏览器设置。它只用隔离参数启动用户明确选择的浏览器。
 
+macOS 直接启动浏览器原始可执行文件，让 Dock、AltTab 与辅助功能识别浏览器自身的应用和窗口。Dock 使用浏览器原生图标；A/B 实例标识继续显示在 YTray 内，并随历史恢复保留。
+
 ## 开机启动是一级功能
 
 ![YTray 开机启动页面](/docs/images/v0.1.0/ytray-launch-at-login.png)

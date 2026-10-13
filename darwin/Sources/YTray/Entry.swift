@@ -4,11 +4,6 @@ import SwiftUI
 
 @main
 enum YTrayMain {
-    // A short main-run-loop grace period lets Dock register the per-instance
-    // icon before exec replaces this helper with Chromium. A full second made
-    // every macOS browser launch feel needlessly slow.
-    static let browserProcessBootstrapDelay: TimeInterval = 0.1
-
     @MainActor
     static func main() {
         if CommandLine.arguments.contains("--diagnose-environment") {
@@ -22,11 +17,6 @@ enum YTrayMain {
             for badge in ["A", "B", "C"] {
                 print("badge_\(badge)=\(BrowserIdentityColor.color(for: badge).chromeThemeArgument)")
             }
-            return
-        }
-
-        if let index = CommandLine.arguments.firstIndex(of: "--browser-process") {
-            runBrowserProcess(argumentIndex: index)
             return
         }
 
@@ -95,41 +85,6 @@ enum YTrayMain {
         // NSApplication's delegate is weak. Own it for the entire event loop,
         // including optimized builds and system-managed launch/reopen events.
         withExtendedLifetime(controller) { application.run() }
-    }
-
-    @MainActor
-    private static func runBrowserProcess(argumentIndex index: Int) {
-        guard index + 2 < CommandLine.arguments.count else {
-            fputs("browser process bootstrap requires <icon> <browser> [arguments...]\n", stderr)
-            exit(2)
-        }
-        let iconPath = CommandLine.arguments[index + 1]
-        let browserPath = CommandLine.arguments[index + 2]
-        let browserArguments = Array(CommandLine.arguments.dropFirst(index + 3))
-        guard FileManager.default.isExecutableFile(atPath: browserPath),
-              let icon = NSImage(contentsOfFile: iconPath) else {
-            fputs("browser process bootstrap received an invalid browser or icon\n", stderr)
-            exit(2)
-        }
-
-        let application = NSApplication.shared
-        application.setActivationPolicy(.regular)
-        application.finishLaunching()
-        // Newer macOS releases can restore the bundle icon while finishLaunching registers
-        // the Dock tile. Apply the per-instance icon only after that registration completes.
-        application.applicationIconImage = icon
-        application.dockTile.display()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + browserProcessBootstrapDelay) {
-            let arguments = [browserPath] + browserArguments
-            var pointers = arguments.map { strdup($0) }
-            pointers.append(nil)
-            execv(browserPath, &pointers)
-            perror("execv")
-            pointers.compactMap { $0 }.forEach { free($0) }
-            exit(3)
-        }
-        application.run()
     }
 
     @MainActor
@@ -494,6 +449,7 @@ enum YTrayMain {
         settings.debugPort = 17_777
         application.setActivationPolicy(.prohibited)
         Task { @MainActor in
+            let launches = BrowserLaunchObservation()
             do {
                 let launched = try BrowserLauncher.launch(
                     runtime: runtime,
@@ -545,10 +501,32 @@ enum YTrayMain {
                             "截图验证失败：screenshot=\(size) thumbnail=\(thumbnailSize)"
                         )
                     }
-                    let runningApp = NSRunningApplication(
-                        processIdentifier: launched.instance.processID
-                    )
-                    print("browser smoke passed: pid=\(launched.instance.processID) port=\(launched.instance.debugPort) badge=A bundle=\(runningApp?.bundleIdentifier ?? "missing") name=\(runningApp?.localizedName ?? "missing") title=\(title ?? "missing") screenshot=\(size) bytes thumbnail=\(thumbnailSize) bytes")
+                    let browserExecutable = URL(fileURLWithPath: executablePath).resolvingSymlinksInPath()
+                    guard let browserBundle = BrowserProcessIcon.enclosingApplication(for: browserExecutable),
+                          let expectedBundleID = Bundle(url: browserBundle)?.bundleIdentifier,
+                          let runningApp = NSRunningApplication(processIdentifier: launched.instance.processID),
+                          runningApp.bundleIdentifier == expectedBundleID,
+                          runningApp.executableURL?.resolvingSymlinksInPath() == browserExecutable else {
+                        throw YTrayError.launchFailed("浏览器未以自己的应用身份注册")
+                    }
+                    // Window switchers can cache the first launch notification. A
+                    // correct identity read only after exec would miss that regression.
+                    guard launches.bundleIdentifiers[launched.instance.processID] == expectedBundleID else {
+                        throw YTrayError.launchFailed("浏览器启动通知的应用身份错误或缺失")
+                    }
+                    let windows = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
+                    let browserWindows = windows.filter {
+                        ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == launched.instance.processID
+                            && ($0[kCGWindowLayer as String] as? NSNumber)?.intValue == 0
+                    }
+                    guard !browserWindows.isEmpty else {
+                        throw YTrayError.launchFailed("没有找到归属于浏览器进程的正常窗口")
+                    }
+                    if CommandLine.arguments.contains("--verify-window-focus") {
+                        try await verifyBrowserFocus(application: application, instance: launched.instance,
+                                                     scratch: scratch)
+                    }
+                    print("browser smoke passed: pid=\(launched.instance.processID) port=\(launched.instance.debugPort) badge=A bundle=\(expectedBundleID) name=\(runningApp.localizedName ?? "missing") windows=\(browserWindows.count) title=\(title ?? "missing") screenshot=\(size) bytes thumbnail=\(thumbnailSize) bytes")
                     succeeded = true
                 } catch {
                     fputs("browser smoke failed: \(error.localizedDescription)\n", stderr)
@@ -557,20 +535,59 @@ enum YTrayMain {
                         fputs(text, stderr)
                     }
                 }
+                launches.stop()
                 launched.process.terminate()
                 for _ in 0..<30 {
                     guard Darwin.kill(launched.instance.processID, 0) == 0 else { break }
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
+                if launched.process.isRunning {
+                    Darwin.kill(launched.instance.processID, SIGKILL)
+                }
                 try? FileManager.default.removeItem(at: scratch)
                 exit(succeeded ? 0 : 1)
             } catch {
+                launches.stop()
                 fputs("browser smoke failed: \(error.localizedDescription)\n", stderr)
                 try? FileManager.default.removeItem(at: scratch)
                 exit(1)
             }
         }
         application.run()
+    }
+
+    @MainActor
+    private static func verifyBrowserFocus(application: NSApplication, instance: BrowserInstance,
+                                           scratch: URL) async throws {
+        application.setActivationPolicy(.regular)
+        let probe = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 420, height: 220),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        probe.title = "YTray Browser Focus Probe"
+        probe.isReleasedWhenClosed = false
+        defer { probe.close() }
+        let store = InstanceStore(applicationDirectory: scratch, discoverSystemBrowsers: false,
+                                  monitorProcesses: false)
+        for _ in 0..<3 {
+            application.activate(ignoringOtherApps: true)
+            probe.makeKeyAndOrderFront(nil)
+            guard await waitForForegroundPID(Int32(ProcessInfo.processInfo.processIdentifier)) else {
+                throw YTrayError.launchFailed("焦点验证窗口未进入前台")
+            }
+            store.focus(instance)
+            guard await waitForForegroundPID(instance.processID) else {
+                throw YTrayError.launchFailed("无法从 YTray 切回浏览器")
+            }
+        }
+        print("browser focus smoke passed: pid=\(instance.processID) switches=3")
+    }
+
+    @MainActor
+    private static func waitForForegroundPID(_ pid: Int32) async -> Bool {
+        for _ in 0..<30 {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
     }
 
     @MainActor
@@ -713,5 +730,33 @@ enum YTrayMain {
 
         try? FileManager.default.removeItem(at: scratch)
         application.terminate(nil)
+    }
+}
+
+/// Capture the first identity observers such as AltTab see, before the browser
+/// is ready. Reading only the final process state cannot detect a launcher
+/// registered as YTray and subsequently replaced under the same PID.
+@MainActor
+private final class BrowserLaunchObservation {
+    private(set) var bundleIdentifiers: [Int32: String] = [:]
+    private var observer: NSObjectProtocol?
+
+    init() {
+        observer = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication else { return }
+            MainActor.assumeIsolated {
+                if self?.bundleIdentifiers[application.processIdentifier] == nil {
+                    self?.bundleIdentifiers[application.processIdentifier] = application.bundleIdentifier ?? ""
+                }
+            }
+        }
+    }
+
+    func stop() {
+        if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        observer = nil
     }
 }

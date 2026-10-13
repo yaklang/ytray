@@ -91,6 +91,25 @@ jobs:
       - name: Exercise universal package with latest plugin
         run: ./script/package-macos.sh --arch universal --dmg
 
+      - name: Verify native browser identity and foreground switching
+        shell: bash
+        run: |
+          set -euo pipefail
+          chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          if [[ ! -x "$chrome" ]]; then brew install --cask google-chrome; fi
+          python3 - "$chrome" "$RUNNER_TEMP/browser-window-smoke.txt" <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          binary = pathlib.Path("dist/darwin-universal/YTray.app/Contents/MacOS/YTray").resolve()
+          with open(sys.argv[2], "w", encoding="utf-8") as output:
+              result = subprocess.run([str(binary), "--smoke-browser", sys.argv[1], "--verify-window-focus"],
+                                      stdout=output, stderr=subprocess.STDOUT, timeout=90)
+          print(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+          sys.exit(result.returncode)
+          PY
+
       - name: Test packaged application startup
         run: python3 script/test-macos-startup.py dist/darwin-universal/YTray.app --disposable-account --expect-foreground --output "$RUNNER_TEMP/startup-evidence"
 
@@ -117,6 +136,7 @@ jobs:
             dist/YTray-*-darwin-universal.dmg
             ${{ runner.temp }}/ytray-*.png
             ${{ runner.temp }}/startup-evidence
+            ${{ runner.temp }}/browser-window-smoke.txt
           if-no-files-found: error
           retention-days: 14
 

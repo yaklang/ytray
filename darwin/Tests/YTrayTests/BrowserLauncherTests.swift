@@ -446,20 +446,37 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertEqual(store.settings.presetProxyRemark, "Yak MITM")
     }
 
-    func testProcessBootstrapExecutesOriginalBrowserWithoutChangingItsBundle() {
-        let arguments = BrowserLauncher.buildProcessArguments(
-            iconURL: URL(fileURLWithPath: "/tmp/instance-A.png"),
-            browserExecutable: URL(fileURLWithPath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            browserArguments: ["--user-data-dir=/tmp/profile", "chrome://newtab"]
+    func testLaunchRunsTheSelectedBrowserUnderItsOwnPIDAndPreservesArguments() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-native-browser-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // This executable stands in for Chromium and reports what actually ran,
+        // rather than only checking the arguments assembled by the launcher.
+        let executable = directory.appendingPathComponent("Test Browser")
+        try Data("#!/bin/sh\nprintf '%s\\n' \"$$\" \"$0\" \"$@\"\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let runtime = BrowserRuntime(name: "Test Browser", version: "1", architecture: "test",
+                                     executablePath: executable.path, source: .local,
+                                     browserKind: .chromeForTesting)
+        var settings = LaunchSettings()
+        settings.homeURL = "https://example.test/path?q=two%20words"
+        let launched = try BrowserLauncher.launch(
+            runtime: runtime, mode: .quick, settings: settings, plugins: [],
+            applicationDirectory: directory, ordinal: 1, dockBadge: "B"
         )
-        XCTAssertEqual(arguments, [
-            "--browser-process",
-            "/tmp/instance-A.png",
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "--user-data-dir=/tmp/profile",
-            "chrome://newtab",
-        ])
-        XCTAssertFalse(arguments.contains(where: { $0.contains("codesign") || $0.contains("xattr") }))
+        launched.process.waitUntilExit()
+        XCTAssertEqual(launched.process.terminationStatus, 0)
+        XCTAssertEqual(launched.process.executableURL, executable)
+        let log = directory.appendingPathComponent("Logs/\(launched.instance.id.uuidString).log")
+        let output = try String(contentsOf: log, encoding: .utf8).components(separatedBy: "\n")
+        XCTAssertEqual(output.first, String(launched.instance.processID))
+        XCTAssertEqual(output.dropFirst().first, executable.path)
+        XCTAssertTrue(output.contains("--user-data-dir=\(launched.instance.profilePath)"))
+        XCTAssertTrue(output.contains("--remote-debugging-port=\(launched.instance.debugPort)"))
+        XCTAssertTrue(output.contains(settings.homeURL))
+        XCTAssertFalse(output.contains("--browser-process"))
+        XCTAssertEqual(launched.instance.dockBadge, "B")
     }
 
     func testWidgetUsesCompactStateDependentHeight() {
@@ -1008,10 +1025,6 @@ final class BrowserLauncherTests: XCTestCase {
             )
             XCTAssertEqual(arguments.filter { $0 == "--use-mock-keychain" }.count, 1)
         }
-    }
-
-    func testBrowserProcessBootstrapDoesNotAddAOneSecondDelay() {
-        XCTAssertLessThanOrEqual(YTrayMain.browserProcessBootstrapDelay, 0.1)
     }
 
     func testModernChromeDefersPluginStartupInsteadOfRejectingTheRuntime() throws {
