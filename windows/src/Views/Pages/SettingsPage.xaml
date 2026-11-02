@@ -58,8 +58,8 @@
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <StackPanel>
                         <TextBlock Text="浏览器默认行为" Style="{StaticResource SectionTitle}" FontSize="15" Margin="0,0,0,22"/>
-                        <CheckBox x:Name="AutoConnectYakitCheck" Content="启动后自动连接 Yakit" FontSize="12.5"/>
-                        <TextBlock Text="仅自动批准当前 YTray 启动或恢复的实例" Margin="24,7,0,19" FontSize="10.5" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        <CheckBox x:Name="AutoConnectYakitCheck" Content="启动后自动接入前端" FontSize="12.5"/>
+                        <TextBlock Text="多个引擎时先选择接入目标；仅自动批准当前 YTray 启动或恢复的实例" Margin="24,7,0,19" FontSize="10.5" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         <CheckBox x:Name="WebRTCCheck" Content="禁用 WebRTC" FontSize="12.5" Margin="0,0,0,19"/>
                         <CheckBox x:Name="NotificationsCheck" Content="禁用浏览器通知" FontSize="12.5" Margin="0,0,0,19"/>
                         <CheckBox x:Name="CertCheck" Content="忽略证书错误" FontSize="12.5"/>

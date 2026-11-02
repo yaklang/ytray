@@ -152,6 +152,7 @@
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                                 <TextBlock Text="{Binding PageTitle}" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                                                                 <TextBlock Text="{Binding PageUrl}" Margin="0,3,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Text="{Binding Instance.EngineTargetSummary}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                                                             </StackPanel>
                                                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                                                 <Ellipse Width="7" Height="7" Fill="{DynamicResource SuccessBrush}" Margin="0,0,7,0"/>
@@ -208,6 +209,7 @@
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                                 <TextBlock Text="{Binding PageTitle}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                                                                 <TextBlock Text="{Binding PageUrl}" Margin="0,3,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Text="{Binding Instance.EngineTargetSummary}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                                                             </StackPanel>
                                                             <TextBlock Grid.Column="2" Text="{Binding LastUsed}" Style="{StaticResource InstanceTableCell}" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                                             <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
@@ -258,6 +260,7 @@
                                         <TextBlock Text="{Binding DockBadge, StringFormat=Profile {0}}" Foreground="{Binding IdentityForegroundBrush}" FontWeight="SemiBold"/>
                                     </Border>
                                 </DockPanel>
+                                <TextBlock Text="{Binding Tag.Instance.EngineTargetSummary, ElementName=DetailContent}" Margin="0,0,0,12" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                 <Border x:Name="DetailPreviewFrame" Height="155" CornerRadius="7" ClipToBounds="True"
                                         SizeChanged="RoundedPreview_SizeChanged" SnapsToDevicePixels="True"
                                         Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
@@ -310,6 +313,7 @@
                                         Style="{StaticResource OutlinedAccentButton}" FontSize="12.5" Visibility="Collapsed">
                                     <StackPanel Orientation="Horizontal"><Viewbox Width="15" Height="15" Margin="0,0,7,0"><Path Data="M 3.3 5.2 L 1 5.2 L 1 2.9 M 1.4 5 C 2.6 2.3 5.9 1.1 8.8 2.1 C 12 3.2 13.7 6.8 12.6 10 C 11.5 13.2 7.9 14.9 4.7 13.8 C 3 13.2 1.7 12 1 10.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.25" Fill="Transparent"/></Viewbox><TextBlock Text="恢复实例"/></StackPanel>
                                 </Button>
+                                <Button x:Name="ChooseTargetRestoreButton" Content="选择接入目标后恢复" Click="ChooseTargetRestore_Click" Margin="0,8,0,0" Visibility="Collapsed"/>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
