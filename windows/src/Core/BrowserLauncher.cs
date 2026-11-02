@@ -224,7 +224,7 @@ namespace YTray.Core
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
                 $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
                 browserIdentity + "&engineTarget=" + Uri.EscapeDataString(Newtonsoft.Json.JsonConvert.SerializeObject(
-                    engineTarget ?? new BrowserEngineTarget { Mode = "none" },
+                    engineTarget ?? new BrowserEngineTarget { Mode = "legacy" },
                     new Newtonsoft.Json.JsonSerializerSettings { ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver() }));
         }
 

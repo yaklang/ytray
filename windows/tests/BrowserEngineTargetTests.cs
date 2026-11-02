@@ -46,6 +46,34 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void MissingDiscoveryKeepsLegacyConnectionAndExplicitOptOutRemainsSeparate()
+        {
+            var legacy = BrowserEngineDiscovery.ResolveForLaunch(null, new BrowserEngineTarget[0], false);
+            Assert.AreEqual("legacy", legacy.Mode);
+            var restoredLegacy = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target() }, true);
+            Assert.AreEqual("legacy", restoredLegacy.Mode);
+            var savedLegacy = BrowserEngineDiscovery.ResolveForLaunch(legacy, new[] { Target() }, false);
+            Assert.AreEqual("legacy", savedLegacy.Mode);
+            var optedOut = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "none" }, new[] { Target() }, false);
+            Assert.AreEqual("none", optedOut.Mode);
+
+            var url = BrowserLauncher.ManagedBrowserBootstrapURL("extension-id", Guid.NewGuid(), "A", "https://example.test", false);
+            StringAssert.Contains(Uri.UnescapeDataString(url), "\"mode\":\"legacy\"");
+        }
+
+        [TestMethod]
+        public void RememberedTargetNeverFallsBackToLegacyWhenDiscoveryDisappears()
+        {
+            var saved = Target();
+            var resolved = BrowserEngineDiscovery.ResolveForLaunch(saved, new BrowserEngineTarget[0], true);
+            Assert.AreEqual("engine", resolved.Mode);
+            Assert.AreEqual("stable-key", resolved.EngineIdentityId);
+            Assert.AreEqual("process-a", resolved.EngineInstanceId);
+            Assert.AreEqual("memfit", resolved.FrontendId);
+            Assert.IsNull(BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target(), Target("other", "yakit") }, false));
+        }
+
+        [TestMethod]
         public void NativeDiscoveryUsesTheProbedPortInsteadOfAnAdvertisedRedirect()
         {
             var target = BrowserEngineDiscovery.Parse("{\"type\":\"engine\",\"protocolVersion\":3,\"engineIdentityId\":\"key\",\"engineInstanceId\":\"process\",\"frontendId\":\"memfit\",\"frontendName\":\"Memfit AI\",\"endpoint\":\"ws://remote.example/extension\"}", 14333);

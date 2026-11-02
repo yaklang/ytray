@@ -17,8 +17,10 @@ namespace YTray.Core
         public string EngineIdentityId { get; set; } = "";
         public string EngineInstanceId { get; set; } = "";
         public string Endpoint { get; set; } = "";
-        [JsonIgnore] public string DisplayName => Mode == "none" ? "仅启动浏览器，暂不接入" : FrontendName;
+        [JsonIgnore] public string DisplayName => Mode == "none" ? "仅启动浏览器，暂不接入"
+            : Mode == "legacy" ? "使用原有连接设置" : FrontendName;
         [JsonIgnore] public string Detail => Mode == "none" ? "稍后可重新选择接入目标"
+            : Mode == "legacy" ? "沿用插件中的引擎地址、配对与连接方式"
             : Uri.TryCreate(Endpoint, UriKind.Absolute, out var address) ? address.Authority : "等待目标引擎";
         public BrowserEngineTarget Clone() => (BrowserEngineTarget)MemberwiseClone();
         public bool SameFrontend(BrowserEngineTarget other) => EngineIdentityId == other.EngineIdentityId && FrontendId == other.FrontendId;
@@ -77,10 +79,19 @@ namespace YTray.Core
         internal static BrowserEngineTarget? ResolveRemembered(BrowserEngineTarget? remembered, IReadOnlyList<BrowserEngineTarget> online)
         {
             if (remembered == null) return null;
-            if (remembered.Mode == "none") return remembered.Clone();
+            if (remembered.Mode == "none" || remembered.Mode == "legacy") return remembered.Clone();
             var matches = online.Where(remembered.SameFrontend).ToArray();
             return matches.FirstOrDefault(value => value.EngineInstanceId == remembered.EngineInstanceId)
                 ?? (matches.Length == 1 ? matches[0] : matches.Length == 0 ? remembered.Clone() : null);
+        }
+
+        internal static BrowserEngineTarget? ResolveForLaunch(BrowserEngineTarget? remembered,
+            IReadOnlyList<BrowserEngineTarget> online, bool restoring)
+        {
+            if (remembered != null) return ResolveRemembered(remembered, online);
+            // Existing profiles keep their plugin pairing until the user explicitly selects a target.
+            if (restoring || online.Count == 0) return new BrowserEngineTarget { Mode = "legacy" };
+            return online.Count == 1 ? online[0] : null;
         }
     }
 }

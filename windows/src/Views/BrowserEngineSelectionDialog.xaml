@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterScreen" ShowInTaskbar="False" Background="{DynamicResource AppBackgroundBrush}">
     <StackPanel Margin="24">
         <TextBlock Text="浏览器启动后接入哪个应用？" FontSize="18" FontWeight="SemiBold"/>
-        <TextBlock Text="请选择此实例接入的应用。YTray 会记住此实例的选择，恢复时沿用。" TextWrapping="Wrap" Margin="0,10,0,18"/>
+        <TextBlock Text="请选择接入的应用，也可沿用插件现有的连接设置。YTray 会记住此实例的选择，恢复时沿用。" TextWrapping="Wrap" Margin="0,10,0,18"/>
         <ListBox x:Name="Targets" MaxHeight="320" SelectedIndex="0">
             <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8">
                 <TextBlock Text="{Binding DisplayName}" FontSize="14" FontWeight="SemiBold"/>

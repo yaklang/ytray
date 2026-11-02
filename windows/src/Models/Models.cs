@@ -435,7 +435,7 @@ namespace YTray.Models
     public class BrowserInstance : IEquatable<BrowserInstance>
     {
         [JsonIgnore]
-        public string EngineTargetSummary => SettingsSnapshot?.EngineTarget == null ? "尚未接入前端"
+        public string EngineTargetSummary => SettingsSnapshot?.EngineTarget == null || SettingsSnapshot.EngineTarget.Mode == "legacy" ? "接入：原有连接设置"
             : SettingsSnapshot.EngineTarget.Mode == "none" ? "仅启动浏览器"
             : "接入：" + SettingsSnapshot.EngineTarget.FrontendName;
         public Guid Id { get; set; } = Guid.NewGuid();

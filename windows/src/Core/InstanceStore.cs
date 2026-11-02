@@ -758,10 +758,9 @@ namespace YTray.Core
                 else
                 {
                     var engines = BrowserEngineDiscovery.Find(configuration.EngineTarget);
-                    var remembered = chooseEngine ? null : BrowserEngineDiscovery.ResolveRemembered(configuration.EngineTarget, engines);
+                    var remembered = chooseEngine ? null : BrowserEngineDiscovery.ResolveForLaunch(configuration.EngineTarget, engines, restoring != null);
                     if (remembered != null) configuration.EngineTarget = remembered.Clone();
-                    else if (engines.Count == 1 && !chooseEngine) configuration.EngineTarget = engines[0].Clone();
-                    else if (engines.Count > 1 || chooseEngine)
+                    else
                     {
                         var selected = ChooseBrowserEngine?.Invoke(engines);
                         if (selected == null)
@@ -778,7 +777,6 @@ namespace YTray.Core
                         }
                         configuration.EngineTarget = selected.Clone();
                     }
-                    else configuration.EngineTarget = new BrowserEngineTarget { Mode = "none" };
                 }
                 var requestedBadge = (restoring?.DockBadge ?? configuration.DockBadge ?? "").Trim();
                 var badge = string.IsNullOrEmpty(requestedBadge) ? NextAvailableDockBadge() : DockBadgeLabel.Normalize(requestedBadge);

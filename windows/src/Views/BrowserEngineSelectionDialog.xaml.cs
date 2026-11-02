@@ -11,7 +11,9 @@ namespace YTray.Views
         public BrowserEngineSelectionDialog(IReadOnlyList<BrowserEngineTarget> targets)
         {
             InitializeComponent();
-            Targets.ItemsSource = targets.Concat(new[] { new BrowserEngineTarget { Mode = "none" } }).ToArray();
+            Targets.ItemsSource = targets.Concat(new[] {
+                new BrowserEngineTarget { Mode = "legacy" }, new BrowserEngineTarget { Mode = "none" },
+            }).ToArray();
             Targets.SelectedIndex = 0;
         }
         public static BrowserEngineTarget? Choose(IReadOnlyList<BrowserEngineTarget> targets)
