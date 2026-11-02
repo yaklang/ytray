@@ -308,6 +308,7 @@ namespace YTray.Models
         public bool UseTestType { get; set; } = true;
         public bool ColorizeBrowserInstances { get; set; } = true;
         public bool AutoConnectYakit { get; set; } = true;
+        public YTray.Core.BrowserEngineTarget? EngineTarget { get; set; }
         public string AdditionalFlags { get; set; } = "";
         public string ProfileRootPath { get; set; } = "";
         public List<Guid> DefaultPluginIDs { get; set; } = new List<Guid>();
@@ -372,6 +373,7 @@ namespace YTray.Models
                 UseTestType = UseTestType,
                 ColorizeBrowserInstances = ColorizeBrowserInstances,
                 AutoConnectYakit = AutoConnectYakit,
+                EngineTarget = EngineTarget?.Clone(),
                 AdditionalFlags = AdditionalFlags ?? "",
                 ProfileRootPath = ProfileRootPath ?? "",
                 DefaultPluginIDs = (DefaultPluginIDs ?? new List<Guid>()).ToList(),
@@ -432,6 +434,10 @@ namespace YTray.Models
 
     public class BrowserInstance : IEquatable<BrowserInstance>
     {
+        [JsonIgnore]
+        public string EngineTargetSummary => SettingsSnapshot?.EngineTarget == null || SettingsSnapshot.EngineTarget.Mode == "legacy" ? "接入：原有连接设置"
+            : SettingsSnapshot.EngineTarget.Mode == "none" ? "仅启动浏览器"
+            : "接入：" + SettingsSnapshot.EngineTarget.FrontendName;
         public Guid Id { get; set; } = Guid.NewGuid();
         public string Name { get; set; } = "";
         public Guid RuntimeID { get; set; }

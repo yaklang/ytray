@@ -243,6 +243,7 @@ namespace YTray.Views.Pages
             StopDetailButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
             RestoreDetailButton.IsEnabled = !running;
             RestoreDetailButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+            ChooseTargetRestoreButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void RoundedPreview_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -286,6 +287,7 @@ namespace YTray.Views.Pages
             }
         }
         private void RestoreDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.RestoreHistory(_selected.Instance); }
+        private void ChooseTargetRestore_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.RestoreHistory(_selected.Instance, chooseEngine: true); }
         private void NewInstance_Click(object sender, RoutedEventArgs e)
         {
             var wizard = new CustomLaunchWizard(_store) { Owner = Window.GetWindow(this) };

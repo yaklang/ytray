@@ -48,6 +48,7 @@ namespace YTray.Core
         public ObservableCollection<BrowserRuntime> Runtimes { get; } = new ObservableCollection<BrowserRuntime>();
         public ObservableCollection<BrowserPlugin> Plugins { get; } = new ObservableCollection<BrowserPlugin>();
         public ObservableCollection<BrowserInstance> Instances { get; } = new ObservableCollection<BrowserInstance>();
+        public Func<IReadOnlyList<BrowserEngineTarget>, BrowserEngineTarget?>? ChooseBrowserEngine { get; set; }
         public LaunchSettings Settings { get; private set; } = new LaunchSettings();
         public List<MirrorVersion> AvailableVersions { get; private set; } = new List<MirrorVersion>();
 
@@ -706,7 +707,7 @@ namespace YTray.Core
         }
 
         public bool Launch(LaunchMode mode, LaunchSettings? customSettings = null, List<Guid>? customPluginIDs = null,
-            BrowserInstance? restoring = null, bool? launchUsesProxy = null)
+            BrowserInstance? restoring = null, bool? launchUsesProxy = null, bool chooseEngine = false)
         {
             if (IsLaunching) return false;
             LaunchWasCancelled = false;
@@ -728,6 +729,7 @@ namespace YTray.Core
                 {
                     ColorizeBrowserInstances = configuration.ColorizeBrowserInstances,
                     ProfileRootPath = configuration.ProfileRootPath,
+                    EngineTarget = configuration.EngineTarget?.Clone(),
                 };
             if (restoring != null)
             {
@@ -751,6 +753,31 @@ namespace YTray.Core
 
             try
             {
+                if (!Settings.AutoConnectYakit)
+                    configuration.EngineTarget = new BrowserEngineTarget { Mode = "none" };
+                else
+                {
+                    var engines = BrowserEngineDiscovery.Find(configuration.EngineTarget);
+                    var remembered = chooseEngine ? null : BrowserEngineDiscovery.ResolveForLaunch(configuration.EngineTarget, engines, restoring != null);
+                    if (remembered != null) configuration.EngineTarget = remembered.Clone();
+                    else
+                    {
+                        var selected = ChooseBrowserEngine?.Invoke(engines);
+                        if (selected == null)
+                        {
+                            LaunchWasCancelled = true;
+                            LaunchPhase = BrowserLaunchPhase.Idle;
+                            LaunchMessage = "";
+                            LaunchingMode = null;
+                            LaunchingUsesProxy = null;
+                            RestoringInstanceID = null;
+                            LaunchToken = null;
+                            OnPropertyChanged(string.Empty);
+                            return false;
+                        }
+                        configuration.EngineTarget = selected.Clone();
+                    }
+                }
                 var requestedBadge = (restoring?.DockBadge ?? configuration.DockBadge ?? "").Trim();
                 var badge = string.IsNullOrEmpty(requestedBadge) ? NextAvailableDockBadge() : DockBadgeLabel.Normalize(requestedBadge);
                 if (RunningInstances.Any(i => i.DockBadge == badge))
@@ -845,7 +872,7 @@ namespace YTray.Core
             return cfg;
         }
 
-        public void RestoreHistory(BrowserInstance instance)
+        public void RestoreHistory(BrowserInstance instance, bool chooseEngine = false)
         {
             if (instance == null) return;
             if (instance.Status == InstanceStatus.Running) return;
@@ -859,7 +886,7 @@ namespace YTray.Core
             cfg.DockBadge = instance.DockBadge ?? "";
             var restoredPluginIDs = instance.PluginIDs ?? cfg.DefaultPluginIDs;
             Launch(instance.Mode, cfg, restoredPluginIDs, instance,
-                launchUsesProxy: !string.IsNullOrEmpty(cfg.ProxyServer?.Trim()));
+                launchUsesProxy: !string.IsNullOrEmpty(cfg.ProxyServer?.Trim()), chooseEngine: chooseEngine);
         }
 
         private async Task WaitForBrowserAsync(BrowserLauncher.LaunchResult launch, Guid token,

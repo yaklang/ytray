@@ -32,6 +32,7 @@ namespace YTray
         public TrayApp(InstanceStore store, LaunchAtLoginManager launchAtLogin)
         {
             _store = store;
+            _store.ChooseBrowserEngine = BrowserEngineSelectionDialog.Choose;
             _launchAtLogin = launchAtLogin;
             _store.PropertyChanged += OnStorePropertyChanged;
             _launchAtLogin.PropertyChanged += OnLaunchAtLoginChanged;

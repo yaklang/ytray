@@ -200,17 +200,18 @@ namespace YTray.Core
             {
                 arguments.Add("--restore-last-session");
                 if (managedExtensionLoaded)
-                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true, settings.ProxyServer, runtimeKind, runtimeVersion));
+                    arguments.Add(ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, true, settings.ProxyServer, runtimeKind, runtimeVersion, settings.EngineTarget));
                 return arguments;
             }
             arguments.Add(managedExtensionLoaded
-                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false, settings.ProxyServer, runtimeKind, runtimeVersion)
+                ? ManagedBrowserBootstrapURL(managedExtensionId!, managedInstanceId!.Value, instanceBadge!, target, false, settings.ProxyServer, runtimeKind, runtimeVersion, settings.EngineTarget)
                 : target);
             return arguments;
         }
 
         internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target,
-            bool restore, string? proxyServer = null, BrowserKind? browserKind = null, string? browserVersion = null)
+            bool restore, string? proxyServer = null, BrowserKind? browserKind = null, string? browserVersion = null,
+            BrowserEngineTarget? engineTarget = null)
         {
             var browserIdentity = browserKind.HasValue
                 ? $"&browserName={Uri.EscapeDataString(browserKind.Value.Title())}"
@@ -222,7 +223,9 @@ namespace YTray.Core
                 $"&badge={Uri.EscapeDataString(DockBadgeLabel.Normalize(badge))}" +
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
                 $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
-                browserIdentity;
+                browserIdentity + "&engineTarget=" + Uri.EscapeDataString(Newtonsoft.Json.JsonConvert.SerializeObject(
+                    engineTarget ?? new BrowserEngineTarget { Mode = "legacy" },
+                    new Newtonsoft.Json.JsonSerializerSettings { ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver() }));
         }
 
         internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,
@@ -482,7 +485,7 @@ namespace YTray.Core
                 LegacyExtensionLoadingExpected = BrowserExtensionService.LegacyLoadingExpected(runtime),
                 DeferredStartupURL = extensionPaths.Count == 0 ? null : managedID == null ? startupURL
                     : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null,
-                        settings.ProxyServer, runtime.Kind, runtime.Version),
+                        settings.ProxyServer, runtime.Kind, runtime.Version, settings.EngineTarget),
             };
         }
 

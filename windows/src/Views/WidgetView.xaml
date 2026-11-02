@@ -203,7 +203,7 @@
                                                     <Run Text=" · 调试 :" />
                                                     <Run Text="{Binding DebugPort, Mode=OneWay, StringFormat={}{0:N0}}" />
                                                     <Run Text=" · " />
-                                                    <Run Text="{Binding RuntimeSourceTitle, Mode=OneWay}" />
+                                                    <Run Text="{Binding Instance.EngineTargetSummary, Mode=OneWay}" />
                                                 </TextBlock>
                                             </StackPanel>
                                             <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
