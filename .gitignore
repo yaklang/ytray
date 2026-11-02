@@ -50,3 +50,10 @@ ytray-design-review/
 ytray-design-concepts/
 
 windows/.dependencies/
+
+# Linux / Electron
+linux/node_modules/
+linux/out/
+linux/dist/
+linux/resources/bundled-extension/*
+!linux/resources/bundled-extension/.gitkeep
