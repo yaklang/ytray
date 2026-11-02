@@ -105,6 +105,22 @@ src/renderer/   React 界面（管理窗口 + 托盘小组件）
 src/shared/     主进程与渲染层共享的类型契约
 ```
 
+## 常见问题
+
+**运行后没有窗口。** 先看日志：
+
+```bash
+tail -n 20 ~/.local/share/YTrayDev/Logs/ytray.log   # 源码构建
+tail -n 20 ~/.local/share/YTray/Logs/ytray.log      # AppImage
+```
+
+正常应出现 `[window.manager] shown via ...; visible=true`。若进程直接退出，多半是第二个实例触发了
+单实例锁（`pgrep -f ytray` 检查残留进程）；若窗口存在但看不见，检查是否被 `--background`
+参数启动，或桌面缺少托盘支持。
+
+**AppImage 双击无反应。** 确认已 `chmod +x`；某些内核禁用了用户命名空间时需要
+`./YTray-*.AppImage --no-sandbox`；也可以用 `--appimage-extract-and-run` 绕过 FUSE。
+
 ## 尚未实现
 
 - Yakit 联动的启动审批（`claim_launch_approval`）

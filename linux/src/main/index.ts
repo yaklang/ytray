@@ -65,9 +65,25 @@ function createManagerWindow(showOnReady = true, offscreen = false): BrowserWind
     }
   })
   loadRenderer(window, 'manager')
-  window.once('ready-to-show', () => {
-    if (showOnReady) window.show()
-  })
+  if (showOnReady) {
+    // ready-to-show is not guaranteed on Linux when hardware acceleration is
+    // disabled, which previously left the process running with no visible
+    // window. Reveal on whichever signal arrives first.
+    let revealed = false
+    const reveal = (source: string): void => {
+      if (revealed || window.isDestroyed()) return
+      revealed = true
+      window.show()
+      const bounds = window.getBounds()
+      log.info(
+        'window.manager',
+        `shown via ${source}; visible=${window.isVisible()}; bounds=${bounds.width}x${bounds.height}+${bounds.x}+${bounds.y}`
+      )
+    }
+    window.once('ready-to-show', () => reveal('ready-to-show'))
+    window.webContents.once('did-finish-load', () => reveal('did-finish-load'))
+    setTimeout(() => reveal('timeout'), 3000)
+  }
   window.on('closed', () => {
     managerWindow = null
   })
@@ -243,10 +259,11 @@ async function captureSmokeUi(output: string): Promise<void> {
 }
 
 app.on('window-all-closed', () => {
-  // Tray application: closing every window must not terminate the process.
+  log.info('app.windows', 'all windows closed; staying alive')
 })
 
 app.on('before-quit', () => {
+  log.info('app.quit', 'quitting')
   store?.dispose()
   tray?.destroy()
 })
