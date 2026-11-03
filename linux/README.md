@@ -89,6 +89,35 @@ Linux 桌面（尤其是 Wayland）与 macOS/Windows 存在结构性差异，以
 - **开机启动**：写 `~/.config/autostart/ytray.desktop`，不修改系统级服务。Flatpak 环境下该路径被沙箱重定向。
 - **更新**：仅 AppImage 支持应用内替换；其它安装形式请手动下载。
 
+## 本机控制通道
+
+Yakit 等本机客户端通过 Unix socket 发现并控制 YTray：
+
+```text
+~/.local/share/YTray/control.sock        # 主路径（XDG 数据目录）
+~/.config/YTray/control.sock             # 兼容路径，指向同一个 socket
+```
+
+协议为逐行 JSON，每行一个请求。为兼容不同客户端的写法，服务端同时接受：
+
+- 以 `\n` 结尾的请求；
+- 不带换行的完整 JSON 对象；
+- 客户端写完立即半关闭（`shutdown(WR)`）；
+- 同一连接上的多个请求。
+
+支持的动作：
+
+| action | 说明 |
+| --- | --- |
+| `ping` | 返回 `app`/`version`/`pid`，可用于探测 YTray 是否存活 |
+| `list_history` | 返回已停止的实例列表 |
+| `restore_history` | 按 `id` 恢复历史实例 |
+| `claim_launch_approval` | 领取本次启动的 Yakit 配对许可 |
+
+每次连接与请求都会写入 `Logs/ytray.log`（`control.connect` / `control.request` / `control.disconnect`），
+设置页也显示控制通道的监听状态。若客户端提示“YTray 已退出或未启动”，先确认这里是否为“监听中”，
+再检查日志里有没有对应的 `control.connect`。
+
 ## Yakit 接入
 
 启动时会探测本机 Yak 引擎（`127.0.0.1` 的 64333/14333/24333/34333 各自 16 个端口），读取

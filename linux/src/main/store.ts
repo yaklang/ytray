@@ -54,7 +54,14 @@ import { splitProxy } from './proxy-address'
 import { McpServer, MCP_ENDPOINT, type McpBackend } from './mcp'
 import { NativeControlServer } from './control-socket'
 import { isAutostartEnabled, removeInstanceDesktopEntry, setAutostartEnabled } from './desktop'
-import { appVersion, dataDirectory, sessionType, thumbnailsDirectory } from './paths'
+import {
+  appVersion,
+  controlSocketCompatPath,
+  controlSocketPath,
+  dataDirectory,
+  sessionType,
+  thumbnailsDirectory
+} from './paths'
 import { compareVersions } from './versions'
 import { YTrayError, errorMessage } from './errors'
 import { log } from './diagnostics'
@@ -236,6 +243,11 @@ export class InstanceStore extends EventEmitter {
       isPackaged: app.isPackaged,
       appImagePath: process.env.APPIMAGE ?? null,
       chromiumClassIdentity: true,
+      control: {
+        listening: this.control.listening,
+        path: controlSocketPath(),
+        compatPath: controlSocketCompatPath()
+      },
       notes: [
         sessionType() === 'wayland'
           ? 'Wayland 不允许应用自行定位窗口，贴边面板已改为托盘面板。'

@@ -53,6 +53,16 @@ export function controlSocketPath(): string {
   return path.join(dataDirectory(), 'control.sock')
 }
 
+/**
+ * Clients may derive the socket from the config directory instead of the data
+ * directory; the control server links both names to the same socket.
+ */
+export function controlSocketCompatPath(): string {
+  const config = process.env.XDG_CONFIG_HOME?.trim()
+  const root = config && path.isAbsolute(config) ? config : path.join(os.homedir(), '.config')
+  return path.join(root, directoryName, 'control.sock')
+}
+
 export function picturesDirectory(): string {
   const pictures = process.env.XDG_PICTURES_DIR?.trim()
   return path.join(pictures && path.isAbsolute(pictures) ? pictures : path.join(os.homedir(), 'Pictures'), 'YTray')

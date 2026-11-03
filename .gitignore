@@ -58,3 +58,6 @@ linux/dist/
 linux/.tmp*
 linux/resources/bundled-extension/*
 !linux/resources/bundled-extension/.gitkeep
+
+# Scratch directory for local diagnostics
+.tmp/

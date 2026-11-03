@@ -199,6 +199,11 @@ export interface PlatformInfo {
   isPackaged: boolean
   appImagePath: string | null
   chromiumClassIdentity: boolean
+  control: {
+    listening: boolean
+    path: string
+    compatPath: string
+  }
   notes: string[]
 }
 

@@ -110,6 +110,34 @@ export function SettingsPage({ state }: { state: StateSnapshot }) {
       </div>
 
       <div className="card">
+        <div className="card-title">
+          本机控制通道
+          <span className="hint">供 Yakit 等本机客户端发现 YTray</span>
+        </div>
+        <div className="stack small">
+          <div className="row">
+            <span className="muted">状态</span>
+            <span style={{ marginLeft: 'auto' }}>
+              <Pill tone={state.platform.control.listening ? 'ok' : 'err'}>
+                {state.platform.control.listening ? '监听中' : '未监听'}
+              </Pill>
+            </span>
+          </div>
+          <div className="row">
+            <span className="muted">Socket</span>
+            <span className="mono" style={{ marginLeft: 'auto' }}>{state.platform.control.path}</span>
+          </div>
+          <div className="row">
+            <span className="muted">兼容路径</span>
+            <span className="mono" style={{ marginLeft: 'auto' }}>{state.platform.control.compatPath}</span>
+          </div>
+          {!state.platform.control.listening ? (
+            <span className="muted">控制通道未监听时，客户端会认为 YTray 未启动；请查看日志中的 control.* 记录。</span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="card">
         <div className="card-title">运行环境</div>
         <div className="stack small">
           <div className="row">
