@@ -11,8 +11,10 @@ import {
   appVersion,
   controlSocketCompatPath,
   controlSocketPath,
-  instanceStatePath
+  instanceStatePath,
+  logsDirectory
 } from './paths'
+import { openInFileManager } from './process'
 
 registerMediaScheme()
 
@@ -237,6 +239,7 @@ function refreshTrayMenu(): void {
       { label: '使用 HTTP 代理启动', enabled: !launchDisabled, click: () => launchFromTray(true) },
       { label: '显示小组件', click: () => showWidget() },
       { label: '全部管理', click: () => showManager() },
+      { label: '打开诊断日志', click: () => openInFileManager(logsDirectory()) },
       {
         label: '开机启动',
         type: 'checkbox',
