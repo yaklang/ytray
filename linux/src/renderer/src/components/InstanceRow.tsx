@@ -11,8 +11,10 @@ function thumbUrl(file: string | undefined): string | null {
 export function InstanceRow({ instance, compact = false }: { instance: BrowserInstance; compact?: boolean }) {
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(instance.name)
+  const [previewFailed, setPreviewFailed] = useState(false)
   const running = instance.status === 'running'
   const thumb = thumbUrl(instance.thumbnailPath ?? instance.lastScreenshotPath)
+  const showThumb = thumb !== null && !previewFailed
 
   const submitRename = async (): Promise<void> => {
     const name = draft.trim()
@@ -23,8 +25,8 @@ export function InstanceRow({ instance, compact = false }: { instance: BrowserIn
 
   return (
     <div className="instance">
-      {thumb ? (
-        <img className="thumb" src={thumb} alt="" />
+      {showThumb ? (
+        <img className="thumb" src={thumb} alt="" onError={() => setPreviewFailed(true)} />
       ) : (
         <div className="thumb empty-thumb">无预览</div>
       )}
