@@ -85,6 +85,8 @@ Linux 桌面（尤其是 Wayland）与 macOS/Windows 存在结构性差异，以
   `~/.local/share/applications/ytray-<class>.desktop`，同时给 Chromium 传 `--class=YTray-<badge>`，
   由桌面环境按 `StartupWMClass` 匹配。GNOME 与部分 Wayland 合成器会忽略客户端图标。
 - **贴边面板**：`EdgeDock` 未实现。Wayland 禁止客户端自行定位常驻窗口，改为托盘菜单唤出的小组件。
+- **托盘菜单**：Electron 在 Linux 上自绘菜单且 Wayland 下忽略锚点，右键菜单会落在屏幕左上角。
+  因此 Wayland 会话改为点击托盘直接打开小组件（内含“管理”和“退出”），X11 仍保留原生右键菜单。
 - **窗口聚焦**：不使用 `wmctrl` 等外部工具，改为 CDP `Target.activateTarget`，只保证标签页被激活。
 - **开机启动**：写 `~/.config/autostart/ytray.desktop`，不修改系统级服务。Flatpak 环境下该路径被沙箱重定向。
 - **更新**：仅 AppImage 支持应用内替换；其它安装形式请手动下载。

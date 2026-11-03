@@ -192,14 +192,28 @@ function buildTray(): void {
   const image = nativeImage.createFromPath(appIconPath())
   tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image.resize({ width: 22, height: 22 }))
   tray.setToolTip('YTray')
-  const menu = Menu.buildFromTemplate([
-    { label: '显示小组件', click: () => showWidget() },
-    { label: '打开管理窗口', click: () => showManager() },
-    { type: 'separator' },
-    { label: '退出 YTray', click: () => app.quit() }
-  ])
-  tray.setContextMenu(menu)
-  tray.on('click', () => toggleWidget())
+  // Electron draws the Linux tray menu itself and ignores the anchor point on
+  // Wayland, which lands the menu in the top-left corner. The widget already
+  // carries the same actions, so Wayland opens it instead and X11 keeps the
+  // native menu where it still positions correctly.
+  if (process.env.XDG_SESSION_TYPE !== 'wayland') {
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: '显示小组件', click: () => showWidget() },
+        { label: '打开管理窗口', click: () => showManager() },
+        { type: 'separator' },
+        { label: '退出 YTray', click: () => app.quit() }
+      ])
+    )
+  }
+  tray.on('click', () => {
+    log.info('tray.activate', 'click')
+    toggleWidget()
+  })
+  tray.on('right-click', () => {
+    log.info('tray.activate', 'right-click')
+    showWidget()
+  })
 }
 
 function broadcast(state: unknown): void {
