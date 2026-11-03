@@ -204,7 +204,9 @@ export class McpServer {
   }
 
   private async handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    let method = '-'
     const send = (status: number, body: Json | null): void => {
+      log.info('mcp.request', `method=${method} status=${status} host=${request.headers.host ?? '-'}`)
       const payload = body ? Buffer.from(JSON.stringify(body)) : Buffer.alloc(0)
       response.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -244,15 +246,16 @@ export class McpServer {
       }
 
       const id = message.id ?? null
-      const method = typeof message.method === 'string' ? message.method : ''
-      if (message.jsonrpc !== '2.0' || !method) {
+      const methodName = typeof message.method === 'string' ? message.method : ''
+      method = methodName || '-'
+      if (message.jsonrpc !== '2.0' || !methodName) {
         send(400, jsonRpcError(id, -32600, 'Invalid Request'))
         return
       }
 
       const modern = isModern(message, request.headers['mcp-protocol-version'])
       if (modern) {
-        const failure = validateModernHeaders(message, request.headers, method)
+        const failure = validateModernHeaders(message, request.headers, methodName)
         if (failure) {
           send(400, jsonRpcError(id, failure.code, failure.message, failure.data))
           return
@@ -263,7 +266,7 @@ export class McpServer {
         return
       }
 
-      switch (method) {
+      switch (methodName) {
         case 'initialize': {
           const requested = (message.params as Json | undefined)?.protocolVersion
           const selected =

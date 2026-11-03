@@ -97,7 +97,6 @@ Yakit 等本机客户端通过 Unix socket 发现并控制 YTray：
 ~/.local/share/YTray/control.sock        # 主路径（XDG 数据目录）
 ~/.config/YTray/control.sock             # 兼容路径，指向同一个 socket
 ```
-
 协议为逐行 JSON，每行一个请求。为兼容不同客户端的写法，服务端同时接受：
 
 - 以 `\n` 结尾的请求；
@@ -117,6 +116,19 @@ Yakit 等本机客户端通过 Unix socket 发现并控制 YTray：
 每次连接与请求都会写入 `Logs/ytray.log`（`control.connect` / `control.request` / `control.disconnect`），
 设置页也显示控制通道的监听状态。若客户端提示“YTray 已退出或未启动”，先确认这里是否为“监听中”，
 再检查日志里有没有对应的 `control.connect`。
+
+### 客户端可用的发现面
+
+macOS 靠 App Bundle、Windows 靠 exe 路径，Linux 没有等价物，因此打包版首次启动会注册以下入口：
+
+| 入口 | 位置 | 说明 |
+| --- | --- | --- |
+| 桌面入口 | `~/.local/share/applications/ytray.desktop` | 按 app id 查找/启动 YTray |
+| URI 处理器 | `x-scheme-handler/ytray` | `xdg-open ytray://...` 会唤起到已运行实例 |
+| 运行状态 | `~/.local/share/YTray/instance.json` | pid、版本、socket 与 MCP 地址，退出时删除 |
+| 进程名 | `YTray` | 与 macOS/Windows 一致，便于按进程名识别 |
+
+`instance.json` 在应用退出时删除；桌面入口与 URI 处理器只在打包构建中注册。
 
 ## Yakit 接入
 

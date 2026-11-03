@@ -4,8 +4,15 @@ import path from 'node:path'
 import { InstanceStore } from './store'
 import { registerIpc, STATE_CHANNEL } from './ipc'
 import { appIconPath } from './desktop'
+import { ensureDesktopIntegration } from './desktop-integration'
 import { log } from './diagnostics'
 import { handleMediaProtocol, registerMediaScheme } from './media'
+import {
+  appVersion,
+  controlSocketCompatPath,
+  controlSocketPath,
+  instanceStatePath
+} from './paths'
 
 registerMediaScheme()
 
@@ -13,6 +20,11 @@ const singleInstance = app.requestSingleInstanceLock()
 if (!singleInstance) app.quit()
 
 app.setName('YTray')
+if (app.isPackaged) {
+  // Match the product name so clients that look YTray up by process name work
+  // the same way they do on macOS (YTray.app) and Windows (YTray.exe).
+  process.title = 'YTray'
+}
 
 // The tray widget is a transparent, always-on-top window. On Linux several
 // drivers/compositors cannot composite that combination and kill the GPU
@@ -196,7 +208,9 @@ function broadcast(state: unknown): void {
   }
 }
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
+  const url = argv.find((argument) => argument.startsWith('ytray://'))
+  log.info('app.second-instance', url ? `url=${url}` : `argv=${argv.slice(1, 4).join(' ')}`)
   showManager()
 })
 
@@ -219,6 +233,8 @@ if (singleInstance) {
 
     buildTray()
     store.startControlServer()
+    ensureDesktopIntegration()
+    writeInstanceState()
     if (store.settings.mcpAutoStart) store.startMcp()
     else store.stopMcp()
     if (store.settings.checkForAppUpdates) void store.checkForUpdates()
@@ -273,9 +289,36 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   log.info('app.quit', 'quitting')
+  try {
+    fs.rmSync(instanceStatePath(), { force: true })
+  } catch {
+    /* ignore */
+  }
   store?.dispose()
   tray?.destroy()
 })
+
+/** Small heartbeat file for clients that discover YTray through the data dir. */
+function writeInstanceState(): void {
+  const payload = {
+    app: 'YTray',
+    version: appVersion,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    control: {
+      socket: controlSocketPath(),
+      compat: controlSocketCompatPath(),
+      mcp: 'http://127.0.0.1:19222/mcp'
+    }
+  }
+  try {
+    fs.mkdirSync(path.dirname(instanceStatePath()), { recursive: true, mode: 0o700 })
+    fs.writeFileSync(instanceStatePath(), `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 })
+    log.info('app.instance-state', instanceStatePath())
+  } catch (error) {
+    log.error('app.instance-state', error)
+  }
+}
 
 process.on('uncaughtException', (error) => {
   log.error('process.uncaught', error)

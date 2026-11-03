@@ -53,6 +53,11 @@ export function controlSocketPath(): string {
   return path.join(dataDirectory(), 'control.sock')
 }
 
+/** Readable runtime state for local clients that discover YTray through a file. */
+export function instanceStatePath(): string {
+  return path.join(dataDirectory(), 'instance.json')
+}
+
 /**
  * Clients may derive the socket from the config directory instead of the data
  * directory; the control server links both names to the same socket.
