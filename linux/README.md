@@ -35,6 +35,9 @@ npm run dev
 npm run smoke:ui
 ```
 
+插件加载失败后会弹出“不加载插件并启动 / 取消”确认框。CI 或无人值守环境可用
+`YTRAY_SMOKE_PLUGIN_FALLBACK=1` 自动选择降级启动。
+
 ## 构建 AppImage
 
 ```bash
@@ -66,6 +69,7 @@ chmod +x YTray-*.AppImage
 ├── Plugins/        # 本地与内置插件
 ├── Runtimes/       # YTray 安装的 Chrome for Testing
 ├── ProxyAuth/      # 临时代理认证扩展（实例停止后清理）
+├── Icons/          # 每实例角标 SVG（实例停止后清理）
 ├── Screenshots/    # 用户导出的截图
 ├── Thumbnails/     # 自动缩略图
 ├── Logs/           # 运行日志与实例日志
@@ -76,13 +80,32 @@ chmod +x YTray-*.AppImage
 
 Linux 桌面（尤其是 Wayland）与 macOS/Windows 存在结构性差异，以下行为是**有意降级**的：
 
-- **每实例窗口图标**：macOS 通过 `execv` 抢占 Dock 图标，Windows 使用 AUMID。Linux 只能写入
-  `~/.local/share/applications/ytray-<class>.desktop` 并给 Chromium 传 `--class=YTray-<badge>`，
+- **每实例窗口图标**：macOS 通过 `execv` 抢占 Dock 图标，Windows 使用 AUMID。Linux 会生成一张
+  角标 SVG（`~/.local/share/YTray/Icons/ytray-<badge>.svg`）并写入
+  `~/.local/share/applications/ytray-<class>.desktop`，同时给 Chromium 传 `--class=YTray-<badge>`，
   由桌面环境按 `StartupWMClass` 匹配。GNOME 与部分 Wayland 合成器会忽略客户端图标。
 - **贴边面板**：`EdgeDock` 未实现。Wayland 禁止客户端自行定位常驻窗口，改为托盘菜单唤出的小组件。
 - **窗口聚焦**：不使用 `wmctrl` 等外部工具，改为 CDP `Target.activateTarget`，只保证标签页被激活。
 - **开机启动**：写 `~/.config/autostart/ytray.desktop`，不修改系统级服务。Flatpak 环境下该路径被沙箱重定向。
 - **更新**：仅 AppImage 支持应用内替换；其它安装形式请手动下载。
+
+## Yakit 接入
+
+启动时会探测本机 Yak 引擎（`127.0.0.1` 的 64333/14333/24333/34333 各自 16 个端口），读取
+`/discovery` 的 `protocolVersion: 3` 响应，并把接入目标写入插件引导地址的 `engineTarget` 参数：
+
+- 只有一个引擎在线：自动选它；
+- 多个引擎在线：弹出原生选择框，可选“仅启动浏览器”或取消本次启动；
+- 没有引擎在线或恢复历史实例：使用“原有连接设置”；
+- 关闭“设置 → Yakit 接入”后只启动浏览器。
+
+启动成功后会为该实例签发 2 分钟有效的配对许可，本机客户端通过控制 socket 领取：
+
+```json
+{"action": "claim_launch_approval", "id": "<实例 id>", "requestId": "<客户端请求 id>"}
+```
+
+同一个 `requestId` 可重复领取，不同 `requestId` 会返回 `already_claimed`。
 
 ## MCP
 
@@ -123,6 +146,6 @@ tail -n 20 ~/.local/share/YTray/Logs/ytray.log      # AppImage
 
 ## 尚未实现
 
-- Yakit 联动的启动审批（`claim_launch_approval`）
-- 每实例角标美术图标（当前复用应用图标）
+- 贴边面板（Wayland 禁止客户端定位常驻窗口，已改为托盘小组件）
+- 截图只能打开所在目录，无法像 Finder 那样精确选中文件
 - 发行签名与 OSS 发布索引（CI 目前只产出 AppImage artifact）

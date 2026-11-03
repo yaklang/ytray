@@ -7,6 +7,7 @@ import { log } from './diagnostics'
 export interface ControlBackend {
   listHistory(): Array<Record<string, unknown>>
   restore(instanceId: string): { ok: boolean; error?: string }
+  claim(instanceId: string, requestId: string): { approved: boolean; reason: string }
 }
 
 /**
@@ -87,6 +88,16 @@ export class NativeControlServer {
         if (typeof request.id !== 'string') return { ok: false, error: '浏览器实例 ID 无效' }
         const result = this.backend.restore(request.id)
         return result.ok ? { ok: true } : { ok: false, error: result.error ?? '没有找到可恢复的浏览器实例' }
+      }
+      case 'claim_launch_approval': {
+        const id = typeof request.id === 'string' ? request.id : ''
+        const requestId = typeof request.requestId === 'string' ? request.requestId.trim() : ''
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: '浏览器实例 ID 无效' }
+        if (!requestId || requestId.length > 160 || /[\u0000-\u001f]/.test(requestId)) {
+          return { ok: false, error: '配对请求 ID 无效' }
+        }
+        const result = this.backend.claim(id, requestId)
+        return { ok: true, approved: result.approved, reason: result.reason }
       }
       default:
         return { ok: false, error: '不支持的原生控制命令' }

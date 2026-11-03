@@ -43,7 +43,9 @@ export function defaultSettings(): LaunchSettings {
     themePreference: 'system',
     launchAtLogin: false,
     mcpAutoStart: true,
-    checkForAppUpdates: true
+    checkForAppUpdates: true,
+    autoConnectYakit: true,
+    engineTarget: null
   }
 }
 
@@ -55,7 +57,8 @@ export function cloneSettings(settings: LaunchSettings): LaunchSettings {
   return {
     ...settings,
     recentProxyPresets: settings.recentProxyPresets.map(clonePreset),
-    defaultPluginIds: [...settings.defaultPluginIds]
+    defaultPluginIds: [...settings.defaultPluginIds],
+    engineTarget: settings.engineTarget ? { ...settings.engineTarget } : null
   }
 }
 

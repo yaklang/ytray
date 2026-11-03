@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { app, nativeTheme } from 'electron'
+import { app, dialog, nativeTheme } from 'electron'
 import type {
+  BrowserEngineTarget,
   BrowserInstance,
   BrowserPlugin,
   BrowserRuntime,
@@ -59,15 +60,28 @@ import { YTrayError, errorMessage } from './errors'
 import { log } from './diagnostics'
 import { applyUpdate, checkForUpdate, downloadUpdate, type AppRelease } from './updater'
 import { ytrayId } from './ids'
+import { findEngines, logEngineSelection, resolveForLaunch } from './engine'
 
 const PAGE_REFRESH_INTERVAL = 3000
 const THUMBNAIL_REFRESH_INTERVAL = 12000
+const YAKIT_APPROVAL_LIFETIME = 2 * 60 * 1000
+
+interface YakitApproval {
+  expiresAt: number
+  requestId?: string
+}
+
+function emptyEngineTarget(mode: BrowserEngineTarget['mode']): BrowserEngineTarget {
+  return { mode, frontendId: '', frontendName: '', engineIdentityId: '', engineInstanceId: '', endpoint: '' }
+}
 
 export class InstanceStore extends EventEmitter {
   readonly state: PersistedState
   private readonly launches = new Map<string, LaunchResult>()
   private readonly thumbnailInFlight = new Set<string>()
   private readonly lastThumbnailAttempt = new Map<string, number>()
+  private readonly yakitApprovals = new Map<string, YakitApproval>()
+  private widgetPinned = false
   private maintenanceTimer: NodeJS.Timeout | null = null
   private launchToken: string | null = null
   private disposed = false
@@ -162,7 +176,8 @@ export class InstanceStore extends EventEmitter {
         if (!instance) return { ok: false, error: '没有找到可恢复的浏览器实例' }
         void this.restoreHistory(instance)
         return { ok: true }
-      }
+      },
+      claim: (instanceId, requestId) => this.claimYakitLaunch(instanceId, requestId)
     })
 
     this.refreshSystemBrowsers()
@@ -195,6 +210,7 @@ export class InstanceStore extends EventEmitter {
       instances: [...this.state.instances],
       settings: cloneSettings(this.state.settings),
       defaultRuntimeId: this.state.settings.defaultRuntimeId,
+      widget: { pinned: this.widgetPinned },
       mcp: { ...this.mcpState, autoStart: this.state.settings.mcpAutoStart },
       extension: {
         ...this.extensionState,
@@ -545,6 +561,83 @@ export class InstanceStore extends EventEmitter {
     this.save()
   }
 
+  setWidgetPinned(pinned: boolean): void {
+    this.widgetPinned = pinned
+    this.emitChange()
+  }
+
+  get isWidgetPinned(): boolean {
+    return this.widgetPinned
+  }
+
+  private async resolveEngineTarget(
+    configuration: LaunchSettings,
+    restoring: boolean
+  ): Promise<{ cancelled: boolean; target: BrowserEngineTarget | null }> {
+    if (!this.state.settings.autoConnectYakit) {
+      return { cancelled: false, target: emptyEngineTarget('none') }
+    }
+    let online: BrowserEngineTarget[] = []
+    try {
+      online = await findEngines(configuration.engineTarget ?? null)
+    } catch (error) {
+      log.error('engine.discovery', error)
+    }
+    const resolved = resolveForLaunch(configuration.engineTarget ?? null, online, restoring)
+    if (resolved) return { cancelled: false, target: resolved }
+
+    const labels = online.map((engine) => {
+      let host = engine.endpoint
+      try {
+        host = new URL(engine.endpoint).host
+      } catch {
+        /* keep the raw endpoint */
+      }
+      return `${engine.frontendName} · ${host}`
+    })
+    const buttons = [...labels, '仅启动浏览器', '取消']
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      title: '选择 Yakit 引擎',
+      message: `发现 ${online.length} 个可用引擎`,
+      detail: '选择结果只对本次启动生效。',
+      buttons,
+      defaultId: 0,
+      cancelId: buttons.length - 1,
+      noLink: true
+    })
+    if (response === buttons.length - 1) return { cancelled: true, target: null }
+    if (response === online.length) return { cancelled: false, target: emptyEngineTarget('none') }
+    return { cancelled: false, target: online[response] ?? emptyEngineTarget('legacy') }
+  }
+
+  private rememberYakitLaunch(instanceId: string): void {
+    if (!this.state.settings.autoConnectYakit) return
+    this.yakitApprovals.set(instanceId, { expiresAt: Date.now() + YAKIT_APPROVAL_LIFETIME })
+  }
+
+  /** First-party client pairing approval; mirrors claim_launch_approval. */
+  claimYakitLaunch(instanceId: string, requestId: string): { approved: boolean; reason: string } {
+    if (!this.state.settings.autoConnectYakit) return { approved: false, reason: 'disabled' }
+    const approval = this.yakitApprovals.get(instanceId)
+    if (!approval) return { approved: false, reason: 'not_found' }
+    if (Date.now() > approval.expiresAt) {
+      this.yakitApprovals.delete(instanceId)
+      return { approved: false, reason: 'expired' }
+    }
+    if (!this.state.instances.some((item) => item.id === instanceId && item.status === 'running')) {
+      this.yakitApprovals.delete(instanceId)
+      return { approved: false, reason: 'not_running' }
+    }
+    if (!approval.requestId) {
+      approval.requestId = requestId
+      return { approved: true, reason: '' }
+    }
+    return approval.requestId === requestId
+      ? { approved: true, reason: '' }
+      : { approved: false, reason: 'already_claimed' }
+  }
+
   // ------------------------------------------------------------------ launch
 
   private selectedPlugins(ids: string[]): BrowserPlugin[] {
@@ -616,6 +709,16 @@ export class InstanceStore extends EventEmitter {
     const pluginIds = options.pluginIds ?? configuration.defaultPluginIds
     const plugins = this.selectedPlugins(pluginIds)
 
+    const engine = await this.resolveEngineTarget(configuration, options.restoring !== undefined)
+    if (engine.cancelled) {
+      this.launchState = { phase: 'idle', message: '', instanceId: null, restoringInstanceId: null }
+      this.launchToken = null
+      this.emitChange()
+      return
+    }
+    configuration.engineTarget = engine.target
+    if (engine.target) logEngineSelection(engine.target)
+
     try {
       const usedBadges = new Set(
         this.state.instances
@@ -646,7 +749,8 @@ export class InstanceStore extends EventEmitter {
           settings: configuration,
           plugins,
           ordinal: this.state.instances.length + 1,
-          restoring: options.restoring
+          restoring: options.restoring,
+          engineTarget: engine.target
         },
         badge,
         token
@@ -679,6 +783,7 @@ export class InstanceStore extends EventEmitter {
       this.state.instances = this.state.instances.filter((instance) => instance.id !== request.restoring?.id)
     }
     this.state.instances.unshift(result.instance)
+    this.rememberYakitLaunch(result.instance.id)
     this.launchState = {
       phase: 'waiting',
       message: `正在启动 ${result.instance.runtimeName}…`,
@@ -686,10 +791,14 @@ export class InstanceStore extends EventEmitter {
       restoringInstanceId: this.launchState.restoringInstanceId
     }
     this.save()
-    void this.completeLaunch(result, token)
+    void this.completeLaunch(result, token, request)
   }
 
-  private async completeLaunch(result: LaunchResult, token: string): Promise<void> {
+  private async completeLaunch(
+    result: LaunchResult,
+    token: string,
+    request: Parameters<typeof launchBrowser>[0]
+  ): Promise<void> {
     const instance = result.instance
     const ready = await waitUntilReady(instance.debugPort)
     if (this.launchToken !== token) return
@@ -715,6 +824,13 @@ export class InstanceStore extends EventEmitter {
           error instanceof ExtensionLoadingError
             ? error.message
             : `插件加载失败：${errorMessage(error)}`
+        // Authenticated-proxy launches cannot drop the internal extension, so
+        // the fallback prompt is only offered for user plugins.
+        const canFallback =
+          error instanceof ExtensionLoadingError &&
+          !(request.settings.proxyUsername || request.settings.proxyPassword) &&
+          request.plugins.length > 0
+        if (canFallback && (await this.confirmLaunchWithoutPlugins(message, request))) return
         this.finishLaunchFailure(token, new YTrayError('launchFailed', message))
         return
       }
@@ -745,6 +861,50 @@ export class InstanceStore extends EventEmitter {
     this.launchState = { phase: 'idle', message: '', instanceId: null, restoringInstanceId: null }
     this.launchToken = null
     this.emitChange()
+  }
+
+  private async confirmLaunchWithoutPlugins(
+    reason: string,
+    request: Parameters<typeof launchBrowser>[0]
+  ): Promise<boolean> {
+    const names = request.plugins.map((plugin) => plugin.name).join('、')
+    // Automated diagnostics (same spirit as the --smoke-* flags on the other
+    // platforms) need to exercise the relaunch without a human clicking.
+    const autoApprove = process.env.YTRAY_SMOKE_PLUGIN_FALLBACK === '1'
+    const response = autoApprove
+      ? 0
+      : (
+          await dialog.showMessageBox({
+            type: 'warning',
+            title: '插件加载失败',
+            message: names ? `插件未能加载：${names}` : '插件未能加载',
+            detail: `${reason}\n\n可以不加载插件继续启动。该选择只影响本次启动，不会修改插件默认设置。`,
+            buttons: ['不加载插件并启动', '取消'],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true
+          })
+        ).response
+    if (response !== 0) return false
+
+    const instance = this.state.instances.find((item) => item.id === this.launchState.instanceId)
+    if (!instance) return false
+
+    this.launches.delete(instance.id)
+    removeProxyAuthExtension(instance.id)
+    this.state.instances = this.state.instances.filter((item) => item.id !== instance.id)
+    this.launchState = { phase: 'idle', message: '', instanceId: null, restoringInstanceId: null }
+    this.launchToken = null
+    this.save()
+    await terminateProcess(instance.processId, 1500)
+
+    await this.launch(instance.mode, {
+      settings: { ...cloneSettings(request.settings), defaultRuntimeId: instance.runtimeId },
+      pluginIds: [],
+      restoring: instance,
+      badge: instance.dockBadge
+    })
+    return true
   }
 
   private finishLaunchFailure(token: string, error: unknown): void {

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import type {
+  BrowserEngineTarget,
   BrowserInstance,
   BrowserKind,
   BrowserPlugin,
@@ -40,6 +41,7 @@ export interface LaunchRequest {
   restoring?: BrowserInstance
   badge?: string
   configuredPlugins?: BrowserPlugin[]
+  engineTarget?: BrowserEngineTarget | null
 }
 
 function canBind(port: number): Promise<boolean> {
@@ -80,7 +82,8 @@ export function managedBootstrapURL(
   restore: boolean,
   proxyServer: string,
   kind: BrowserKind | undefined,
-  version: string | undefined
+  version: string | undefined,
+  engineTarget: BrowserEngineTarget | null
 ): string {
   const params = new URLSearchParams({
     manager: 'ytray',
@@ -92,6 +95,7 @@ export function managedBootstrapURL(
   })
   if (kind) params.set('browserName', kind)
   if (version?.trim()) params.set('browserVersion', version.trim())
+  params.set('engineTarget', JSON.stringify(engineTarget ?? { mode: 'legacy' }))
   return `chrome-extension://${extensionId}/ytray-bootstrap.html?${params.toString()}`
 }
 
@@ -109,6 +113,7 @@ export function buildArguments(request: {
   isNewProfile: boolean
   restoreLastSession: boolean
   deferExtensionStartup: boolean
+  engineTarget: BrowserEngineTarget | null
 }): string[] {
   const { mode, settings } = request
   const args = [
@@ -196,7 +201,8 @@ export function buildArguments(request: {
           true,
           settings.proxyServer,
           request.runtimeKind,
-          request.runtimeVersion
+          request.runtimeVersion,
+          request.engineTarget
         )
       )
     }
@@ -213,7 +219,8 @@ export function buildArguments(request: {
           false,
           settings.proxyServer,
           request.runtimeKind,
-          request.runtimeVersion
+          request.runtimeVersion,
+          request.engineTarget
         )
       : target
   )
@@ -315,7 +322,8 @@ export async function launchBrowser(request: LaunchRequest, badge: string): Prom
       instanceId,
       isNewProfile: restoring === undefined,
       restoreLastSession: restoring !== undefined && !usesProxyAuth,
-      deferExtensionStartup: extensionPaths.length > 0
+      deferExtensionStartup: extensionPaths.length > 0,
+      engineTarget: request.engineTarget ?? null
     })
 
     if (!legacyLoadingExpected(runtime.browserKind ?? 'chrome', runtime.version)) {
@@ -383,6 +391,7 @@ export async function launchBrowser(request: LaunchRequest, badge: string): Prom
     lastPageURL: restoring?.lastPageURL,
     dockBadge: normalizedBadge,
     windowClass: className,
+    engineTarget: request.engineTarget ?? null,
     settingsSnapshot: cloneSettings(settings),
     pluginIds: request.plugins.map((plugin) => plugin.id)
   }
@@ -403,13 +412,20 @@ export async function launchBrowser(request: LaunchRequest, badge: string): Prom
             restoring !== undefined,
             settings.proxyServer,
             runtime.browserKind,
-            runtime.version
+            runtime.version,
+            request.engineTarget ?? null
           )
 
   log.info(
     'instance.launch',
     `pid=${child.pid}; instance=${instanceId}; port=${debugPort}; badge=${normalizedBadge}; mode=${mode}; plugins=${request.plugins.length}`
   )
+  if (deferredStartupURL?.startsWith('chrome-extension://')) {
+    log.info(
+      'launch.bootstrap',
+      `engine=${request.engineTarget?.mode ?? 'legacy'}; frontend=${request.engineTarget?.frontendName || '-'}; restore=${restoring !== undefined}`
+    )
+  }
 
   return {
     instance,

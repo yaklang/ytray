@@ -54,6 +54,23 @@ export function SettingsPage({ state }: { state: StateSnapshot }) {
       </div>
 
       <div className="card">
+        <div className="card-title">Yakit 接入</div>
+        <div className="row">
+          <span>启动时探测本机 Yak 引擎，并把接入目标写入插件引导地址</span>
+          <div style={{ marginLeft: 'auto' }}>
+            <Switch
+              checked={state.settings.autoConnectYakit}
+              label="自动接入 Yakit 引擎"
+              onChange={(value) => void run({ type: 'setSettings', patch: { autoConnectYakit: value } })}
+            />
+          </div>
+        </div>
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          关闭后只启动浏览器，不再探测或写入接入目标；历史实例仍保留原有连接设置。
+        </p>
+      </div>
+
+      <div className="card">
         <div className="card-title">
           应用更新
           <span className="hint">当前版本 {update.currentVersion}</span>

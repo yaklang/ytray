@@ -26,6 +26,7 @@ let store: InstanceStore | null = null
 let tray: Tray | null = null
 let managerWindow: BrowserWindow | null = null
 let widgetWindow: BrowserWindow | null = null
+let widgetShownAt = 0
 
 const startInBackground = process.argv.includes('--background')
 // Electron consumes unknown switches placed before the app path, so the smoke
@@ -124,6 +125,13 @@ function createWidgetWindow(offscreen = false): BrowserWindow {
     /* not supported by every compositor */
   }
   loadRenderer(window, 'widget')
+  window.on('blur', () => {
+    // Pinned widgets stay open, mirroring the macOS/Windows panels. The grace
+    // period ignores the blur caused by the tray click that opened the panel.
+    if (store?.isWidgetPinned) return
+    if (Date.now() - widgetShownAt < 400) return
+    if (window.isVisible()) window.hide()
+  })
   window.on('closed', () => {
     widgetWindow = null
   })
@@ -153,6 +161,7 @@ function showWidget(): void {
   positionWidget()
   widgetWindow.show()
   widgetWindow.focus()
+  widgetShownAt = Date.now()
 }
 
 function toggleWidget(): void {

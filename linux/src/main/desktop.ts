@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import { applicationsDirectory, autostartPath, launchExecutable } from './paths'
+import { applicationsDirectory, autostartPath, dataDirectory, launchExecutable } from './paths'
+import { identityColorHex, identityForegroundHex } from './identity'
 import { log } from './diagnostics'
 
 function quoteExec(value: string): string {
@@ -10,6 +11,36 @@ function quoteExec(value: string): string {
 
 export function appIconPath(): string {
   return app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(app.getAppPath(), 'build', 'icon.png')
+}
+
+function badgeIconPath(windowClass: string): string {
+  return path.join(dataDirectory(), 'Icons', `${windowClass.toLowerCase()}.svg`)
+}
+
+/**
+ * Linux has no reliable way to repaint a Chromium window icon (Wayland ignores
+ * client icons entirely), so the per-instance identity is carried by a generated
+ * SVG that the desktop entry and most docks display instead.
+ */
+export function writeInstanceIcon(badge: string, windowClass: string): string {
+  const file = badgeIconPath(windowClass)
+  const background = identityColorHex(badge)
+  const foreground = identityForegroundHex(badge)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="${background}"/>
+  <rect x="20" y="20" width="216" height="216" rx="46" fill="none" stroke="${foreground}" stroke-opacity="0.28" stroke-width="4"/>
+  <text x="128" y="132" text-anchor="middle" dominant-baseline="middle"
+        font-family="Noto Sans, DejaVu Sans, sans-serif" font-size="${badge.length > 1 ? 108 : 132}"
+        font-weight="700" fill="${foreground}">${badge}</text>
+</svg>
+`
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+    fs.writeFileSync(file, svg, { mode: 0o644 })
+  } catch (error) {
+    log.error('desktop.icon', error, file)
+  }
+  return file
 }
 
 /**
@@ -21,6 +52,7 @@ export function appIconPath(): string {
 export function writeInstanceDesktopEntry(badge: string, windowClass: string, browserExecutable: string): string {
   const directory = applicationsDirectory()
   const file = path.join(directory, `ytray-${windowClass.toLowerCase()}.desktop`)
+  const icon = writeInstanceIcon(badge, windowClass)
   const content = [
     '[Desktop Entry]',
     'Type=Application',
@@ -28,7 +60,7 @@ export function writeInstanceDesktopEntry(badge: string, windowClass: string, br
     `Name=YTray · ${badge}`,
     'Comment=YTray 隔离浏览器实例',
     `Exec=${quoteExec(browserExecutable)} --class=${windowClass} %U`,
-    `Icon=${appIconPath()}`,
+    `Icon=${icon}`,
     `StartupWMClass=${windowClass}`,
     'Terminal=false',
     'NoDisplay=true',
@@ -48,6 +80,7 @@ export function removeInstanceDesktopEntry(windowClass: string): void {
   const file = path.join(applicationsDirectory(), `ytray-${windowClass.toLowerCase()}.desktop`)
   try {
     fs.rmSync(file, { force: true })
+    fs.rmSync(badgeIconPath(windowClass), { force: true })
   } catch {
     /* best-effort cleanup */
   }

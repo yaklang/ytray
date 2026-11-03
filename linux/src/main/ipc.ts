@@ -126,7 +126,15 @@ async function dispatch(
 
     case 'captureInstance': {
       const file = await store.captureScreenshot(command.instanceId)
-      return { ok: true, message: file }
+      store.revealScreenshot(file)
+      return { ok: true, message: `截图已保存：${file}` }
+    }
+
+    case 'openScreenshot': {
+      const instance = store.snapshot().instances.find((item) => item.id === command.instanceId)
+      if (!instance?.lastScreenshotPath) return { ok: false, error: '该实例还没有截图' }
+      store.revealScreenshot(instance.lastScreenshotPath)
+      return { ok: true }
     }
 
     case 'restoreInstance': {
@@ -158,6 +166,18 @@ async function dispatch(
 
     case 'rememberPresetProxy':
       store.rememberPresetProxy()
+      return { ok: true }
+
+    case 'selectProxyPreset':
+      store.selectProxyPreset(command.presetId)
+      return { ok: true }
+
+    case 'removeProxyPreset':
+      store.removeProxyPreset(command.presetId)
+      return { ok: true }
+
+    case 'setWidgetPinned':
+      store.setWidgetPinned(command.pinned)
       return { ok: true }
 
     case 'startMcp':

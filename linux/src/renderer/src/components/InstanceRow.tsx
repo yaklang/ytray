@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { BrowserInstance } from '@shared/types'
 import { Badge, Button, Pill } from './ui'
-import { relativeTime } from '../lib/format'
+import { engineLabel, relativeTime } from '../lib/format'
 import { run } from '../lib/api'
 
 function thumbUrl(file: string | undefined): string | null {
@@ -59,6 +59,7 @@ export function InstanceRow({ instance, compact = false }: { instance: BrowserIn
           {running ? <span>PID {instance.processId}</span> : null}
           {running ? <span>调试端口 {instance.debugPort}</span> : null}
           <span>{relativeTime(instance.startedAt)}</span>
+          {instance.engineTarget ? <span>{engineLabel(instance.engineTarget)}</span> : null}
           {instance.lastPageTitle ? <span title={instance.lastPageURL}>页面：{instance.lastPageTitle}</span> : null}
         </div>
       </div>
@@ -72,6 +73,11 @@ export function InstanceRow({ instance, compact = false }: { instance: BrowserIn
             <Button size="sm" onClick={() => void run({ type: 'captureInstance', instanceId: instance.id })}>
               截图
             </Button>
+            {instance.lastScreenshotPath ? (
+              <Button size="sm" variant="ghost" onClick={() => void run({ type: 'openScreenshot', instanceId: instance.id })}>
+                打开截图
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={() => void run({ type: 'revealProfile', instanceId: instance.id })}>
               目录
             </Button>

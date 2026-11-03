@@ -40,6 +40,15 @@ export function shortPath(value: string): string {
   return home.length > 64 ? `…${home.slice(-61)}` : home
 }
 
+import type { BrowserEngineTarget } from '@shared/types'
+
+export function engineLabel(target: BrowserEngineTarget | undefined): string {
+  if (!target) return ''
+  if (target.mode === 'none') return '仅启动浏览器'
+  if (target.mode === 'legacy') return '接入：原有连接设置'
+  return `接入：${target.frontendName}`
+}
+
 export function basename(value: string): string {
   return value.split('/').filter(Boolean).pop() ?? value
 }

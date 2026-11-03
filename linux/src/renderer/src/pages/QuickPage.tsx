@@ -113,6 +113,30 @@ export function QuickPage({ state }: { state: StateSnapshot }) {
                 {state.proxyCheck.message || '尚未检测'}
               </Pill>
             </div>
+
+            <div className="stack small">
+              <div className="row muted">
+                <span>最近使用 · {draft.recentProxyPresets.length}/5</span>
+              </div>
+              {draft.recentProxyPresets.length === 0 ? (
+                <span className="muted">保存后会出现在这里，点击即可切换。</span>
+              ) : (
+                draft.recentProxyPresets.map((preset) => (
+                  <div key={preset.id} className="row">
+                    <span className="mono" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {preset.server}
+                      {preset.username ? ' · 已配置账号' : ''}
+                    </span>
+                    <Button size="sm" variant="ghost" onClick={() => void run({ type: 'selectProxyPreset', presetId: preset.id })}>
+                      使用
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void run({ type: 'removeProxyPreset', presetId: preset.id })}>
+                      删除
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
             {state.proxyCheck.report ? (
               <div className="stack small">
                 {state.proxyCheck.report.details.map((detail) => (

@@ -36,6 +36,14 @@ export function Widget({ state }: { state: StateSnapshot }) {
           <img src={iconUrl} alt="" />
           <strong>YTray</strong>
           <div className="status">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void run({ type: 'setWidgetPinned', pinned: !state.widget.pinned })}
+              title={state.widget.pinned ? '取消固定后失焦自动隐藏' : '固定后保持显示'}
+            >
+              {state.widget.pinned ? '已固定' : '固定'}
+            </Button>
             <Pill tone={running.length > 0 ? 'ok' : 'default'}>{running.length} 运行</Pill>
           </div>
         </header>

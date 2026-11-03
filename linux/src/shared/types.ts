@@ -65,6 +65,18 @@ export interface ProxyPreset {
   lastUsedAt: string
 }
 
+export type EngineMode = 'engine' | 'legacy' | 'none'
+
+/** Yakit/Yak engine that the launched browser instance connects back to. */
+export interface BrowserEngineTarget {
+  mode: EngineMode
+  frontendId: string
+  frontendName: string
+  engineIdentityId: string
+  engineInstanceId: string
+  endpoint: string
+}
+
 export interface LaunchSettings {
   configurationVersion: number
   defaultRuntimeId: string | null
@@ -92,6 +104,8 @@ export interface LaunchSettings {
   launchAtLogin: boolean
   mcpAutoStart: boolean
   checkForAppUpdates: boolean
+  autoConnectYakit: boolean
+  engineTarget: BrowserEngineTarget | null
 }
 
 export interface BrowserInstance {
@@ -116,6 +130,7 @@ export interface BrowserInstance {
   lastPageURL?: string
   dockBadge?: string
   windowClass?: string
+  engineTarget?: BrowserEngineTarget | null
   settingsSnapshot?: LaunchSettings
   pluginIds: string[]
 }
@@ -232,6 +247,7 @@ export interface StateSnapshot {
   instances: BrowserInstance[]
   settings: LaunchSettings
   defaultRuntimeId: string | null
+  widget: { pinned: boolean }
   mcp: McpState
   extension: ExtensionState
   update: UpdateState
@@ -274,6 +290,10 @@ export type RendererCommand =
   | { type: 'revealProfile'; instanceId: string }
   | { type: 'checkProxy' }
   | { type: 'rememberPresetProxy' }
+  | { type: 'selectProxyPreset'; presetId: string }
+  | { type: 'removeProxyPreset'; presetId: string }
+  | { type: 'openScreenshot'; instanceId: string }
+  | { type: 'setWidgetPinned'; pinned: boolean }
   | { type: 'startMcp' }
   | { type: 'stopMcp' }
   | { type: 'checkForUpdates' }
