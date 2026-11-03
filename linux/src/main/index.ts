@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, nativeTheme, screen, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, nativeTheme, screen, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { InstanceStore } from './store'
@@ -192,27 +192,81 @@ function buildTray(): void {
   const image = nativeImage.createFromPath(appIconPath())
   tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image.resize({ width: 22, height: 22 }))
   tray.setToolTip('YTray')
-  // Electron draws the Linux tray menu itself and ignores the anchor point on
-  // Wayland, which lands the menu in the top-left corner. The widget already
-  // carries the same actions, so Wayland opens it instead and X11 keeps the
-  // native menu where it still positions correctly.
-  if (process.env.XDG_SESSION_TYPE !== 'wayland') {
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: '显示小组件', click: () => showWidget() },
-        { label: '打开管理窗口', click: () => showManager() },
-        { type: 'separator' },
-        { label: '退出 YTray', click: () => app.quit() }
-      ])
-    )
-  }
   tray.on('click', () => {
     log.info('tray.activate', 'click')
     toggleWidget()
   })
-  tray.on('right-click', () => {
-    log.info('tray.activate', 'right-click')
-    showWidget()
+  refreshTrayMenu()
+}
+
+/** Menu items mirror the macOS status-bar and Windows tray menus. */
+let trayMenuSignature = ''
+
+function refreshTrayMenu(): void {
+  if (!tray || !store) return
+  const snapshot = store.snapshot()
+  const busy = snapshot.launch.phase === 'preparing' || snapshot.launch.phase === 'waiting'
+  const launchAtLogin = snapshot.settings.launchAtLogin
+  const update = snapshot.update
+  const signature = [
+    busy,
+    launchAtLogin,
+    update.phase,
+    update.availableVersion ?? '',
+    snapshot.runtimes.length,
+    snapshot.mcp.available
+  ].join('|')
+  if (signature === trayMenuSignature) return
+  trayMenuSignature = signature
+
+  const launchDisabled = busy || snapshot.runtimes.length === 0
+  const updateLabel =
+    update.phase === 'available' && update.availableVersion
+      ? `发现新版本 ${update.availableVersion}…`
+      : update.phase === 'checking'
+        ? '正在检查更新…'
+        : '检查更新…'
+
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: busy ? '正在启动浏览器…' : '无代理启动',
+        enabled: !launchDisabled,
+        click: () => launchFromTray(false)
+      },
+      { label: '使用 HTTP 代理启动', enabled: !launchDisabled, click: () => launchFromTray(true) },
+      { label: '显示小组件', click: () => showWidget() },
+      { label: '全部管理', click: () => showManager() },
+      {
+        label: '开机启动',
+        type: 'checkbox',
+        checked: launchAtLogin,
+        click: (item) => store?.updateSettings({ launchAtLogin: item.checked })
+      },
+      { type: 'separator' },
+      {
+        label: updateLabel,
+        enabled: update.phase !== 'checking' && update.phase !== 'downloading',
+        click: () => {
+          showManager()
+          void store?.checkForUpdates()
+        }
+      },
+      { type: 'separator' },
+      { label: '退出 YTray', click: () => app.quit() }
+    ])
+  )
+}
+
+function launchFromTray(useProxy: boolean): void {
+  if (!store) return
+  const configuration = store.quickLaunchConfiguration(useProxy)
+  if (!configuration) {
+    dialog.showErrorBox('无法启动浏览器', store.snapshot().errorMessage ?? '代理地址无效')
+    return
+  }
+  void store.launch('quick', { settings: configuration }).catch((error: unknown) => {
+    dialog.showErrorBox('浏览器启动失败', error instanceof Error ? error.message : String(error))
   })
 }
 
@@ -236,7 +290,10 @@ if (singleInstance) {
     store = new InstanceStore()
     nativeTheme.themeSource = store.settings.themePreference
     registerIpc(store, { openManager: () => showManager() })
-    store.on('change', (state) => broadcast(state))
+    store.on('change', (state) => {
+      broadcast(state)
+      refreshTrayMenu()
+    })
 
     ipcMain.on('ytray:widget-height', (_event, height: number) => {
       if (!widgetWindow || widgetWindow.isDestroyed()) return
