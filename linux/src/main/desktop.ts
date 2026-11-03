@@ -21,17 +21,27 @@ function badgeIconPath(windowClass: string): string {
  * Linux has no reliable way to repaint a Chromium window icon (Wayland ignores
  * client icons entirely), so the per-instance identity is carried by a generated
  * SVG that the desktop entry and most docks display instead.
+ *
+ * The badge is positioned with plain baseline math: `dominant-baseline` and `dy`
+ * are ignored by several SVG renderers (Qt's, used by common Wayland shells),
+ * which left the letter visibly off-centre. The values below are measured
+ * against DejaVu Sans Bold so the glyph box itself is centred in the tile.
  */
 export function writeInstanceIcon(badge: string, windowClass: string): string {
   const file = badgeIconPath(windowClass)
   const background = identityColorHex(badge)
   const foreground = identityForegroundHex(badge)
+  const wide = badge.length > 1
+  const fontSize = wide ? 104 : 132
+  const baseline = wide ? 168 : 178.5
+  // Two letters carry slightly asymmetric side bearings, so the group is nudged
+  // back to the optical centre of the tile.
+  const x = wide ? 130 : 128
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
   <rect x="8" y="8" width="240" height="240" rx="56" fill="${background}"/>
   <rect x="20" y="20" width="216" height="216" rx="46" fill="none" stroke="${foreground}" stroke-opacity="0.28" stroke-width="4"/>
-  <text x="128" y="132" text-anchor="middle" dominant-baseline="middle"
-        font-family="Noto Sans, DejaVu Sans, sans-serif" font-size="${badge.length > 1 ? 108 : 132}"
-        font-weight="700" fill="${foreground}">${badge}</text>
+  <text x="${x}" y="${baseline}" text-anchor="middle" font-family="DejaVu Sans"
+        font-weight="bold" font-size="${fontSize}" fill="${foreground}">${badge}</text>
 </svg>
 `
   try {
