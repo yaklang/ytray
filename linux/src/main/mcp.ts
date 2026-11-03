@@ -420,7 +420,7 @@ function validateModernHeaders(
       data: { supported: [MODERN_VERSION, ...LEGACY_VERSIONS], requested: bodyVersion ?? headerVersion ?? 'missing' }
     }
   }
-  if (capabilities === null || typeof capabilities !== 'object') {
+  if (capabilities === null || typeof capabilities !== 'object' || Array.isArray(capabilities)) {
     return { code: -32602, message: 'Modern MCP requests require clientCapabilities metadata' }
   }
   if (headers['mcp-method'] !== method) {

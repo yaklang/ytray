@@ -89,7 +89,7 @@ export function SettingsPage({ state }: { state: StateSnapshot }) {
               tone={
                 update.phase === 'failed'
                   ? 'err'
-                  : update.phase === 'available' || update.phase === 'downloading'
+                  : update.phase === 'available' || update.phase === 'downloading' || update.phase === 'unsupported'
                     ? 'warn'
                     : update.phase === 'upToDate'
                       ? 'ok'

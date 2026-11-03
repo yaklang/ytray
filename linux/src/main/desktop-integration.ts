@@ -62,13 +62,3 @@ export function ensureDesktopIntegration(): void {
     log.error('desktop.integration', error)
   }
 }
-
-/** Removes only the app-level entry; per-instance entries are managed separately. */
-export function removeDesktopIntegration(): void {
-  if (!app.isPackaged) return
-  try {
-    fs.rmSync(path.join(applicationsDirectory(), 'ytray.desktop'), { force: true })
-  } catch {
-    /* best-effort */
-  }
-}

@@ -15,17 +15,22 @@ export function Widget({ state }: { state: StateSnapshot }) {
   const busy = state.launch.phase === 'preparing' || state.launch.phase === 'waiting'
 
   useEffect(() => {
-    document.body.classList.add('widget')
+    // A dedicated body class keeps the layout flex container off <body>, which
+    // previously collapsed the whole panel to its max-content width.
+    document.body.classList.add('widget-mode')
     const element = shell.current
     if (!element) return
     const observer = new ResizeObserver(() => {
-      const height = Math.ceil(element.getBoundingClientRect().height) + 20
+      // scrollHeight is the content height; the shell itself is clamped by
+      // max-height, so measuring its box would lock the window 27px short and
+      // leave the last row behind a permanent scrollbar.
+      const height = Math.ceil(element.scrollHeight) + 20
       window.ytray.reportWidgetHeight(height)
     })
     observer.observe(element)
     return () => {
       observer.disconnect()
-      document.body.classList.remove('widget')
+      document.body.classList.remove('widget-mode')
     }
   }, [])
 

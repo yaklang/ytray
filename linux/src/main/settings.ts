@@ -70,6 +70,10 @@ export function normalizeSettings(raw: Partial<LaunchSettings> | null | undefine
   if (!Array.isArray(merged.recentProxyPresets)) merged.recentProxyPresets = []
   if (!Array.isArray(merged.defaultPluginIds)) merged.defaultPluginIds = []
   if (!['system', 'light', 'dark'].includes(merged.themePreference)) merged.themePreference = 'system'
-  merged.debugPort = Number.isFinite(merged.debugPort) ? Math.trunc(merged.debugPort) : 9222
+  // A stale or hand-edited 0/NaN used to persist and silently move every
+  // instance to port 1024.
+  merged.debugPort = Number.isFinite(merged.debugPort) && merged.debugPort >= 1024 && merged.debugPort <= 65535
+    ? Math.trunc(merged.debugPort)
+    : 9222
   return merged
 }

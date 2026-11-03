@@ -21,6 +21,13 @@ export interface AppReleaseAsset {
   size: number
 }
 
+export type UpdateCheckState = 'available' | 'up-to-date' | 'unsupported'
+
+export interface UpdateCheckResult {
+  state: UpdateCheckState
+  release: AppRelease | null
+}
+
 export interface AppRelease {
   version: string
   notes: string | null
@@ -40,7 +47,7 @@ export function currentArchitecture(): string {
   return process.arch === 'arm64' ? 'arm64' : 'x64'
 }
 
-export async function checkForUpdate(): Promise<AppRelease | null> {
+export async function checkForUpdate(): Promise<UpdateCheckResult> {
   let manifest: Manifest
   try {
     manifest = await fetchJson<Manifest>(MANIFEST_URL, { maxBytes: MAX_MANIFEST_BYTES, timeoutMs: 20000 })
@@ -50,7 +57,9 @@ export async function checkForUpdate(): Promise<AppRelease | null> {
   if (!manifest.version || !Array.isArray(manifest.assets)) {
     throw new YTrayError('downloadFailed', '更新清单格式无效')
   }
-  if (compareVersions(manifest.version, appVersion) <= 0) return null
+  if (compareVersions(manifest.version, appVersion) <= 0) {
+    return { state: 'up-to-date', release: null }
+  }
 
   const asset = manifest.assets.find(
     (item) =>
@@ -59,19 +68,26 @@ export async function checkForUpdate(): Promise<AppRelease | null> {
       (item.kind ?? '').toLowerCase() === 'appimage' &&
       Boolean(item.url)
   )
-  if (!asset?.url || !asset.sha256) return null
+  if (!asset?.url || !asset.sha256) {
+    // The remote is newer but ships nothing for this platform yet; treat it as
+    // "unsupported" so the UI does not claim the app is up to date.
+    return { state: 'unsupported', release: null }
+  }
 
   return {
-    version: manifest.version,
-    notes: manifest.release_notes_text ?? manifest.release_notes ?? asset.release_notes_text ?? null,
-    asset: {
-      platform: 'linux',
-      architecture: currentArchitecture(),
-      kind: 'AppImage',
-      filename: asset.filename ?? `YTray-${manifest.version}-linux-${currentArchitecture()}.AppImage`,
-      url: asset.url,
-      sha256: asset.sha256,
-      size: asset.size ?? 0
+    state: 'available',
+    release: {
+      version: manifest.version,
+      notes: manifest.release_notes_text ?? manifest.release_notes ?? asset.release_notes_text ?? null,
+      asset: {
+        platform: 'linux',
+        architecture: currentArchitecture(),
+        kind: 'AppImage',
+        filename: asset.filename ?? `YTray-${manifest.version}-linux-${currentArchitecture()}.AppImage`,
+        url: asset.url,
+        sha256: asset.sha256,
+        size: asset.size ?? 0
+      }
     }
   }
 }

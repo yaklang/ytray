@@ -400,3 +400,12 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason) => {
   log.error('process.unhandled', reason)
 })
+// Best-effort heartbeat cleanup for abnormal JS exits; SIGKILL residue is
+// detected by clients through the recorded pid.
+process.on('exit', () => {
+  try {
+    fs.rmSync(instanceStatePath(), { force: true })
+  } catch {
+    /* ignore */
+  }
+})

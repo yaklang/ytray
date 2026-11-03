@@ -28,6 +28,7 @@ export type UpdatePhase =
   | 'idle'
   | 'checking'
   | 'upToDate'
+  | 'unsupported'
   | 'available'
   | 'downloading'
   | 'installing'

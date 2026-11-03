@@ -556,7 +556,12 @@ export class InstanceStore extends EventEmitter {
   // ---------------------------------------------------------------- settings
 
   updateSettings(patch: Partial<LaunchSettings>): void {
-    Object.assign(this.state.settings, patch)
+    const next = { ...patch }
+    if (next.debugPort !== undefined) {
+      const value = Number(next.debugPort)
+      next.debugPort = Number.isFinite(value) && value >= 1024 && value <= 65535 ? Math.trunc(value) : 9222
+    }
+    Object.assign(this.state.settings, next)
     if (patch.themePreference) nativeTheme.themeSource = patch.themePreference
     if (patch.launchAtLogin !== undefined) {
       setAutostartEnabled(patch.launchAtLogin)
@@ -721,7 +726,16 @@ export class InstanceStore extends EventEmitter {
     const pluginIds = options.pluginIds ?? configuration.defaultPluginIds
     const plugins = this.selectedPlugins(pluginIds)
 
-    const engine = await this.resolveEngineTarget(configuration, options.restoring !== undefined)
+    // The chooser dialog runs outside the try below; a failure here used to
+    // strand the launch state in 'preparing' and block every future launch.
+    let engine: { cancelled: boolean; target: BrowserEngineTarget | null }
+    try {
+      engine = await this.resolveEngineTarget(configuration, options.restoring !== undefined)
+    } catch (error) {
+      log.error('engine.resolve', error)
+      this.finishLaunchFailure(token, error)
+      throw error
+    }
     if (engine.cancelled) {
       this.launchState = { phase: 'idle', message: '', instanceId: null, restoringInstanceId: null }
       this.launchToken = null
@@ -773,6 +787,16 @@ export class InstanceStore extends EventEmitter {
     }
   }
 
+  /** Removes the launch artifacts an instance leaves on disk. */
+  private cleanupInstanceArtifacts(instance: BrowserInstance): void {
+    if (instance.windowClass) removeInstanceDesktopEntry(instance.windowClass)
+    try {
+      fs.rmSync(path.join(thumbnailsDirectory(), `${instance.id}.jpg`), { force: true })
+    } catch {
+      /* best-effort */
+    }
+  }
+
   private async performLaunch(
     request: Parameters<typeof launchBrowser>[0],
     badge: string,
@@ -787,6 +811,7 @@ export class InstanceStore extends EventEmitter {
     }
     if (this.launchToken !== token) {
       void terminateProcess(result.instance.processId, 1000)
+      this.cleanupInstanceArtifacts(result.instance)
       return
     }
 
@@ -927,7 +952,10 @@ export class InstanceStore extends EventEmitter {
     const instanceId = this.launchState.instanceId
     if (instanceId) {
       const instance = this.state.instances.find((item) => item.id === instanceId)
-      if (instance) instance.status = 'failed'
+      if (instance) {
+        instance.status = 'failed'
+        this.cleanupInstanceArtifacts(instance)
+      }
       const launch = this.launches.get(instanceId)
       if (launch) {
         this.launches.delete(instanceId)
@@ -1008,10 +1036,16 @@ export class InstanceStore extends EventEmitter {
       const current = newest.get(badge)
       if (!current || Date.parse(instance.startedAt) >= Date.parse(current.startedAt)) newest.set(badge, instance)
     }
-    this.state.instances = this.state.instances.filter((instance) => {
-      if (instance.status === 'running' || !instance.dockBadge) return true
-      return newest.get(instance.dockBadge)?.id === instance.id
+    const removed = this.state.instances.filter((instance) => {
+      if (instance.status === 'running' || !instance.dockBadge) return false
+      return newest.get(instance.dockBadge)?.id !== instance.id
     })
+    for (const instance of removed) this.cleanupInstanceArtifacts(instance)
+    if (removed.length > 0) {
+      this.state.instances = this.state.instances.filter(
+        (instance) => instance.status === 'running' || !instance.dockBadge || newest.get(instance.dockBadge)?.id === instance.id
+      )
+    }
   }
 
   // --------------------------------------------------------------- lifecycle
@@ -1137,16 +1171,14 @@ export class InstanceStore extends EventEmitter {
   removeHistory(instanceId: string): void {
     const instance = this.state.instances.find((item) => item.id === instanceId)
     if (!instance || instance.status === 'running') return
+    this.cleanupInstanceArtifacts(instance)
     this.state.instances = this.state.instances.filter((item) => item.id !== instanceId)
-    fs.rmSync(path.join(thumbnailsDirectory(), `${instanceId}.jpg`), { force: true })
     this.save()
   }
 
   removeAllHistory(): void {
     const removed = this.state.instances.filter((instance) => instance.status !== 'running')
-    for (const instance of removed) {
-      fs.rmSync(path.join(thumbnailsDirectory(), `${instance.id}.jpg`), { force: true })
-    }
+    for (const instance of removed) this.cleanupInstanceArtifacts(instance)
     this.state.instances = this.state.instances.filter((instance) => instance.status === 'running')
     this.save()
   }
@@ -1291,27 +1323,39 @@ export class InstanceStore extends EventEmitter {
     this.updateState = { ...this.updateState, phase: 'checking', message: '正在检查更新…', progressPercent: 0 }
     this.emitChange()
     try {
-      const release = await checkForUpdate()
-      this.pendingRelease = release
-      this.updateState = release
-        ? {
-            phase: 'available',
-            message: `发现新版本 ${release.version}`,
-            availableVersion: release.version,
-            currentVersion: appVersion,
-            releaseNotes: release.notes,
-            lastCheck: new Date().toISOString(),
-            progressPercent: 0
-          }
-        : {
-            phase: 'upToDate',
-            message: '已是最新版本',
-            availableVersion: null,
-            currentVersion: appVersion,
-            releaseNotes: null,
-            lastCheck: new Date().toISOString(),
-            progressPercent: 0
-          }
+      const result = await checkForUpdate()
+      this.pendingRelease = result.release
+      if (result.state === 'available' && result.release) {
+        this.updateState = {
+          phase: 'available',
+          message: `发现新版本 ${result.release.version}`,
+          availableVersion: result.release.version,
+          currentVersion: appVersion,
+          releaseNotes: result.release.notes,
+          lastCheck: new Date().toISOString(),
+          progressPercent: 0
+        }
+      } else if (result.state === 'unsupported') {
+        this.updateState = {
+          phase: 'unsupported',
+          message: `官方源尚未发布 ${appVersion} 之后的 Linux 安装包`,
+          availableVersion: null,
+          currentVersion: appVersion,
+          releaseNotes: null,
+          lastCheck: new Date().toISOString(),
+          progressPercent: 0
+        }
+      } else {
+        this.updateState = {
+          phase: 'upToDate',
+          message: '已是最新版本',
+          availableVersion: null,
+          currentVersion: appVersion,
+          releaseNotes: null,
+          lastCheck: new Date().toISOString(),
+          progressPercent: 0
+        }
+      }
     } catch (error) {
       this.updateState = {
         ...this.updateState,

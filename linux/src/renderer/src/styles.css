@@ -52,7 +52,7 @@ body {
   overflow: hidden;
 }
 
-body.widget {
+body.widget-mode {
   background: transparent;
 }
 
@@ -468,6 +468,12 @@ textarea {
   background: var(--panel);
 }
 
+/* A grid `1fr` track still honours the content's min-content width, so long
+   names pushed the status pill and actions outside the card. */
+.instance > div {
+  min-width: 0;
+}
+
 .instance .thumb {
   width: 92px;
   height: 56px;
@@ -490,6 +496,18 @@ textarea {
   align-items: center;
   gap: 8px;
   font-weight: 600;
+  min-width: 0;
+}
+
+.instance .title > span:not(.badge):not(.pill) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instance .title .pill {
+  flex: none;
 }
 
 .instance .meta {
@@ -549,7 +567,11 @@ textarea {
 }
 
 .widget-shell {
-  flex: 0 0 auto;
+  /* Fill the width of the tray panel but keep the height content-driven; the
+     window is resized by the renderer to match, so shrinking to max-content
+     here made long rows widen the panel past the window. */
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
