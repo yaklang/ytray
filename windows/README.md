@@ -2,6 +2,8 @@
 
 Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`darwin/`）分别维护各自的托盘、窗口、进程管理和浏览器路径逻辑。
 
+后续开发请参考 [Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md)：包含当前代码基线、Cua Driver 接入、授权与协议、分期任务和 Windows 验收步骤。该文档是实施计划，新增系统控制能力尚未交付。
+
 ## 功能
 
 与 macOS 版本对等：
