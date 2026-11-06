@@ -6,7 +6,9 @@ enum ManagerMetrics {
     static let controlHeight: CGFloat = 32
     static let pagePadding: CGFloat = 16
     static let sectionSpacing: CGFloat = 12
-    static let sidebarWidth: CGFloat = 208
+    static let sidebarMinimumWidth: CGFloat = 220
+    static let sidebarWidth: CGFloat = 240
+    static let sidebarMaximumWidth: CGFloat = 320
 }
 
 struct ManagerButtonStyle: ButtonStyle {
