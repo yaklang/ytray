@@ -108,8 +108,8 @@ final class SystemControlTests: XCTestCase {
         XCTAssertEqual(controller.phase, .running, controller.lastError)
     }
 
-    func testBadIdentityBackendFailureExpiryAndEndAreRecoverable() async throws {
-        let (controller, fake, defaults) = try fixture(ttl: 0.1)
+    func testBadIdentityBackendFailureAndEndAreRecoverable() async throws {
+        let (controller, fake, defaults) = try fixture()
         defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
         fake.validIdentity = false
         await controller.start()
@@ -122,10 +122,6 @@ final class SystemControlTests: XCTestCase {
         XCTAssertEqual(controller.phase, .failed)
         XCTAssertTrue(controller.lastError.contains("42"))
         await controller.start()
-        try await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertEqual(controller.phase, .stopped)
-        XCTAssertNil(controller.configurationText(port: 51373))
-        await controller.start()
         let token = try bearer(controller)
         let response = await controller.handleHTTP(request(token: token, tool: "end_session"), port: 51373)
         XCTAssertEqual(response.status, 200)
@@ -136,6 +132,28 @@ final class SystemControlTests: XCTestCase {
         await unbundled.start()
         XCTAssertEqual(unbundled.phase, .failed)
         XCTAssertTrue(unbundled.lastError.contains("签名"))
+    }
+
+    func testExpiryRevokesBearerAndStopsBackend() async throws {
+        let (controller, fake, defaults) = try fixture(ttl: 1)
+        defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
+        await controller.start()
+        let token = try bearer(controller)
+        let stopsBeforeExpiry = fake.stops
+        // Timer delivery can be delayed on a loaded CI host. Check the eventual
+        // state instead of requiring an unrelated RPC to finish inside 100 ms.
+        let deadline = Date().addingTimeInterval(5)
+        while controller.phase == .running && Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(controller.phase, .stopped)
+        XCTAssertEqual(fake.stops, stopsBeforeExpiry + 1)
+        XCTAssertNil(controller.configurationText(port: 51373))
+        let response = await controller.handleHTTP(request(token: token), port: 51373)
+        XCTAssertEqual(response.status, 401)
+        let calls = fake.calls.count
+        do { _ = try await controller.perform("list_apps"); XCTFail("Expired session admitted work") } catch { }
+        XCTAssertEqual(fake.calls.count, calls)
     }
 
     func testBusyGateAndStopDiscardInFlightResults() async throws {
@@ -236,6 +254,7 @@ private final class FakeDesktopBackend: DesktopControlBackend {
     var onFailure: ((String) -> Void)?
     var delay: UInt64 = 0
     var starts = 0
+    var stops = 0
     var calls: [(String, [String: Any])] = []
     var validIdentity = true
     var accessibility = true
@@ -243,7 +262,7 @@ private final class FakeDesktopBackend: DesktopControlBackend {
     let suite: String
     init(suite: String) { self.suite = suite }
     func start(hostBundleID: String) async throws { starts += 1 }
-    func stop() { }
+    func stop() { stops += 1 }
     func request(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         if method == "tools/list" {
             return ["tools": SystemControlController.fields.map { name, fields in
