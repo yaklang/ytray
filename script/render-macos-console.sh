@@ -11,7 +11,7 @@ else
 fi
 mkdir -p "$OUTPUT_DIR"
 
-for page in quick runtimes settings instances plugins launchAtLogin; do
+for page in quick runtimes settings instances system plugins mcp launchAtLogin; do
     "$YTRAY_BINARY" --render-manager "$OUTPUT_DIR/ytray-console-light-$page.png" "$page" --sample-data --light
     "$YTRAY_BINARY" --render-manager "$OUTPUT_DIR/ytray-console-compact-$page.png" "$page" --sample-data --light --compact
 done
@@ -27,4 +27,4 @@ for screenshot in "$OUTPUT_DIR"/ytray-console-*.png; do
     test -s "$screenshot"
     sips -g pixelWidth -g pixelHeight "$screenshot" >/dev/null
 done
-echo "Rendered all six console pages, minimum window layouts, dark controls and all four wizard steps."
+echo "Rendered all eight console pages, minimum window layouts, dark controls and all four wizard steps."

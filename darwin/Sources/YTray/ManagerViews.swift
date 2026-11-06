@@ -6,6 +6,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
     case runtimes = "浏览器运行时"
     case settings = "启动设置"
     case instances = "运行与历史"
+    case system = "系统操作实例"
     case plugins = "插件管理"
     case mcp = "MCP"
     case launchAtLogin = "开机启动"
@@ -16,6 +17,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
         case .runtimes: return "shippingbox"
         case .settings: return "slider.horizontal.3"
         case .instances: return "rectangle.stack"
+        case .system: return "desktopcomputer"
         case .plugins: return "puzzlepiece.extension"
         case .mcp: return "server.rack"
         case .launchAtLogin: return "power"
@@ -34,6 +36,7 @@ struct ManagerView: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject var navigation: ManagerNavigation
     @ObservedObject var launchAtLogin: LaunchAtLoginManager
+    @ObservedObject var mcp: YTrayMCPController
     @ObservedObject private var updater = AppUpdateManager.shared
     @StateObject private var updatePopover = AppUpdatePopoverPresenter(updater: .shared)
     let quitApplication: () -> Void
@@ -80,6 +83,7 @@ struct ManagerView: View {
                 case .runtimes: RuntimePage(store: store)
                 case .settings: SettingsPage(store: store, quitApplication: quitApplication)
                 case .instances: InstancesPage(store: store)
+                case .system: SystemControlPage(controller: store.systemControl, mcp: mcp)
                 case .plugins: PluginsPage(store: store)
                 case .mcp: MCPPage(store: store)
                 case .launchAtLogin: LaunchAtLoginPage(manager: launchAtLogin)

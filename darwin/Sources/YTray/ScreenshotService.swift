@@ -2,7 +2,8 @@ import Foundation
 import Darwin
 
 enum ScreenshotService {
-    private struct Target: Decodable {
+    struct Target: Codable, Equatable {
+        let id: String?
         let type: String
         let title: String?
         let url: String?
@@ -71,6 +72,80 @@ enum ScreenshotService {
             return
         }
         throw YTrayError.launchFailed("浏览器没有确认恢复页面")
+    }
+
+    static func targets(debugPort: Int) async throws -> [Target] {
+        try await pageTargets(debugPort: debugPort)
+    }
+
+    static func versionInfo(debugPort: Int) async throws -> [String: Any] {
+        try await fetchJSONObject(debugPort: debugPort, path: "/json/version")
+    }
+
+    static func evaluateJavaScript(debugPort: Int, expression: String) async throws -> [String: Any] {
+        let targets = try await pageTargets(debugPort: debugPort)
+        let target = await visiblePage(in: targets)?.target
+            ?? targets.first(where: { $0.type == "page" && $0.webSocketDebuggerUrl != nil })
+        guard let value = target?.webSocketDebuggerUrl, let socketURL = URL(string: value) else {
+            throw YTrayError.launchFailed("找不到可执行 JavaScript 的浏览器标签页")
+        }
+        let command: [String: Any] = [
+            "id": 1,
+            "method": "Runtime.evaluate",
+            "params": [
+                "expression": expression,
+                "awaitPromise": true,
+                "returnByValue": true,
+                "userGesture": true,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: command)
+        let messages = try await RawWebSocket.exchange(url: socketURL, message: requestData)
+        for data in messages {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (json["id"] as? Int) == 1 else { continue }
+            if let error = json["error"] as? [String: Any] {
+                throw YTrayError.launchFailed(error["message"] as? String ?? "CDP 返回错误")
+            }
+            guard let result = json["result"] as? [String: Any] else {
+                throw YTrayError.launchFailed("CDP 没有返回 JavaScript 执行结果")
+            }
+            return result
+        }
+        throw YTrayError.launchFailed("等待 CDP JavaScript 响应超时")
+    }
+
+    static func pageContent(
+        debugPort: Int,
+        maximumCharacters: Int,
+        includeHTML: Bool
+    ) async throws -> [String: Any] {
+        let limit = min(max(maximumCharacters, 1_000), 200_000)
+        let expression = """
+        (() => {
+          const limit = \(limit);
+          const text = document.body?.innerText ?? '';
+          const html = \(includeHTML ? "document.documentElement?.outerHTML ?? ''" : "''");
+          return {
+            title: document.title,
+            url: location.href,
+            text: text.slice(0, limit),
+            text_truncated: text.length > limit,
+            html: \(includeHTML ? "html.slice(0, limit)" : "null"),
+            html_truncated: \(includeHTML ? "html.length > limit" : "false")
+          };
+        })()
+        """
+        let response = try await evaluateJavaScript(debugPort: debugPort, expression: expression)
+        if let exception = response["exceptionDetails"] as? [String: Any] {
+            let text = exception["text"] as? String ?? "页面内容读取失败"
+            throw YTrayError.launchFailed(text)
+        }
+        guard let remoteObject = response["result"] as? [String: Any],
+              let value = remoteObject["value"] as? [String: Any] else {
+            throw YTrayError.launchFailed("页面没有返回可读取的内容")
+        }
+        return value
     }
 
     private static func visiblePage(in targets: [Target]) async -> (target: Target, state: PageState)? {
@@ -184,6 +259,21 @@ enum ScreenshotService {
             throw URLError(.badServerResponse)
         }
         return try JSONDecoder().decode([Target].self, from: data)
+    }
+
+    private static func fetchJSONObject(debugPort: Int, path: String) async throws -> [String: Any] {
+        guard (1...65_535).contains(debugPort), path.hasPrefix("/"),
+              let endpoint = URL(string: "http://127.0.0.1:\(debugPort)\(path)") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: endpoint)
+        request.timeoutInterval = 0.8
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw URLError(.badServerResponse)
+        }
+        return object
     }
 
     private static func capture(

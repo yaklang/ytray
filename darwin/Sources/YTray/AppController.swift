@@ -3,6 +3,7 @@ import Combine
 import SwiftUI
 
 enum Brand {
+    static let controlCursorNS = NSColor(srgbRed: 201 / 255, green: 107 / 255, blue: 80 / 255, alpha: 1)
     static let orange = Color(red: 242 / 255, green: 139 / 255, blue: 68 / 255)
     static let orangeNS = NSColor(calibratedRed: 242 / 255, green: 139 / 255, blue: 68 / 255, alpha: 1)
     static let pale = Color(red: 1, green: 246 / 255, blue: 238 / 255)
@@ -12,6 +13,7 @@ enum Brand {
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let store = InstanceStore()
     private let launchAtLogin = LaunchAtLoginManager()
+    private lazy var mcp = YTrayMCPController(store: store)
     private let appUpdater = AppUpdateManager.shared
     private lazy var nativeControl = NativeControlServer(store: store)
     private lazy var edgeDock = YTrayEdgeDockController(store: store) { [weak self] anchor, onLeft in
@@ -21,6 +23,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var widgetPanel: NSPanel?
     private var managerWindow: NSWindow?
+    private var mcpWindow: NSWindow?
     private var smokeWindow: NSWindow?
     private let managerNavigation = ManagerNavigation()
     private var subscriptions: Set<AnyCancellable> = []
@@ -29,6 +32,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var suppressWidgetDismissalUntil = Date.distantPast
     private let focusSmoke = CommandLine.arguments.contains("--smoke-widget-focus")
     private let transientSmoke = CommandLine.arguments.contains("--smoke-widget-transient")
+    private let mcpWindowSmoke = CommandLine.arguments.contains("--smoke-mcp-window")
     private let edgeWidgetSmoke = CommandLine.arguments.contains("--smoke-edge-widget-focus")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -36,6 +40,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         EdgeDockPreferences.migrateLegacyIfNeeded()
         configureStatusItem()
         DiagnosticLog.info("app.startup", "configuring edge widget")
+        mcp.startIfEnabled()
         edgeDock.update()
         let presentsManager = AppLaunchPolicy.shouldPresentManager(
             event: NSAppleEventManager.shared().currentAppleEvent, arguments: CommandLine.arguments)
@@ -45,7 +50,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             presentFirstLaunchAtLoginNoticeIfNeeded()
         }
         UserDefaults.standard.removeObject(forKey: "ytray.widget-position.v1")
-        if edgeWidgetSmoke {
+        if CommandLine.arguments.contains(ApplicationRelauncher.reopenedFlag) {
+            showManager(section: .system)
+        } else if mcpWindowSmoke {
+            showWidget()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self else { return }
+                self.showMCPConfiguration()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    let opened = self.mcpWindow?.isVisible == true && self.mcpWindow?.isKeyWindow == true && self.widgetPanel?.isVisible == false
+                    self.mcpWindow?.close()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        let closed = self.mcpWindow?.isVisible == false
+                        print("MCP window smoke \(opened && closed ? "passed" : "FAILED"): opened=\(opened) closed=\(closed)")
+                        NSApp.terminate(nil)
+                    }
+                }
+            }
+        } else if edgeWidgetSmoke {
             runEdgeWidgetSmoke()
         } else if focusSmoke || transientSmoke {
             waitForStableTrayAnchor(focusOnPresentation: true)
@@ -111,6 +133,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.stopMCPService()
         appUpdater.stop()
         DiagnosticLog.info("app.exit", "application will terminate")
+        store.systemControl.stop()
+        mcp.stop()
     }
 
     private func configureStatusItem() {
@@ -136,6 +160,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.$isProxyAdvancedExpanded.sink { [weak self] _ in
             Task { @MainActor in self?.updateWidgetSize(animated: false) }
         }.store(in: &subscriptions)
+        store.systemControl.$phase.sink { [weak self] _ in
+            Task { @MainActor in self?.refreshStatusTitle() }
+        }.store(in: &subscriptions)
         store.$launchPhase.sink { [weak self] _ in
             Task { @MainActor in self?.refreshStatusTitle() }
         }.store(in: &subscriptions)
@@ -145,7 +172,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func refreshStatusTitle() {
-        let updateSuffix = appUpdater.isUpdateAvailable ? " ↑" : ""
+        let updateSuffix = (appUpdater.isUpdateAvailable ? " ↑" : "")
+            + (store.systemControl.isActive ? " · 控制" : "")
         statusItem?.button?.title = store.isLaunching ? " …" : " \(store.runningInstances.count)\(updateSuffix)"
         statusItem?.button?.toolTip = appUpdater.isUpdateAvailable
             ? "\(AppEnvironment.displayName) v\(appUpdater.availableVersion ?? "最新版") 可更新"
@@ -171,6 +199,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                      action: #selector(proxyLaunch), keyEquivalent: "")
         proxyItem.target = self
         proxyItem.isEnabled = !store.isLaunching
+        menu.addItem(withTitle: store.systemControl.isActive ? "停止系统控制" : "系统操作实例…", action: #selector(systemControlAction), keyEquivalent: "").target = self
         menu.addItem(withTitle: "显示小组件", action: #selector(showWidgetAction), keyEquivalent: "") .target = self
         menu.addItem(withTitle: "全部管理", action: #selector(showManagerAction), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "打开诊断日志", action: #selector(openLogsAction), keyEquivalent: "").target = self
@@ -190,6 +219,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    @objc private func systemControlAction() {
+        if store.systemControl.isActive { store.systemControl.stop() }
+        else { showManager(section: .system) }
     }
 
     @objc private func directLaunch() { store.launchConfigured(usePresetProxy: false) }
@@ -272,6 +306,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             store: store,
             presentation: widgetPresentation,
             launchAtLogin: launchAtLogin,
+            mcp: mcp,
+            openMCP: { [weak self] in self?.showMCPConfiguration() },
             openManager: { [weak self] section in self?.showManager(section: section) },
             closeWidget: { [weak self] in self?.hideWidget() }
         ))
@@ -454,6 +490,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.setFrame(frame, display: true, animate: false)
     }
 
+    private func showMCPConfiguration() {
+        hideWidget()
+        let window: NSWindow
+        if let existing = mcpWindow { window = existing }
+        else {
+            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 680),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.title = "YTray · MCP 接入与函数"
+            window.minSize = NSSize(width: 820, height: 640)
+            window.isReleasedWhenClosed = false
+            window.contentViewController = NSHostingController(rootView: MCPConfigurationView(
+                controller: mcp, computer: store.systemControl,
+                openComputerSettings: { [weak self] in self?.showManager(section: .system) }
+            ))
+            window.delegate = self
+            window.center()
+            mcpWindow = window
+        }
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func showManager(section: ManagerSection = .quick) {
         managerNavigation.selection = section
         managerNavigation.columnVisibility = .all
@@ -471,6 +530,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 store: store,
                 navigation: managerNavigation,
                 launchAtLogin: launchAtLogin,
+                mcp: mcp,
                 quitApplication: { [weak self] in self?.quit() }
             ))
             window.delegate = self
@@ -506,9 +566,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow, window === managerWindow else { return }
+        guard let window = notification.object as? NSWindow,
+              window === managerWindow || window === mcpWindow else { return }
         DispatchQueue.main.async { [weak self] in
-            guard self?.managerWindow?.isVisible != true else { return }
+            guard self?.managerWindow?.isVisible != true, self?.mcpWindow?.isVisible != true else { return }
             NSApp.setActivationPolicy(.accessory)
         }
     }

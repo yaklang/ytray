@@ -463,21 +463,217 @@ final class BrowserLauncherTests: XCTestCase {
     }
 
     func testWidgetUsesCompactStateDependentHeight() {
-        XCTAssertEqual(WidgetMetrics.height(runningCount: 0, historyCount: 0), 468)
-        XCTAssertEqual(WidgetMetrics.height(runningCount: 1, historyCount: 0), 474)
+        XCTAssertEqual(WidgetMetrics.height(runningCount: 0, historyCount: 0), 561)
+        XCTAssertEqual(WidgetMetrics.height(runningCount: 1, historyCount: 0), 567)
         XCTAssertEqual(
             WidgetMetrics.height(
                 runningCount: 0,
                 historyCount: 0,
                 proxyAdvancedExpanded: true
             ),
-            544
+            637
         )
-        XCTAssertLessThan(WidgetMetrics.height(runningCount: 0, historyCount: 1), 560)
+        XCTAssertLessThan(WidgetMetrics.height(runningCount: 0, historyCount: 1), 612)
         XCTAssertEqual(
             WidgetMetrics.height(runningCount: 8, historyCount: 0),
             WidgetMetrics.height(runningCount: 4, historyCount: 0)
         )
+    }
+
+    @MainActor
+    func testMCPDefaultsPersistAndCopiedConfigurationContainsAuthentication() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-mcp-settings-test-\(UUID().uuidString)", isDirectory: true)
+        let suite = "io.yaklang.ytray.mcp-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
+        let controller = YTrayMCPController(store: store, defaults: defaults)
+
+        XCTAssertTrue(controller.isEnabled)
+        XCTAssertEqual(controller.configuredPort, YTrayMCPController.defaultPort)
+        XCTAssertTrue(controller.configurationText.contains("Authorization: Bearer "))
+        XCTAssertTrue(controller.configurationText.contains("http://127.0.0.1:51373/mcp"))
+
+        controller.setEnabled(false)
+        controller.draftPort = "52123"
+        XCTAssertTrue(controller.applyPort())
+        let configuration = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(controller.configurationJSON.utf8)) as? [String: Any])
+        let configuredServers = configuration["mcpServers"] as? [String: [String: Any]]
+        XCTAssertEqual(configuredServers?["ytray"]?["url"] as? String, controller.endpoint)
+        XCTAssertTrue((configuredServers?["ytray"]?["headers"] as? [String: String])?["Authorization"]?.hasPrefix("Bearer ") == true)
+
+        let restored = YTrayMCPController(store: store, defaults: defaults)
+        XCTAssertFalse(restored.isEnabled)
+        XCTAssertEqual(restored.configuredPort, 52_123)
+
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("MCP/token").path
+        )
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
+    @MainActor
+    func testMCPRouterListsToolsAndOmitsSensitiveInstanceFields() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-mcp-router-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
+        var sensitiveSettings = LaunchSettings()
+        sensitiveSettings.proxyPassword = "must-not-leak"
+        let instance = BrowserInstance(
+            name: "MCP Browser",
+            runtimeID: UUID(),
+            runtimeName: "Chrome for Testing",
+            runtimeVersion: "151.0",
+            runtimeKind: .chromeForTesting,
+            runtimeSource: .managed,
+            mode: .quick,
+            processID: 1234,
+            debugPort: 19222,
+            profilePath: "/private/secret-profile",
+            startURL: "https://example.test",
+            lastPageTitle: "Example",
+            lastPageURL: "https://example.test/current",
+            settingsSnapshot: sensitiveSettings
+        )
+        store.instances = [instance]
+        let router = YTrayMCPRouter(store: store)
+
+        let listToolsBody = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": [:],
+        ])
+        let toolsResponse = await router.handle(body: listToolsBody)
+        let toolsText = String(decoding: toolsResponse.body, as: UTF8.self)
+        XCTAssertEqual(toolsResponse.status, 200)
+        for name in ["list_instances", "get_cdp_info", "get_page_content", "evaluate_javascript"] {
+            XCTAssertTrue(toolsText.contains(name))
+        }
+
+        let callBody = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": ["name": "list_instances", "arguments": [:]],
+        ])
+        let callResponse = await router.handle(body: callBody)
+        let callText = String(decoding: callResponse.body, as: UTF8.self)
+        XCTAssertTrue(callText.contains(instance.id.uuidString))
+        XCTAssertTrue(callText.contains("19222"))
+        XCTAssertFalse(callText.contains("must-not-leak"))
+        XCTAssertFalse(callText.contains("secret-profile"))
+    }
+
+    @MainActor
+    func testMCPHTTPServerRequiresBearerTokenAndInitializes() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-mcp-http-test-\(UUID().uuidString)", isDirectory: true)
+        let suite = "io.yaklang.ytray.mcp-http-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let port = BrowserLauncher.nextAvailablePort(startingAt: 52_500)
+        defaults.set(port, forKey: YTrayMCPController.portKey)
+        let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
+        let controller = YTrayMCPController(store: store, defaults: defaults)
+        controller.startIfEnabled()
+        defer { controller.stop() }
+        XCTAssertEqual(controller.phase, .running)
+
+        let initializeBody = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": [
+                "protocolVersion": "2025-11-25",
+                "capabilities": [:],
+                "clientInfo": ["name": "YTrayTests", "version": "1"],
+            ],
+        ])
+        let endpoint = try XCTUnwrap(URL(string: controller.endpoint))
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.httpBody = initializeBody
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (_, unauthorizedResponse) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((unauthorizedResponse as? HTTPURLResponse)?.statusCode, 401)
+
+        let authorization = try XCTUnwrap(controller.configurationText
+            .components(separatedBy: .newlines)
+            .first(where: { $0.hasPrefix("Authorization: ") }))
+            .replacingOccurrences(of: "Authorization: ", with: "")
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        request.setValue("2025-11-25", forHTTPHeaderField: "MCP-Protocol-Version")
+        request.setValue("https://attacker.example", forHTTPHeaderField: "Origin")
+        let (_, forbiddenResponse) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((forbiddenResponse as? HTTPURLResponse)?.statusCode, 403)
+
+        request.setValue(nil, forHTTPHeaderField: "Origin")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let responseText = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(responseText.contains("2025-11-25"))
+        XCTAssertTrue(responseText.contains("YTray"))
+    }
+
+    func testMCPReadsAndEvaluatesARealBrowserPageWhenAvailable() async throws {
+        guard let executable = ProcessInfo.processInfo.environment["YTRAY_CFT_PATH"],
+              FileManager.default.isExecutableFile(atPath: executable) else {
+            throw XCTSkip("Set YTRAY_CFT_PATH to run the real MCP CDP integration test")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ytray-mcp-cdp-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let page = directory.appendingPathComponent("context.html")
+        try Data("<title>Human Context</title><main id='context'>opened by the user</main>".utf8)
+            .write(to: page)
+        let port = BrowserLauncher.nextAvailablePort(startingAt: 52_700)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = [
+            "--headless=new",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--remote-debugging-address=127.0.0.1",
+            "--remote-debugging-port=\(port)",
+            "--remote-allow-origins=http://127.0.0.1:\(port)",
+            "--user-data-dir=\(directory.appendingPathComponent("profile").path)",
+            page.absoluteString,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+        let isReady = await ScreenshotService.waitUntilReady(debugPort: port, attempts: 60)
+        XCTAssertTrue(isReady)
+
+        let content = try await ScreenshotService.pageContent(
+            debugPort: port,
+            maximumCharacters: 10_000,
+            includeHTML: true
+        )
+        XCTAssertEqual(content["title"] as? String, "Human Context")
+        XCTAssertTrue((content["text"] as? String)?.contains("opened by the user") ?? false)
+        XCTAssertTrue((content["html"] as? String)?.contains("id=\"context\"") ?? false)
+
+        let evaluation = try await ScreenshotService.evaluateJavaScript(
+            debugPort: port,
+            expression: "document.querySelector('#context').textContent.toUpperCase()"
+        )
+        let remoteObject = try XCTUnwrap(evaluation["result"] as? [String: Any])
+        XCTAssertEqual(remoteObject["value"] as? String, "OPENED BY THE USER")
     }
 
     func testWidgetPositionStaysAttachedToTrayAndInsideScreen() {

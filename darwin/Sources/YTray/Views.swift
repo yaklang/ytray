@@ -24,7 +24,7 @@ enum WidgetMetrics {
         proxyAdvancedExpanded: Bool = false
     ) -> CGFloat {
         let proxyHeight = proxyAdvancedExpanded ? expandedProxyHeight : collapsedProxyHeight
-        return 372 + (proxyHeight - collapsedProxyHeight)
+        return 465 + (proxyHeight - collapsedProxyHeight)
             + runningListHeight(runningCount) + historyListHeight(historyCount)
     }
 
@@ -42,6 +42,8 @@ struct WidgetView: View {
     @ObservedObject var store: InstanceStore
     @ObservedObject var presentation: WidgetPresentationState
     @ObservedObject var launchAtLogin: LaunchAtLoginManager
+    @ObservedObject var mcp: YTrayMCPController
+    let openMCP: () -> Void
     let openManager: (ManagerSection) -> Void
     let closeWidget: () -> Void
     @State private var newInstanceHovered = false
@@ -54,6 +56,7 @@ struct WidgetView: View {
             Color(nsColor: .windowBackgroundColor).opacity(0.72)
             VStack(spacing: 9) {
                 header
+                ComputerControlBar(controller: store.systemControl) { openManager(.system) }
                 ProxyPresetControl(store: store)
                 groupTitle("运行中", count: store.runningInstances.count)
                 runningSection
@@ -150,39 +153,46 @@ struct WidgetView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("浏览器实例").font(.system(size: 18, weight: .bold))
+        VStack(spacing: 6) {
+            HStack(spacing: 5) {
+                Text("浏览器与电脑控制").font(.system(size: 18, weight: .bold))
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 2)
+                Button(action: openMCP) {
+                    Label("MCP 复制", systemImage: "doc.on.doc")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .padding(.horizontal, 7).frame(height: 26)
+                }
+                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+                .foregroundStyle(Brand.orange)
+                .background(Brand.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                .help("查看 MCP 函数、启动服务与复制接入配置")
+                .accessibilityLabel("MCP 复制与配置")
+                Button { presentation.isPinned.toggle() } label: {
+                    Image(systemName: isEffectivelyPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 26)
+                }
+                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+                .foregroundStyle(isEffectivelyPinned ? Brand.orange : .secondary)
+                .disabled(store.proxyCheckPhase == .checking)
+                .help(store.proxyCheckPhase == .checking ? "代理检测期间已临时固定" : presentation.isPinned ? "取消固定；失焦后自动隐藏" : "固定小组件")
+                .accessibilityLabel(isEffectivelyPinned ? "取消固定小组件" : "固定小组件")
+                Button(action: closeWidget) {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 26)
+                }
+                .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
+                .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
                 if store.launchPhase != .idle {
                     LaunchStatusLine(phase: store.launchPhase, message: store.launchMessage)
                 } else {
                     Text(store.defaultRuntime.map { "默认 · \($0.displayTitle) \($0.versionLabel)" } ?? "未选择默认浏览器")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                 }
+                Spacer(minLength: 0)
+                newInstanceMenu
             }
-            Spacer()
-            newInstanceMenu
-            Button {
-                presentation.isPinned.toggle()
-            } label: {
-                Image(systemName: isEffectivelyPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
-            .foregroundStyle(isEffectivelyPinned ? Brand.orange : .secondary)
-            .disabled(store.proxyCheckPhase == .checking)
-            .help(store.proxyCheckPhase == .checking
-                  ? "代理检测期间已临时固定"
-                  : presentation.isPinned ? "取消固定；失焦后自动隐藏" : "固定小组件")
-            .accessibilityLabel(isEffectivelyPinned ? "取消固定小组件" : "固定小组件")
-            Button(action: closeWidget) {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
-            }
-            .buttonStyle(PlainHoverButtonStyle(cornerRadius: 6))
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -192,6 +202,10 @@ struct WidgetView: View {
 
     private var newInstanceMenu: some View {
         Menu {
+            Button { openManager(.system) } label: {
+                Label("电脑控制设置…", systemImage: "desktopcomputer")
+            }
+            Divider()
             if let runtime = store.defaultRuntime {
                 Section("当前选择") {
                     Label("\(runtime.displayTitle) \(runtime.versionLabel)", systemImage: "checkmark.circle.fill")
