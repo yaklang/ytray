@@ -88,6 +88,7 @@ namespace YTray.Tests
                     widget.AdvancedBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
                     // The body scrolls on short/high-DPI screens; launch and manager remain reachable.
+                    widget.MinHeight = 0;
                     widget.MaxHeight = 520;
                     widget.UpdateLayout();
                     Assert.IsTrue(widget.ActualHeight <= 520);

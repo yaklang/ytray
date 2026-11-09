@@ -157,6 +157,9 @@ namespace YTray.Core
             content.Measure(new Size(widget.Width, double.PositiveInfinity));
             var height = content.DesiredSize.Height;
             widget.SizeToContent = SizeToContent.Manual;
+            // Windows also applies its maximum tracking size on short desktops.
+            // The fixture's explicit minimum makes that limit grow with content.
+            widget.MinHeight = height;
             widget.Height = height;
             widget.UpdateLayout();
         }
