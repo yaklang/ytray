@@ -68,6 +68,9 @@ namespace YTray.Tests
                     var rpc = JObject.Parse(await response.Content.ReadAsStringAsync()); Assert.IsNull(rpc["error"], rpc.ToString());
                     return (JObject)rpc["result"]!;
                 }
+                var status = await Call("system_status", new JObject()); AssertOkay(status);
+                Assert.AreEqual(YTray.Core.YTrayBuildInfo.BuildId, (string?)status["structuredContent"]?["build_id"]);
+                Assert.AreEqual((string?)status["structuredContent"]?["build_id"], (string?)status["structuredContent"]?["worker_build_id"], "The MCP host and input worker must run the same build");
                 var launched = await Call("launch_app", new JObject { ["app"] = executable });
                 AssertOkay(launched);
                 var state = (JObject)launched["structuredContent"]!;
@@ -125,12 +128,12 @@ namespace YTray.Tests
                 // End only the underlying driver context, just as a long-idle native
                 // session does. The public API must repair it without a setup call.
                 var beforeHeal = File.ReadAllText(file);
-                await controller.DriverCall("end_session", new JObject(), CancellationToken.None);
+                await controller.CallNativeAsync("end_session", new JObject(), CancellationToken.None);
                 var healed = await Call("press_key", new JObject { ["window_id"] = window, ["key"] = "enter" });
                 AssertOkay(healed); AssertFresh(healed, window);
                 Assert.AreEqual(3, JObject.Parse(File.ReadAllText(file)).Value<int>("submissions"), beforeHeal + "\n" + File.ReadAllText(file) + "\nForeground=" + GetForegroundWindow().ToInt64() + " target=" + window);
                 Assert.AreEqual(configuration, controller.ConfigurationJSON);
-                using (var driver = Process.GetProcessById(controller.DriverProcessId!.Value)) { driver.Kill(); driver.WaitForExit(3000); }
+                using (var driver = Process.GetProcessById(controller.WorkerProcessId!.Value)) { driver.Kill(); driver.WaitForExit(3000); }
                 var reconnected = await Call("press_key", new JObject { ["window_id"] = window, ["key"] = "enter" });
                 AssertOkay(reconnected); AssertFresh(reconnected, window);
                 Assert.AreEqual(4, JObject.Parse(File.ReadAllText(file)).Value<int>("submissions"));

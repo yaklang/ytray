@@ -69,7 +69,7 @@ namespace YTray.Core.SystemControl
             var generation = _generation;
             // Metadata checks exercise the transport without a UIA/desktop permission
             // scan competing with foreground input. Expired native contexts are repaired
-            // on the next read or action by DriverCall.
+            // on the next read or action by CallNativeAsync.
             try { await _connection!.RequestAsync("tools/list", new JObject(), _lifetime!.Token, 3000).ConfigureAwait(false); }
             catch { if (generation == _generation && IsEnabled) StopRuntime("正在恢复控制连接。", "Reconnecting"); }
             finally { _operation.Release(); }
@@ -88,11 +88,44 @@ namespace YTray.Core.SystemControl
                 ?? throw new ControlException("UnknownTool", "未找到工具，请重新读取 tools/list");
             ControlJson.Validate(arguments, (JObject)definition["inputSchema"]!);
             await _interaction.WaitAsync().ConfigureAwait(false);
+            var feedbackId = Interlocked.Increment(ref _feedbackSequence);
+            var shown = false; var ended = false;
+            try {
+                if (HasOperationFeedback(name)) {
+                    try {
+                        await ReadyAsync().ConfigureAwait(false);
+                        var feedback = DescribeOperation(name, arguments);
+                        shown = await SendOperationFeedbackAsync(feedbackId, "prepare", feedback.Window, feedback.Description, feedback.Context).ConfigureAwait(false);
+                        if (shown) {
+                            await Task.Delay(300).ConfigureAwait(false);
+                            await SendOperationFeedbackAsync(feedbackId, "running").ConfigureAwait(false);
+                        }
+                    } catch { /* Feedback cannot deny or replay an input. */ }
+                }
+                var result = await CallSimpleCoreAsync(name, arguments).ConfigureAwait(false);
+                if (shown) {
+                    var failed = result["isError"]?.Value<bool>() == true;
+                    await SendOperationFeedbackAsync(feedbackId, failed ? "failed" : "completed", (long?)result["structuredContent"]?["window_id"] ?? 0,
+                        context: failed ? (string?)result["structuredContent"]?["error"]?["message"] ?? "请查看操作结果" : (string?)result["structuredContent"]?["title"] ?? "").ConfigureAwait(false);
+                    ended = true;
+                    // One readable completion beat per public call, never per
+                    // internal Ctrl+A/type/Enter step. The remaining dwell is async.
+                    await Task.Delay(900).ConfigureAwait(false);
+                }
+                return result;
+            } finally {
+                if (shown && !ended) await SendOperationFeedbackAsync(feedbackId, "failed", context: "操作已中断，请查看最新界面").ConfigureAwait(false);
+                _interaction.Release();
+            }
+        }
+        private async Task<JObject> CallSimpleCoreAsync(string name, JObject arguments)
+        {
             WindowsControlTarget? target = null;
             try {
                 await ReadyAsync().ConfigureAwait(false);
                 if (name == "system_status") {
-                    return ControlJson.Result(new JObject { ["enabled"] = IsEnabled, ["state"] = Phase, ["message"] = StatusText });
+                    return ControlJson.Result(new JObject { ["enabled"] = IsEnabled, ["state"] = Phase, ["backend"] = "windows-native", ["message"] = StatusText,
+                        ["version"] = YTrayBuildInfo.Version, ["build_id"] = YTrayBuildInfo.BuildId, ["worker_build_id"] = _connection?.ServerInfo["build_id"], ["worker_pid"] = WorkerProcessId });
                 }
                 if (name == "list_apps") {
                     var windows = CurrentWindows(); var query = (string?)arguments["query"] ?? "";
@@ -137,7 +170,7 @@ namespace YTray.Core.SystemControl
                     state["isError"] = true; state["structuredContent"]!["error"] = result["structuredContent"]!["error"]!.DeepClone(); return state;
                 } catch { }
                 return result;
-            } finally { _interaction.Release(); }
+            }
         }
         private WindowsControlTarget[] CurrentWindows()
         {
@@ -214,15 +247,21 @@ namespace YTray.Core.SystemControl
                     if (raw["isError"]?.Value<bool>() == true) break;
                     var view = raw["structuredContent"] as JObject;
                     var elements = view?["elements"] as JArray ?? new JArray();
-                    var loading = elements.Any(e => (string?)e["label"] is string label && (label == "停止" || label == "停止加载" || label.Equals("Stop loading", StringComparison.OrdinalIgnoreCase)));
+                    var loading = elements.Any(e => (string?)e["label"] is string label && (label == "停止" || label.Contains("停止加载", StringComparison.Ordinal)
+                        || label.StartsWith("Stop loading", StringComparison.OrdinalIgnoreCase)));
                     var title = (string?)view?["window_title"] ?? "";
+                    var selectedTab = elements.OfType<JObject>().FirstOrDefault(e => string.Equals((string?)e["role"], "TabItem", StringComparison.OrdinalIgnoreCase)
+                        && e["in_web_content"]?.Value<bool>() != true && e["selected"]?.Value<bool>() == true);
+                    var tabTitle = (string?)selectedTab?["label"];
                     // Chrome can update its title to the destination URL before the new
                     // document appears. That intermediate frame is not useful for the next action.
                     var documentReady = elements.Any(e => string.Equals((string?)e["role"], "document", StringComparison.OrdinalIgnoreCase) && (string?)e["label"] is string label
-                        && label.Length > 0 && title.StartsWith(label, StringComparison.Ordinal) && MatchesDestination((string?)e["value"], (string?)options?["url"]));
+                        && label.Length > 0 && title.StartsWith(label, StringComparison.Ordinal)
+                        && (string.IsNullOrEmpty(tabTitle) || tabTitle!.StartsWith(label, StringComparison.Ordinal) || label.StartsWith(tabTitle!, StringComparison.Ordinal))
+                        && MatchesDestination((string?)e["value"], (string?)options?["url"]));
                     var stamp = title + "\n" + elements.Count + "\n" + string.Join("\n", elements.Take(80).Select(e => (string?)e["role"] + ":" + (string?)e["label"]));
                     if (!loading && documentReady) {
-                        if (lastReady == stamp && waiting.ElapsedMilliseconds >= (title == oldTitle ? 400 : 200)) break;
+                        if (lastReady == stamp && waiting.ElapsedMilliseconds >= (title == oldTitle ? 700 : 350)) break;
                         lastReady = stamp;
                     } else lastReady = null;
                     await Task.Delay(120).ConfigureAwait(false); raw = await ObserveSimpleAsync(target, navigationOptions).ConfigureAwait(false);
@@ -258,7 +297,7 @@ namespace YTray.Core.SystemControl
             // Read focus once at the final public boundary, after foreground
             // restoration; internal input preflights and loading polls skip it.
             if (target != null && raw["isError"]?.Value<bool>() != true)
-                source["focus"] = await WindowsFocusContext.ReadAsync(target.Handle, region?.ScreenBounds, region == null ? null : (source["elements"] as JArray)?.OfType<JObject>().ToArray()).ConfigureAwait(false);
+                source["focus"] = await ReadNativeContextAsync(target, source, region).ConfigureAwait(false);
             var context = ControlContext.Format(source, full, options?["query"] != null, region, (string?)options?["query"]);
             state["controls_shown"] = context.Shown; state["controls_total"] = context.Total; state["truncated"] = context.Truncated;
             if (context.Focus != null) state["focus"] = context.Focus;
@@ -274,6 +313,20 @@ namespace YTray.Core.SystemControl
             var content = new JArray(new JObject { ["type"] = "text", ["text"] = text.Trim() });
             foreach (var image in (raw["content"] as JArray ?? new JArray()).Where(c => (string?)c["type"] == "image")) content.Add(image.DeepClone());
             return new JObject { ["isError"] = raw["isError"]?.Value<bool>() ?? false, ["content"] = content, ["structuredContent"] = state };
+        }
+        private async Task<JObject> ReadNativeContextAsync(WindowsControlTarget target, JObject source, ControlRegion? region)
+        {
+            try {
+                var args = new JObject { ["window_id"] = target.Handle.ToInt64() };
+                if (region != null) {
+                    var frame = region.ScreenBounds;
+                    args["region"] = new JObject { ["x"] = frame.X, ["y"] = frame.Y, ["w"] = frame.Width, ["h"] = frame.Height };
+                    args["controls"] = source["elements"]?.DeepClone();
+                }
+                var connection = _connection;
+                if (connection != null) return await connection.RequestAsync("read_context", args, _lifetime?.Token ?? CancellationToken.None, 1500).ConfigureAwait(false);
+            } catch { }
+            return new JObject { ["status"] = "unavailable", ["region_text_unavailable"] = region != null };
         }
         private async Task<JObject> ActSimpleAsync(string name, JObject input, WindowsControlTarget? target)
         {
@@ -315,9 +368,9 @@ namespace YTray.Core.SystemControl
                 args["element_token"] = MatchControl(view, selected)["element_token"];
             }
             if (name == "press_key") {
-                var parts = ((string)input["key"]!).Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var parts = ((string)input["key"]!).Split(new[] { '+' }, StringSplitOptions.RemoveEmptyEntries).Select(part => part.Trim()).Where(part => part.Length > 0).ToArray();
                 if (parts.Length == 0) throw new ControlException("InvalidArguments", "请提供按键，例如 ctrl+l 或 enter");
-                args["key"] = parts[^1].Equals("enter", StringComparison.OrdinalIgnoreCase) ? "return" : parts[^1];
+                args["key"] = parts[parts.Length - 1].Equals("enter", StringComparison.OrdinalIgnoreCase) ? "return" : parts[parts.Length - 1];
                 args["modifiers"] = new JArray(parts.Take(parts.Length - 1).Select(p => p.ToLowerInvariant()));
             }
             if (name == "scroll") {
@@ -411,7 +464,7 @@ namespace YTray.Core.SystemControl
             var message = (string?)state?["error"]?["message"] ?? (string?)state?["refusal"]?["message"] ?? (string?)state?["message"];
             if (string.IsNullOrWhiteSpace(message)) message = (result["content"] as JArray ?? new JArray())
                 .Where(c => (string?)c["type"] == "text").Select(c => (string?)c["text"]).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
-            if (string.IsNullOrWhiteSpace(message)) return "操作结果未确认，请查看已返回的最新界面";
+            if (message == null || string.IsNullOrWhiteSpace(message)) return "操作结果未确认，请查看已返回的最新界面";
             return message.Length > 800 ? message.Substring(0, 800) + "…" : message;
         }
     }

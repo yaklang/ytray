@@ -13,26 +13,27 @@ using YTray.Native;
 
 namespace YTray.Core.SystemControl
 {
-    internal interface ICuaDriverTransport : IDisposable
+    internal interface INativeControlTransport : IDisposable
     {
         Task<JArray> StartAsync(string executable, IDictionary<string, string> environment, CancellationToken cancellation);
         Task<JObject> RequestAsync(string method, JObject parameters, CancellationToken cancellation, int timeoutMs = 10000);
     }
-    internal sealed class CuaDriverConnection : ICuaDriverTransport
+    internal sealed class NativeControlConnection : INativeControlTransport
     {
         internal const int MaximumFrameBytes = 24 * 1024 * 1024;
         private readonly ConcurrentDictionary<long, TaskCompletionSource<JObject>> _pending = new ConcurrentDictionary<long, TaskCompletionSource<JObject>>();
         private readonly SemaphoreSlim _writer = new SemaphoreSlim(1, 1);
-        private DriverProcessLauncher? _process;
+        private ControlProcessLauncher? _process;
         private int _stopped;
         private long _next;
         private readonly StringBuilder _stderr = new StringBuilder();
         internal string DiagnosticTail { get { lock (_stderr) return _stderr.ToString(); } }
         internal Action? OnExit { get; set; }
         internal int? ProcessId => _process?.Process.Id;
+        internal JObject ServerInfo { get; private set; } = new JObject();
         public async Task<JArray> StartAsync(string executable, IDictionary<string, string> environment, CancellationToken cancellation)
         {
-            _process = DriverProcessLauncher.Start(executable, environment);
+            _process = ControlProcessLauncher.Start(executable, environment);
             var output = _process.Output; var error = _process.Error;
             _ = Task.Run(() => Read(output));
             _ = Task.Run(() => { try { using var reader = new StreamReader(error, new UTF8Encoding(false, true)); var buffer = new char[2048]; int count;
@@ -41,6 +42,7 @@ namespace YTray.Core.SystemControl
             var initialized = await RequestAsync("initialize", new JObject { ["protocolVersion"] = "2025-11-25", ["capabilities"] = new JObject(),
                 ["clientInfo"] = new JObject { ["name"] = "YTray", ["version"] = "1" } }, cancellation).ConfigureAwait(false);
             var version = (string?)initialized["protocolVersion"];
+            ServerInfo = initialized["serverInfo"] as JObject ?? new JObject();
             if (version != "2025-11-25" && version != "2025-06-18") throw new ControlException("VersionIncompatible", "Driver MCP 协议不兼容");
             await WriteAsync(new JObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" }, cancellation).ConfigureAwait(false);
             var tools = new JArray(); string? cursor = null;

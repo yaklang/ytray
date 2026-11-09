@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -15,7 +16,14 @@ namespace YTray
         private readonly bool _initializeServices;
         public App() : this(true) { }
         // The WPF test host uses the production resources without tray/startup/update services.
-        internal App(bool initializeServices) { _initializeServices = initializeServices; }
+        internal App(bool initializeServices)
+        {
+            _initializeServices = initializeServices;
+            // Enter before InitializeComponent loads WPF themes, creates services or
+            // touches user state. The same small EXE also hosts the private worker.
+            if (initializeServices && Array.IndexOf(Environment.GetCommandLineArgs(), "--native-control-worker") >= 0)
+                Environment.Exit(Core.SystemControl.NativeControlWorker.Run());
+        }
         private InstanceStore? _store;
         private TrayApp? _tray;
         private LaunchAtLoginManager? _launchAtLogin;
@@ -211,6 +219,8 @@ namespace YTray
                 try { if (Directory.Exists(extractionRoot)) Directory.Delete(extractionRoot, true); } catch { }
             }
             NativeAppUpdater.EnsureLoaded();
+            if (typeof(App).Assembly.GetManifestResourceNames().Any(name => name.IndexOf("CuaDriver", StringComparison.OrdinalIgnoreCase) >= 0))
+                throw new InvalidOperationException("Unexpected external computer-control runtime in the release.");
             var payload = JsonConvert.SerializeObject(new
             {
                 application = "YTray",
@@ -218,6 +228,8 @@ namespace YTray
                 version = YTrayBuildInfo.Version,
                 framework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
                 runtimeMajor = Environment.Version.Major,
+                runtimeDirectory = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(),
+                controlBackend = "windows-native",
                 jsonAssembly = typeof(JsonConvert).Assembly.GetName().Name,
                 bundledExtensionVersion = bundledVersion,
                 bundledExtensionName = bundledName,

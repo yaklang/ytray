@@ -24,19 +24,19 @@ namespace YTray.Tests
         {
             var text = "{\"a\":\"中文🚀\\n文字\"}\r\n{\"id\":2}\n";
             using var input = new ChunkStream(Encoding.UTF8.GetBytes(text));
-            var frames = CuaDriverConnection.Frames(input).ToArray();
+            var frames = NativeControlConnection.Frames(input).ToArray();
             Assert.AreEqual("中文🚀\n文字", JObject.Parse(frames[0]).Value<string>("a")); Assert.AreEqual(2, JObject.Parse(frames[1]).Value<int>("id"));
-            Assert.ThrowsExactly<InvalidDataException>(() => CuaDriverConnection.Frames(new MemoryStream(Encoding.UTF8.GetBytes("{}"))).ToArray());
-            Assert.ThrowsExactly<DecoderFallbackException>(() => CuaDriverConnection.Frames(new MemoryStream(new byte[] { 0xff, 10 })).ToArray());
+            Assert.ThrowsExactly<InvalidDataException>(() => NativeControlConnection.Frames(new MemoryStream(Encoding.UTF8.GetBytes("{}"))).ToArray());
+            Assert.ThrowsExactly<DecoderFallbackException>(() => NativeControlConnection.Frames(new MemoryStream(new byte[] { 0xff, 10 })).ToArray());
         }
         [TestMethod, TestCategory("ControlAuthorization")]
         public void ReviewedSchemaDoesNotPublishStartupPathsScriptsOrImplicitForeground()
         {
-            var actual = JArray.Parse(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fixtures", "cua-driver-0.38.0-tools.json")));
-            var read = CuaDriverSchemaAdapter.Review(new JArray(actual.Select(t => new JObject { ["name"] = t["name"], ["inputSchema"] = t["input_schema"] })), new ControlSessionOptions { ReadOnly = true, AllowDesktop = false, AllowForeground = false });
+            var actual = NativeControlSchema.Catalog();
+            var read = NativeControlSchema.Review(actual, new ControlSessionOptions { ReadOnly = true, AllowDesktop = false, AllowForeground = false });
             Assert.IsFalse(read.ContainsKey("click")); Assert.IsFalse(read.ContainsKey("get_desktop_state"));
             Assert.IsFalse(read.Values.Any(t => t.ToString().Contains("screenshot_out_file")));
-            var writable = CuaDriverSchemaAdapter.Review(new JArray(actual.Select(t => new JObject { ["name"] = t["name"], ["inputSchema"] = t["input_schema"] })), new ControlSessionOptions { ReadOnly = false });
+            var writable = NativeControlSchema.Review(actual, new ControlSessionOptions { ReadOnly = false });
             Assert.IsTrue(writable.ContainsKey("click"));
             Assert.ThrowsExactly<ControlException>(() => ControlJson.Validate(new JObject { ["prompt"] = true }, (JObject)read["check_permissions"]["inputSchema"]!));
             foreach (var origin in new[] { "null", "*", "https://example.com/path", "https://user@example.com", "http://example.com" }) Assert.ThrowsExactly<ControlException>(() => ControlJson.Origin(origin));
@@ -76,7 +76,7 @@ namespace YTray.Tests
             Assert.IsFalse(controller.IsActive); Assert.IsNull(controller.ConfigurationJSON);
         }
         [TestMethod, TestCategory("ControlDesktop")]
-        public async Task RealDriverControlsOnlyFixtureAndRevokesObservationsAndBearer()
+        public async Task NativeBackendControlsOnlyFixtureAndRevokesObservationsAndBearer()
         {
             if (Environment.GetEnvironmentVariable("YTRAY_CONTROL_INTERACTIVE") != "1") Assert.Inconclusive("Set YTRAY_CONTROL_INTERACTIVE=1 for isolated fixture desktop input");
             var executable = Environment.GetEnvironmentVariable("YTRAY_CONTROL_FIXTURE_EXE") ?? "";
@@ -110,7 +110,8 @@ namespace YTray.Tests
                 }
                 var windows = (JArray)(await Call("list_windows", new JObject()))["structuredContent"]!["windows"]!;
                 Assert.IsTrue(windows.All(w => string.Equals((string?)w["executable"], executable, StringComparison.OrdinalIgnoreCase)));
-                var target = windows.Single(w => (int)w["pid"]! == fixture!.Id); var reference = (string)target["target_ref"]!;
+                fixture!.Refresh(); var fixtureWindow = fixture.MainWindowHandle.ToInt64();
+                var target = windows.Single(w => (int)w["pid"]! == fixture.Id && w.Value<long>("window_id") == fixtureWindow); var reference = (string)target["target_ref"]!;
                 async Task<JObject> Observe(int dimension = 640) => await Call("get_window_state", new JObject { ["target_ref"] = reference, ["max_image_dimension"] = dimension });
                 var observation = await Observe();
                 var structured = (JObject)observation["structuredContent"]!;

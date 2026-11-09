@@ -170,7 +170,7 @@ namespace YTray.Core.SystemControl
             if (e["value"] != null && Role(e) != "document" && Role(e) != "hyperlink")
                 line += " = " + JsonConvert.SerializeObject(Clip((string)e["value"]!, full ? 8000 : 180));
             foreach (var state in new[] { "checked", "selected", "expanded", "focused" })
-                if (e[state]?.Type == JTokenType.Boolean) line += " " + state + "=" + e[state]!.ToString(Formatting.None);
+                if (e[state]?.Type == JTokenType.Boolean && (state != "focused" || e[state]!.Value<bool>())) line += " " + state + "=" + e[state]!.ToString(Formatting.None);
             if (e["enabled"]?.Value<bool>() == false) line += " disabled";
             return line;
         }

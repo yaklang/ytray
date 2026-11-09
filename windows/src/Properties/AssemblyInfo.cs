@@ -12,4 +12,3 @@ using System.Runtime.CompilerServices;
 [assembly: AssemblyVersion("0.1.0.0")]
 [assembly: AssemblyFileVersion("0.1.0.0")]
 [assembly: InternalsVisibleTo("YTray.Tests")]
-[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows10.0.17763")]

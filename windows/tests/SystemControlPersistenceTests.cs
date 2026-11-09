@@ -69,7 +69,7 @@ namespace YTray.Tests
                 Assert.IsTrue(controller.IsEnabled); Assert.IsTrue(controller.Authorized(bearer, null)); Assert.AreEqual(configuration, controller.ConfigurationJSON);
                 Assert.IsFalse((await controller.CallAsync("check_permissions", new JObject())).Value<bool>("isError"));
                 var previousGeneration = controller.Generation;
-                using (var driver = Process.GetProcessById(controller.DriverProcessId!.Value)) { driver.Kill(); Assert.IsTrue(driver.WaitForExit(3000)); }
+                using (var driver = Process.GetProcessById(controller.WorkerProcessId!.Value)) { driver.Kill(); Assert.IsTrue(driver.WaitForExit(3000)); }
                 await Ready(() => controller.IsRunning && controller.Generation != previousGeneration);
                 Assert.AreEqual(configuration, controller.ConfigurationJSON); Assert.IsTrue(controller.Authorized(bearer, null));
                 await controller.CallAsync("end_session", new JObject());

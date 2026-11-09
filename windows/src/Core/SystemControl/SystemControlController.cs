@@ -23,10 +23,7 @@ namespace YTray.Core.SystemControl
     {
         public event PropertyChangedEventHandler? PropertyChanged;
         private readonly Dispatcher _dispatcher;
-        private readonly DriverRuntimeInstaller _installer;
         private readonly ControlAccessStore _access;
-        private readonly string _sessionRoot;
-        private readonly Views.DesktopActionIndicator _indicator;
         private readonly SemaphoreSlim _operation = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _starting = new SemaphoreSlim(1, 1);
         private readonly object _sync = new object();
@@ -34,13 +31,12 @@ namespace YTray.Core.SystemControl
         private readonly Dictionary<string, Observation> _observations = new Dictionary<string, Observation>();
         private readonly Dictionary<string, (string Hash, Task<JObject> Task, long Created)> _requests = new Dictionary<string, (string, Task<JObject>, long)>();
         private Dictionary<string, JObject> _tools = new Dictionary<string, JObject>();
-        private CuaDriverConnection? _connection;
+        private NativeControlConnection? _connection;
         private CancellationTokenSource? _lifetime;
         private ControlSessionOptions? _grant;
         private string? _token;
         private string _generation = "";
         private string _session = "";
-        private string? _sessionDirectory;
         private Timer? _reconnect;
         private bool _disposed;
         public string Phase { get; private set; } = "Stopped";
@@ -51,20 +47,17 @@ namespace YTray.Core.SystemControl
         public bool IsRunning => Phase == "Running" && _connection != null && _lifetime?.IsCancellationRequested == false;
         // UI refreshes every second; full hash verification belongs to startup/install,
         // not the status getter (which would repeatedly read the complete runtime).
-        public bool IsInstalled => File.Exists(_installer.Executable);
+        public bool IsInstalled => true;
         public string StatusText => !IsEnabled ? "电脑控制已关闭" : Phase == "Installing" ? "正在准备控制组件" : Phase == "Paused" ? "电脑控制已开启 · 等待桌面解锁"
             : IsRunning ? "电脑控制已开启" : "电脑控制已开启 · 正在连接";
         public bool IsElevated => ControlElevation.IsElevated;
         public string Endpoint => "http://127.0.0.1:" + ControlGateway.Port + "/system/mcp";
         internal string Generation => _generation;
-        internal int? DriverProcessId => _connection?.ProcessId;
+        internal int? WorkerProcessId => _connection?.ProcessId;
         internal SystemControlController(string applicationDirectory)
         {
             _dispatcher = Dispatcher.CurrentDispatcher;
-            _indicator = new Views.DesktopActionIndicator(_dispatcher);
-            _installer = new DriverRuntimeInstaller(applicationDirectory);
             _access = new ControlAccessStore(applicationDirectory);
-            _sessionRoot = Path.Combine(applicationDirectory, "ControlSessions");
             SystemEvents.SessionSwitch += SessionChanged;
             SystemEvents.DisplaySettingsChanged += DisplayChanged;
         }
@@ -88,14 +81,13 @@ namespace YTray.Core.SystemControl
         internal Task RestoreAsync() => IsEnabled ? EnsureConnectedAsync() : EnableCoreAsync(new ControlSessionOptions(), true);
         // Scoped options are retained for isolated integration fixtures, not exposed in the UI.
         internal Task StartAsync(ControlSessionOptions options) { Stop(); return EnableCoreAsync(options, false); }
-        internal Task InstallAsync() => _installer.InstallAsync(CancellationToken.None);
+        internal Task InstallAsync() => Task.CompletedTask;
         public async Task RepairAsync()
         {
             await _starting.WaitAsync().ConfigureAwait(false);
             try {
-                StopRuntime(); Phase = "Installing"; LastError = ""; Changed();
-                await _installer.InstallAsync(CancellationToken.None).ConfigureAwait(false);
-                Phase = "Stopped"; Activity = "控制权限和组件已修复。"; Changed();
+                StopRuntime(); LastError = "";
+                Activity = "原生控制进程已重置。"; Changed();
             } catch (Exception error) { LastError = error.Message; Changed(); throw; }
             finally { _starting.Release(); }
             if (IsEnabled) await EnsureConnectedAsync().ConfigureAwait(false);
@@ -108,7 +100,7 @@ namespace YTray.Core.SystemControl
             if (grant.Executables.Length == 0 && !grant.AllowDesktop) throw new ControlException("InvalidGrant", "请选择允许操作的应用或主屏范围");
             grant.Executables = grant.Executables.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             _token = _access.Open(restore); _grant = grant; IsEnabled = true;
-            lock (_sync) _tools = CuaDriverSchemaAdapter.Review(ReadReferenceCatalog(), grant);
+            lock (_sync) _tools = NativeControlSchema.Review(ReadReferenceCatalog(), grant);
             _reconnect = new Timer(_ => { if (IsEnabled) _ = MaintainConnectionAsync(); }, null, 5000, 5000);
             await EnsureConnectedAsync().ConfigureAwait(false);
         }
@@ -116,7 +108,7 @@ namespace YTray.Core.SystemControl
         {
             var allowed = new JArray("start_session", "end_session", "get_window_state", "check_permissions");
             if (grant.AllowDesktop) allowed.Add("get_desktop_state");
-            if (!grant.ReadOnly) foreach (var tool in CuaDriverSchemaAdapter.Actions) allowed.Add(tool);
+            if (!grant.ReadOnly) foreach (var tool in NativeControlSchema.Actions) allowed.Add(tool);
             return new JObject { ["version"] = 3, ["allow"] = new JObject { ["tools"] = allowed }, ["resources"] = new JObject {
                 ["apps"] = new JArray(grant.Executables.Select(path => new JObject { ["executable"] = path, ["windows"] = "all" })),
                 ["desktop"] = new JObject { ["display"] = grant.AllowDesktop } } };
@@ -134,38 +126,15 @@ namespace YTray.Core.SystemControl
                 StopRuntime();
                 id = _generation; _session = "yt_" + id;
                 var lifetime = new CancellationTokenSource(); _lifetime = lifetime;
-                var grant = _grant!;
                 Phase = "Connecting"; LastError = ""; Changed();
-                if (!_installer.Installed) { Phase = "Installing"; Changed(); await _installer.InstallAsync(lifetime.Token).ConfigureAwait(false); }
                 RequireGeneration(id);
-                var directory = Path.Combine(_sessionRoot, id);
-                _sessionDirectory = directory;
-                DriverRuntimeInstaller.PrivateDirectory(directory);
-                var manifestPath = Path.Combine(directory, "capabilities.json");
-                var manifest = CapabilityManifest(grant);
-                var policyPath = Path.Combine(directory, "tools-policy.yaml");
-                File.WriteAllText(policyPath, ToolPolicy(grant).ToString(Formatting.None), new System.Text.UTF8Encoding(false));
-                if (UsesResourceManifest(grant)) File.WriteAllText(manifestPath, manifest.ToString(Formatting.None), new System.Text.UTF8Encoding(false));
                 var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (DictionaryEntry pair in Environment.GetEnvironmentVariables()) if (!((string)pair.Key).StartsWith("CUA_DRIVER_", StringComparison.OrdinalIgnoreCase)
-                    || ((string)pair.Key).Equals("CUA_DRIVER_MANAGED_POLICY_FILE", StringComparison.OrdinalIgnoreCase)) environment[(string)pair.Key] = pair.Value as string ?? "";
-                // Standard + a tool policy permits all apps without lease timers.
-                // A desktop display grant alone does not grant arbitrary HWND access
-                // in the upstream manifest, so only scoped fixture runs use one.
-                environment["CUA_DRIVER_PERMISSION_MODE"] = "standard";
-                environment["CUA_DRIVER_POLICY_FILE"] = policyPath;
-                if (UsesResourceManifest(grant)) {
-                    environment["CUA_DRIVER_CAPABILITY_MANIFEST_FILE"] = manifestPath;
-                    environment["CUA_DRIVER_CAPABILITY_MANIFEST_APPROVED"] = "1";
-                }
-                environment["CUA_DRIVER_RS_TELEMETRY_ENABLED"] = "false";
-                var connection = new CuaDriverConnection(); _connection = connection;
+                foreach (DictionaryEntry pair in Environment.GetEnvironmentVariables()) environment[(string)pair.Key] = pair.Value as string ?? "";
+                var connection = new NativeControlConnection(); _connection = connection;
                 connection.OnExit = () => { lock (_sync) if (_generation == id && IsEnabled) StopRuntime("控制组件已断开，正在自动重连。", "Reconnecting"); };
-                var tools = await connection.StartAsync(_installer.Executable, environment, lifetime.Token).ConfigureAwait(false);
+                var tools = await connection.StartAsync(typeof(App).Assembly.Location, environment, lifetime.Token).ConfigureAwait(false);
                 RequireGeneration(id);
-                lock (_sync) _tools = CuaDriverSchemaAdapter.Review(tools, grant);
-                var started = await DriverCall("start_session", new JObject(), lifetime.Token).ConfigureAwait(false);
-                if (started["isError"]?.Value<bool>() == true) throw new ControlException("DriverFailure", "Driver 无法建立受限会话：" + Text(started));
+                lock (_sync) _tools = NativeControlSchema.Review(tools, _grant!);
                 lock (_sync) {
                     RequireGeneration(id); Phase = "Running";
                     Activity = "可随时连接；全部应用与操作已允许。";
@@ -192,14 +161,10 @@ namespace YTray.Core.SystemControl
             lock (_sync) {
             // Cancel before I/O; no pending action is replayed by reconnection.
             _generation = Guid.NewGuid().ToString("N"); Phase = phase;
-            _indicator.Hide();
             var cancellation = Interlocked.Exchange(ref _lifetime, null); cancellation?.Cancel();
             var connection = Interlocked.Exchange(ref _connection, null); if (connection != null) { connection.OnExit = null; connection.Dispose(); }
             lock (_sync) { _targets.Clear(); _observations.Clear(); }
             LastError = reason; Activity = reason.Length == 0 ? "已停止接收新操作" : reason; Changed();
-            // No credentials or UI contents are written to this directory.
-            var directory = Interlocked.Exchange(ref _sessionDirectory, null);
-            try { if (directory != null && Directory.Exists(directory) && (File.GetAttributes(directory) & FileAttributes.ReparsePoint) == 0) Directory.Delete(directory, true); } catch { }
             }
         }
         internal bool Authorized(string? bearer, string? origin)
@@ -214,16 +179,14 @@ namespace YTray.Core.SystemControl
             ["type"] = "http", ["url"] = Endpoint, ["headers"] = new JObject { ["Authorization"] = "Bearer " + _token } } } }.ToString(Formatting.Indented);
         internal JObject Status() => new JObject { ["state"] = Phase, ["session_id"] = _session, ["runtime_generation"] = _generation,
             ["enabled"] = IsEnabled, ["elevated"] = IsElevated, ["read_only"] = _grant?.ReadOnly, ["foreground_authorized"] = _grant?.AllowForeground,
-            ["desktop_authorized"] = _grant?.AllowDesktop, ["client"] = _grant?.ClientName, ["backend"] = "cua-driver-0.38.0", ["isolated"] = false };
+            ["desktop_authorized"] = _grant?.AllowDesktop, ["client"] = _grant?.ClientName, ["backend"] = "windows-native", ["isolated"] = true };
         internal JArray Tools()
         {
             return PublicTools();
         }
         private static JArray ReadReferenceCatalog()
         {
-            using var stream = typeof(SystemControlController).Assembly.GetManifestResourceStream("YTray.CuaDriverTools") ?? throw new IOException("Missing pinned tool catalog");
-            using var reader = new StreamReader(stream);
-            return (JArray)JObject.Parse(reader.ReadToEnd())["tools"]!;
+            return NativeControlSchema.Catalog();
         }
         internal JArray ReferenceTools() => PublicTools();
         internal Task<JObject> CallAsync(string name, JObject arguments, string? expectedGeneration = null)
@@ -256,7 +219,7 @@ namespace YTray.Core.SystemControl
             }
             // A retry of an admitted request returns the original outcome, including
             // after its deadline or while another operation is busy. Never replay it.
-            if (CuaDriverSchemaAdapter.Actions.Contains(name) && (string?)arguments["request_id"] is string retryId) {
+            if (NativeControlSchema.Actions.Contains(name) && (string?)arguments["request_id"] is string retryId) {
                 Task<JObject>? previous = null;
                 lock (_sync) if (_requests.TryGetValue(retryId, out var entry)) {
                     if (entry.Hash != name + ":" + Canonical(arguments).ToString(Formatting.None)) throw new ControlException("RequestConflict", "request_id 已被不同参数使用"); previous = entry.Task;
@@ -284,7 +247,7 @@ namespace YTray.Core.SystemControl
                 ControlJson.Validate(arguments, (JObject)definition["inputSchema"]!);
                 if ((string?)arguments["session_id"] is string session && session != _session || (string?)arguments["runtime_generation"] is string gen && gen != generation)
                     throw new ControlException("RuntimeGenerationMismatch", "会话代次不匹配");
-                var action = CuaDriverSchemaAdapter.Actions.Contains(name);
+                var action = NativeControlSchema.Actions.Contains(name);
                 if (!action) return await ExecuteAsync(name, arguments, generation).ConfigureAwait(false);
                 if (_grant!.ReadOnly) throw new ControlException("ScopeDenied", "只读会话不能输入");
                 if (!Guid.TryParse((string?)arguments["request_id"], out _)) throw new ControlException("InvalidArguments", "动作需要 UUID request_id，以便查询结果并防止重复投递");
@@ -304,7 +267,7 @@ namespace YTray.Core.SystemControl
         }
         private async Task<JObject> ExecuteAsync(string name, JObject original, string generation)
         {
-            var arguments = (JObject)original.DeepClone(); var action = CuaDriverSchemaAdapter.Actions.Contains(name);
+            var arguments = (JObject)original.DeepClone(); var action = NativeControlSchema.Actions.Contains(name);
             var desktop = name == "get_desktop_state" || (string?)arguments["target_ref"] == "desktop_primary";
             WindowsControlTarget? target = null;
             if (!desktop && name != "check_permissions") {
@@ -318,10 +281,9 @@ namespace YTray.Core.SystemControl
                 arguments["pid"] = target.Pid; arguments["window_id"] = target.Handle.ToInt64();
             }
             if (desktop && _grant?.AllowDesktop != true) throw new ControlException("ScopeDenied", "本会话未授权主屏范围");
-            if (name == "get_desktop_state") _indicator.Hide();
             var requestedWindowImage = name == "get_window_state" && original["include_screenshot"]?.Value<bool>() != false;
             var scopedCapture = _grant?.AllowDesktop != true;
-            var blockedWindowImage = requestedWindowImage && scopedCapture && target!.IsObscured(_indicator.NativeHandle);
+            var blockedWindowImage = requestedWindowImage && scopedCapture && target!.IsObscured(IntPtr.Zero);
             // The pinned driver's generic window path drops its BitBlt occlusion flag.
             // Until that provenance is available, never return an obscured region as
             // another application's window image. UIA background control still works.
@@ -345,13 +307,14 @@ namespace YTray.Core.SystemControl
                     if (arguments["x"] == null || arguments["y"] == null || observation.Width <= 0 || Stopwatch.GetTimestamp() - observation.Ticks > Stopwatch.Frequency * 10
                         || arguments["x"]!.Value<double>() < 0 || arguments["y"]!.Value<double>() < 0 || arguments["x"]!.Value<double>() >= observation.Width || arguments["y"]!.Value<double>() >= observation.Height)
                         throw new ControlException("CaptureExpired", "坐标需要 10 秒内的有效截图，且必须位于返回图片范围内");
-                    if (!desktop && scopedCapture && mode == "background" && target!.IsObscured(_indicator.NativeHandle)) throw new ControlException("CaptureOccluded", "窗口已被遮挡，请使用新观察中的控件，或显式授权前台输入");
+                    if (!desktop && scopedCapture && mode == "background" && target!.IsObscured(IntPtr.Zero)) throw new ControlException("CaptureOccluded", "窗口已被遮挡，请使用新观察中的控件，或显式授权前台输入");
                 }
                 if (arguments["capture_id"] != null && (string?)arguments["capture_id"] != observation.Id) throw new ControlException("CaptureExpired", "截图不属于最新观察");
                 if (desktop) WindowsControlProtection.RequireSafeInput(arguments, observation.Width, observation.Height);
                 if (!desktop && arguments["element_token"] == null && arguments["x"] == null && name != "press_key" && name != "type_text") throw new ControlException("InvalidArguments", "窗口动作需要明确元素或截图坐标");
             }
             foreach (var key in new[] { "target_ref", "observation_id", "runtime_generation", "session_id", "request_id", "deadline", "capture_id" }) arguments.Remove(key);
+            if (observation != null && observation.Width > 0) arguments["_image_size"] = new JObject { ["width"] = observation.Width, ["height"] = observation.Height };
             if (desktop && action) arguments["target"] = new JObject { ["kind"] = "desktop", ["display_id"] = "primary" };
             if (name == "get_window_state") { arguments["tree_format"] ??= "both"; arguments["max_elements"] ??= 500; arguments["timeout_ms"] ??= 2000; }
             var cancellation = _lifetime?.Token ?? new CancellationToken(true);
@@ -359,13 +322,6 @@ namespace YTray.Core.SystemControl
             if (action) {
                 timeout = (int)Math.Min(10000, (DateTimeOffset.Parse((string)original["deadline"]!) - DateTimeOffset.UtcNow).TotalMilliseconds);
                 if (timeout <= 0) throw new ControlException("DeadlineExceeded", "动作期限已过，尚未投递");
-                if (original["element_token"] != null && observation!.Points.TryGetValue((string)original["element_token"]!, out var point)) _indicator.Show(point.X, point.Y, () => _generation == generation && IsRunning);
-                else if (target != null) {
-                    var width = observation!.Width > 0 ? observation.Width : target.Bounds.Right - target.Bounds.Left;
-                    var height = observation.Height > 0 ? observation.Height : target.Bounds.Bottom - target.Bounds.Top;
-                    var x = original["x"]?.Value<double>() ?? width / 2.0; var y = original["y"]?.Value<double>() ?? height / 2.0;
-                    _indicator.Show(target.Bounds.Left + x * (target.Bounds.Right - target.Bounds.Left) / Math.Max(1, width), target.Bounds.Top + y * (target.Bounds.Bottom - target.Bounds.Top) / Math.Max(1, height), () => _generation == generation && IsRunning);
-                }
             }
             RequireGeneration(generation); WindowsControlTarget.RequireDesktop();
             if (action && target != null) target.Revalidate();
@@ -375,19 +331,21 @@ namespace YTray.Core.SystemControl
                 // reattaching/resetting its input queue for an unmodified key; chords and
                 // other toolkits retain the native foreground input path.
                 if (name == "press_key" && (arguments["modifiers"] as JArray)?.Count is null or 0
-                    && WindowsApplicationControl.UsesWpfKeyboardMessages(target.Handle)) arguments["delivery_mode"] = "background";
+                    && WindowsApplicationControl.UsesWpfKeyboardMessages(target.Handle)) {
+                    arguments["delivery_mode"] = "background"; arguments["_focus_before_key"] = true;
+                }
             }
             var dispatched = false;
             try {
                 dispatched = action;
-                var result = await DriverCall(name, arguments, cancellation, timeout).ConfigureAwait(false); RequireGeneration(generation);
+                var result = await CallNativeAsync(name, arguments, cancellation, timeout).ConfigureAwait(false); RequireGeneration(generation);
                 var structured = result["structuredContent"] as JObject ?? new JObject();
                 // The driver's window title can lag behind a navigated document.
                 // Read the live HWND caption after capture so polling and the public
                 // response describe the destination rather than the previous page.
                 if (!action && name == "get_window_state" && target != null)
                     structured["window_title"] = WindowsControlTarget.Resolve(target.Handle).Title;
-                if (requestedWindowImage && scopedCapture && (blockedWindowImage || target!.IsObscured(_indicator.NativeHandle))) {
+                if (requestedWindowImage && scopedCapture && (blockedWindowImage || target!.IsObscured(IntPtr.Zero))) {
                     result["content"] = new JArray((result["content"] as JArray ?? new JArray()).Where(c => (string?)c["type"] != "image").Select(c => c.DeepClone()));
                     foreach (var field in new[] { "screenshot_width", "screenshot_height", "screenshot_mime_type", "capture_id" }) structured.Remove(field);
                     structured["capture_blocked_by_occlusion"] = true; structured["degraded"] = true;
@@ -448,21 +406,13 @@ namespace YTray.Core.SystemControl
             if (!(result["content"] is JArray content)) result["content"] = content = new JArray();
             content.Add(new JObject { ["type"] = "text", ["text"] = context.ToString(Formatting.None) });
         }
-        private bool Allowed(WindowsControlTarget target) => target.Pid != Process.GetCurrentProcess().Id && !target.Executable.StartsWith(Path.GetDirectoryName(_installer.Executable)!, StringComparison.OrdinalIgnoreCase)
+        private bool Allowed(WindowsControlTarget target) => target.Pid != Process.GetCurrentProcess().Id && target.Pid != WorkerProcessId
             && (_grant?.AllowDesktop == true || _grant?.Executables.Contains(target.Executable, StringComparer.OrdinalIgnoreCase) == true);
         private void RequireGeneration(string generation) { if (!IsEnabled || _generation != generation || _lifetime?.IsCancellationRequested != false) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察，旧请求不会重放。"); }
-        internal async Task<JObject> DriverCall(string name, JObject args, CancellationToken cancellation, int timeout = 10000)
+        internal async Task<JObject> CallNativeAsync(string name, JObject args, CancellationToken cancellation, int timeout = 10000)
         {
-            args["session"] = _session; var connection = _connection ?? throw new ControlException("DriverUnavailable", "Driver 已停止");
-            var result = await connection.RequestAsync("tools/call", new JObject { ["name"] = name, ["arguments"] = args }, cancellation, timeout).ConfigureAwait(false);
-            if (name != "start_session" && name != "end_session" && NativeSessionEnded(result)) {
-                var started = await connection.RequestAsync("tools/call", new JObject { ["name"] = "start_session", ["arguments"] = new JObject { ["session"] = _session } }, cancellation, timeout).ConfigureAwait(false);
-                if (started["isError"]?.Value<bool>() == true) throw new ControlException("DriverUnavailable", "控制连接正在恢复，请稍后重试");
-                lock (_sync) _observations.Clear();
-                if (CuaDriverSchemaAdapter.Actions.Contains(name)) throw new ControlException("ViewChanged", "控制连接已恢复，正在刷新界面");
-                result = await connection.RequestAsync("tools/call", new JObject { ["name"] = name, ["arguments"] = args }, cancellation, timeout).ConfigureAwait(false);
-            }
-            return result;
+            var connection = _connection ?? throw new ControlException("DriverUnavailable", "原生控制进程已停止");
+            return await connection.RequestAsync("tools/call", new JObject { ["name"] = name, ["arguments"] = args }, cancellation, timeout).ConfigureAwait(false);
         }
         private static bool NativeSessionEnded(JObject result) => (string?)result["structuredContent"]?["refusal"]?["code"] is string code
             && (code == "session_ended" || code == "session_not_found" || code == "session_expired");
@@ -471,7 +421,7 @@ namespace YTray.Core.SystemControl
         public void Dispose() {
             _disposed = true; _reconnect?.Dispose(); _reconnect = null;
             SystemEvents.SessionSwitch -= SessionChanged; SystemEvents.DisplaySettingsChanged -= DisplayChanged;
-            StopRuntime(); IsEnabled = false; _token = null; _grant = null; _indicator.Dispose();
+            StopRuntime(); IsEnabled = false; _token = null; _grant = null;
             // The saved switch and DPAPI credential survive normal application exit.
         }
         private sealed class Observation { internal string Id = "", Generation = ""; internal long Ticks; internal WindowsControlTarget? Target; internal int Width, Height; internal JObject View = new JObject(); internal HashSet<string> Tokens = new HashSet<string>(); internal Dictionary<string, System.Windows.Point> Points = new Dictionary<string, System.Windows.Point>(); }

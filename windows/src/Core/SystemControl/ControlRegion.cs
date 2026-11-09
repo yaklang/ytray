@@ -30,7 +30,7 @@ namespace YTray.Core.SystemControl
             if (imageHeight <= 0) imageHeight = Math.Max(1, (int)Math.Round(height * scale));
             var x = requested.Value<double>("x"); var y = requested.Value<double>("y");
             var w = requested.Value<double>("width"); var h = requested.Value<double>("height");
-            if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(w) || !double.IsFinite(h)
+            if (!IsFinite(x) || !IsFinite(y) || !IsFinite(w) || !IsFinite(h)
                 || x < 0 || y < 0 || w <= 0 || h <= 0 || x >= imageWidth || y >= imageHeight)
                 throw new ControlException("InvalidRegion", "region 必须与当前窗口图片相交，width / height 必须大于 0");
             w = Math.Min(w, imageWidth - x); h = Math.Min(h, imageHeight - y);
@@ -38,6 +38,7 @@ namespace YTray.Core.SystemControl
                 ((double?)bounds["y"] ?? 0) + y * height / imageHeight, w * width / imageWidth, h * height / imageHeight);
             return new ControlRegion(screen, new JObject { ["x"] = x, ["y"] = y, ["width"] = w, ["height"] = h }, imageWidth, imageHeight);
         }
+        private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
         internal bool Includes(JObject element) => TryFrame(element["frame"] as JObject, out var frame) && ScreenBounds.IntersectsWith(frame);
         internal static bool TryFrame(JObject? value, out Rect frame)
         {
@@ -45,7 +46,7 @@ namespace YTray.Core.SystemControl
             if (value == null) return false;
             var x = (double?)value["x"] ?? 0; var y = (double?)value["y"] ?? 0;
             var w = (double?)value["w"] ?? 0; var h = (double?)value["h"] ?? 0;
-            if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(w) || !double.IsFinite(h) || w <= 0 || h <= 0) return false;
+            if (!IsFinite(x) || !IsFinite(y) || !IsFinite(w) || !IsFinite(h) || w <= 0 || h <= 0) return false;
             frame = new Rect(x, y, w, h); return true;
         }
     }

@@ -16,7 +16,7 @@ internal static class Program
         if (args.Length == 2 && args[0] == "--job-host") {
             var environment = new System.Collections.Generic.Dictionary<string, string>();
             foreach (System.Collections.DictionaryEntry pair in Environment.GetEnvironmentVariables()) environment[(string)pair.Key] = (string)pair.Value;
-            var type = System.Reflection.Assembly.LoadFrom(args[1]).GetType("YTray.Native.DriverProcessLauncher");
+            var type = System.Reflection.Assembly.LoadFrom(args[1]).GetType("YTray.Native.ControlProcessLauncher");
             var owner = type.GetMethod("Start", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic).Invoke(null, new object[] { Process.GetCurrentProcess().MainModule.FileName, environment, "--sleep" });
             var process = (Process)type.GetProperty("Process", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(owner);
             Console.WriteLine(process.Id); Console.Out.Flush(); Thread.Sleep(Timeout.Infinite); GC.KeepAlive(owner); return;

@@ -6,6 +6,7 @@ namespace YTray.Core
 {
     internal static class YTrayBuildInfo
     {
+        internal static string BuildId => typeof(YTrayBuildInfo).Assembly.ManifestModule.ModuleVersionId.ToString("N").Substring(0, 12);
         internal static string Version
         {
             get

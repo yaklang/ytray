@@ -1,8 +1,8 @@
 # YTray for Windows
 
-Windows 原生实现（C# / WPF / .NET 10），与 macOS 版本（`darwin/`）分别维护各自的托盘、窗口、进程管理和浏览器路径逻辑。发布包自带 .NET Desktop Runtime，用户无需另装 .NET Framework、.NET 或开发工具。
+Windows 原生实现（C# / WPF / .NET Framework 4.7.2），与 macOS 版本（`darwin/`）分别维护各自的托盘、窗口、进程管理和浏览器路径逻辑。使用 Windows 自带的 .NET Framework，用户无需另装 .NET 或开发工具。
 
-系统基线为 Windows 10 1809（build 17763）及以上、Windows 11。Win8 / 8.1、Win7 和 XP 不支持。电脑控制目前使用原生 x64 组件；32 位和原生 ARM64 系统不开放该功能。当前完整桌面链路已在 Win11 验证，旧 Win10/LTSC 仍需实机验收。
+系统基线为 Windows 10 1809（build 17763）及以上、Windows 11。Win8 / 8.1、Win7 和 XP 不支持。电脑控制与主程序一同编译为 x64 / x86，直接使用 Windows 原生 API。当前完整桌面链路已在 Win11 验证，旧 Win10/LTSC 仍需实机验收。
 
 ## 两个 MCP
 
@@ -13,7 +13,7 @@ Windows 原生实现（C# / WPF / .NET 10），与 macOS 版本（`darwin/`）�
 
 两个服务可分别启停和复制配置；电脑控制开启后，“复制两个 MCP 配置”可生成一个含两个条目的 `mcpServers` JSON。小组件电脑控制卡片的复制按钮仅复制电脑控制配置。复制操作不会替用户开启电脑控制。
 
-后续开发请参考 [Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md)：包含当前代码基线、Cua Driver 接入、授权与协议、分期任务和 Windows 验收步骤。该文档是实施计划，新增系统控制能力尚未交付。
+[Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md) 保留早期设计记录；当前实现已改用 Windows 原生 API，不再依赖 Cua Driver，实际架构和验收方式以本文为准。
 
 ## 功能
 
@@ -38,7 +38,7 @@ Windows 原生实现（C# / WPF / .NET 10），与 macOS 版本（`darwin/`）�
 
 ## 电脑控制与 MCP
 
-在“全部管理 → 电脑控制”点击“授权开启”，或直接打开小组件中的电脑控制开关。首次自动准备控制组件，默认允许当前用户的全部应用、主屏截图、控件读取、点击、输入、按键和滚动，无需设置只读、应用范围或有效期。
+在“全部管理 → 电脑控制”点击“授权开启”，或直接打开小组件中的电脑控制开关。直接使用随主程序内置的原生控制能力，默认允许当前用户的全部应用、主屏截图、控件读取、点击、输入、按键和滚动，无需设置只读、应用范围或有效期。
 
 总开关保持开启，直到用户主动关闭。没有授权期限或空闲超时；开关写入设置，YTray 重启、桌面解锁和控制组件重连后自动恢复，不会重放已投递的输入。
 
@@ -53,6 +53,14 @@ Windows 原生实现（C# / WPF / .NET 10），与 macOS 版本（`darwin/`）�
 直接调用 `launch_app({"app":"chrome","url":"https://baidu.com"})` 打开浏览器并进入网页，获得 `window_id`；已有窗口可通过 `list_windows` 查找。默认切到前台并保持目标窗口在前，最小化窗口自动恢复。`type_text` 可指定 `element_index` 聚焦输入框，`replace:true` 替换原有文本，`submit:true` 在输入成功后按 Enter。例如 `type_text({"window_id":123,"element_index":45,"text":"yaklang.io","replace":true,"submit":true})` 一次完成聚焦、替换、搜索，只返回最终结果。普通按键仍使用 `press_key({"window_id":123,"key":"ctrl+l"})`。
 
 每次动作自动返回最新截图、带编号的控件和该应用的窗口列表，无需再调用一次观察。点击使用最新界面中的控件编号或截图像素坐标，不额外乘 DPI。前台操作会自动收起 YTray 的置顶小组件，避免它遮挡目标；组合输入的每一步都保留目标输入框，由底层确认焦点后再发送按键。窗口标题在观察后从 HWND 重新读取，避免页面跳转后仍显示旧标题。组件退出、底层连接失效和桌面重新可用时自动恢复；只会重试已确认尚未执行的输入，结果不明确时返回最新界面供客户端判断。
+
+输入动作默认显示半透明陶土红飞镖（主色 `#C96B50`）、细米白色描边及柔和光晕，完成后显示扩散波纹。飞镖约 32 × 32 像素并随 DPI 缩放；旁边跟随显示“点击「按钮名」”“输入文字”“向下滚动”等动作说明，靠近屏幕边缘时自动换边，完整说明同时保留在顶部卡片。光标及文字在最后一次动作后驻留约 10 秒，再淡出。移动使用轻微弯曲的贝塞尔路径及平滑加速、减速，时长按距离约 0.4–1 秒，小距离微调不额外拖慢；拖尾跟随实际曲线路径。首次从当前系统鼠标位置起步；后续从上一次位置衔接。输入在光标抵达后投递，点击前会复核控件位置，并对一次布局变化自动调整落点。驻留及淡出异步绘制，驻留阶段降低刷新频率，隐藏后停止渲染。不增加 MCP 工具、参数或会话。透明提示层不抢焦点、不截获鼠标，也不进入窗口列表和 AI 截图。光标与坐标来自实际操作目标，未指定输入框的键盘操作会定位当前焦点控件；被其他窗口遮住的后台目标不在前景冒出提示。该功能由 YTray 的 Win32 / GDI 代码实现，无需外部光标组件或主题资源。
+
+应用启动、窗口激活和输入操作会点亮所有显示器的完整四边，显示最高约 100 像素宽的半透明陶土红氛围光；顶部居中显示“正在进行的操作”、具体动作、目标应用及执行阶段。实际执行前预告约 300 ms，完成后留约 900 ms 供用户确认；随后卡片与边缘光保留约 10 秒，驻留期间持续显示明显的红光，最后再淡出。一次公开 MCP 调用只产生一组提示，替换并提交等组合输入不会为内部按键重复加停顿。卡片已执行状态使用暖桃色，未完成用深砖红色；阶段同时通过文字区分。边缘光由窄条纹理绘制，避免每帧复制整张桌面；与光标统一由原生控制进程管理，移除了旧的 600 ms WPF 光标提示。
+
+`system_status` 返回 `version`、`build_id`、`worker_build_id` 和 `worker_pid`，可核对实际加载的主程序与控制进程是否为同一构建。构建标识来自已加载程序集，重启后更新，不依赖界面中的版本号或磁盘上的文件时间。
+
+远程观看与本地观看使用相同的操作反馈。提示层不设置 Windows 的系统级屏幕捕获排除，避免 UU 远程、远程桌面和录屏把光标、卡片及边缘光过滤掉。仅在 YTray 自己复制屏幕图像时短暂隐藏提示层，截图结束立即恢复；测试直接使用默认窗口设置验证可捕获性，不再先修改捕获标志。
 
 默认上下文为当前窗口的完整精简快照：只显示可见控件、短文本和当前值，去掉容器层级、隐藏扩展、屏幕外内容及重复标签；保留原控件编号。控件正文只在 `content[].text` 中出现一次，`structuredContent` 保留 `window_id`、标题、窗口列表、图片尺寸和裁剪信息，不再重复整棵树。读取具体控件可用 `get_window_state({"window_id":123,"query":"搜索"})`；`detail:"full"` 返回完整树，并兼容 `structuredContent.tree_markdown` 字段。快照不依赖客户端历史，也没有增量游标。
 
@@ -70,13 +78,13 @@ Windows 原生实现（C# / WPF / .NET 10），与 macOS 版本（`darwin/`）�
 
 上例直接取得搜索栏附近的精简文字，不需要先创建会话。激活窗口也支持 `include_screenshot:false`；常规动作继续自动返回最新状态。
 
-后端使用固定的官方 Rust **cua-driver 0.38.0 集成候选（上游标记 prerelease）**，采用 `standard` 模式和明确的工具 allowlist，不限制应用资源，也不设置 expiry/idle timeout。只有独立测试的受限范围使用 resource manifest。使用私有 stdio 进程与创建时绑定的 kill-on-close Job Object，不启动共享 daemon，不安装感知模型，关闭 telemetry。版本、源码和 archive/EXE/helper 摘要见 `resources/cua-driver/runtime-manifest.json`。发布包内嵌经校验的 archive，可离线准备；源码未内嵌时按固定地址下载并校验。
+后端完全由 YTray 实现：UI Automation COM 读取控件和执行后台模式，user32 负责前台输入、按键与滚动，GDI / PrintWindow 负责截图。`YTray.exe --native-control-worker` 是同一个程序的内部工作模式，不加载托盘、用户配置或浏览器服务；私有 stdio 与创建时绑定的 kill-on-close Job Object 保证控制进程可独立恢复。无需下载或安装控制组件，没有外部驱动会话、授权租期或空闲超时。
 
-当前支持 Windows x64，ARM64 与 32 位 Windows 未启用。x86 宿主到 x64 helper 的 stdio/Job 链路已有独立回归，真实应用、RDP、跨屏和不同 DPI 仍需扩大实机覆盖。复制配置用于本机客户端，网页跨来源接入尚未提供设置入口。桌面端点不公开任意 shell、文件路径、JavaScript 或 raw CDP；现有 Yakit 浏览器 Pipe 保留原有消息。
+提供 x64 / x86 构建，分别使用同架构的原生控制工作进程，UIA 支持跨应用进程访问；未单独构建原生 ARM64 版本。RDP、跨屏与不同 DPI 仍需扩大实机覆盖。复制配置用于本机客户端，网页跨来源接入尚未提供设置入口。桌面端点不公开任意 shell、文件路径、JavaScript 或 raw CDP；现有 Yakit 浏览器 Pipe 保留原有消息。
 
 ### 本机验证
 
-构建与测试统一使用 .NET 10 SDK，项目由 `windows/global.json` 选择稳定的 10.0 SDK；开发时需安装 SDK，发布包包含自己的运行库。
+构建与测试使用 `windows/global.json` 指定的 .NET SDK；它仅是开发工具。目标框架是 `net472`，引用程序集通过 NuGet 恢复，发布包使用 Windows 自带的 Framework。
 
 ```powershell
 pwsh -File windows/build.ps1 -Release -Test -Architecture amd64
@@ -139,9 +147,9 @@ windows/
 
 ### 依赖
 
-- .NET 10 SDK；不要求 Visual Studio 或 .NET Framework 引用程序集
+- .NET 10 SDK 和 PowerShell 7.2+；不要求 Visual Studio，.NET Framework 4.7.2 引用程序集通过 NuGet 自动恢复
 - NuGet 包在构建时自动还原（Newtonsoft.Json / MSTest 等）
-- `-Package` 使用 .NET 自包含单文件发布，将 Desktop Runtime、HandyControl、Newtonsoft.Json 等依赖打包进单个 `YTray.exe`；关闭裁剪，保留 WPF 和反射所需类型
+- `-Package` 使用 Costura 嵌入 HandyControl / Newtonsoft.Json 等托管依赖，输出 `YTray.exe` 与很小的 `.exe.config`；不打包 .NET 运行时或外部电脑控制引擎
 - `-Package` 会读取 OSS 发布清单的 `latest`，下载并校验对应的 Yakit Browser Agent，再作为资源嵌入同一个 EXE
 - 正式版启动后会读取 YTray OSS `latest.json`；用户可在设置页查看下载进度，安装包通过大小与 SHA-256 校验后由 Inno Setup 静默替换并自动重启
 
@@ -171,7 +179,23 @@ pwsh -File windows/build.ps1 -Test
 
 测试覆盖：应用更新版本比较与架构选择、Dock 角标序列/校验、浏览器类型推断、HTTP 代理规范化、代理探测请求/响应解析、启动参数隔离边界、自定义参数防护、插件加载、Chrome for Testing 标志、会话恢复、命令行扩展能力、稳定实例 AUMID、Windows Shell PropertyKey 和 PROPVARIANT 生命周期。
 
-Windows 便携产物为一个自包含 `YTray.exe`，同时带有经过大小和 SHA-256 校验的 Yakit Browser Agent 和电脑控制组件。目标机器无需安装 .NET；首次启动时 .NET 会将所需原生运行库释放到当前用户临时目录。浏览器插件首次启动会默认启用，之后仍可在插件页更新、重新下载或移除。安装包明确拒绝 Windows 10 1809 以前的系统。
+Windows 便携产物为 `YTray.exe` 与 `.exe.config`，同时带有经过大小和 SHA-256 校验的 Yakit Browser Agent。安装包包含完整电脑控制功能；启动或开启控制时不再下载组件。目标机器使用系统内置的 .NET Framework 4.7.2 或更高的就地兼容版本。浏览器插件首次启动会默认启用，之后仍可在插件页更新、重新下载或移除。安装包明确拒绝 Windows 10 1809 以前的系统。
+
+### 发布体积
+
+完整离线产物不携带独立 .NET 运行时或外部控制引擎。原生控制工作进程复用同一个 EXE，Windows 10 1809 与更新系统内置的 Framework 提供执行环境。构建时限制 EXE 不超过 20 MiB，并输出 EXE 和安装包大小，防止大依赖重新进入分发包。
+
+2026-11-09 本地完整离线产物对比（MiB，包含浏览器插件与原生电脑控制）：
+
+| 架构 / 产物 | 原自带 .NET 10 和外部引擎版本 | 原生版本 |
+| --- | ---: | ---: |
+| x64 EXE | 117.6 | 5.27 |
+| x64 安装包 | 109.2 | 4.65 |
+| x86 安装包 | — | 4.52 |
+
+x64 安装包减少约 95.7%。这些是完整首装体积，没有把必需的运行时或控制组件转移到首次下载。
+
+便携模式请将 `.exe.config` 与 EXE 放在一起；正常用户直接安装单个 `-setup.exe` 即可。
 
 ### 命令行模式
 

@@ -71,6 +71,7 @@ namespace YTray.Native
             var above = GetWindow(Handle, 3); // GW_HWNDPREV: higher in Z order.
             for (var count = 0; above != IntPtr.Zero && count < 2048; count++, above = GetWindow(above, 3)) {
                 if (above == ignoreWindow || !IsWindowVisible(above) || IsIconic(above)) continue;
+                if (WindowsActionOverlay.IsOverlayWindow(above)) continue;
                 if (DwmGetWindowAttribute(above, 14, out var cloaked, 4) == 0 && cloaked != 0) continue;
                 // Native recording/cursor overlays are transparent to input and
                 // explicitly omitted by Windows capture. They do not cover the image.

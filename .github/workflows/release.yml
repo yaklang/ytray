@@ -188,6 +188,7 @@ jobs:
           if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Standalone smoke timed out.' }
           if ($process.ExitCode -ne 0 -or -not (Test-Path $marker)) { throw 'Standalone smoke failed.' }
           $result = Get-Content $marker -Raw | ConvertFrom-Json
+          if ($result.runtimeMajor -ne 4 -or $result.controlBackend -ne 'windows-native') { throw 'Release must use the inbox Framework and native computer control.' }
           $bundled = Get-Content "windows/artifacts/$arch/plugin-windows-$arch.json" -Raw | ConvertFrom-Json
           if ($result.version -ne $version) { throw "Standalone version mismatch: $($result.version) != $version" }
           if ($result.bundledExtensionVersion -ne $bundled.version) { throw 'Bundled plugin version mismatch.' }

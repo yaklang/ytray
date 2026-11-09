@@ -45,11 +45,11 @@ ArchitecturesAllowed=x86compatible
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "..\resources\dotnet\*.txt"; DestDir: "{app}\Licenses\DotNet"; Flags: ignoreversion
 Source: "..\.dependencies\WinSparkle-0.9.4\COPYING.expat"; DestDir: "{app}\Licenses"; DestName: "Expat.txt"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}\Licenses"; Flags: ignoreversion
 Source: "..\.dependencies\WinSparkle-0.9.4\COPYING"; DestDir: "{app}\Licenses"; DestName: "WinSparkle.txt"; Flags: ignoreversion
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "YTray.exe"; Flags: ignoreversion
+Source: "{#SourceExe}.config"; DestDir: "{app}"; DestName: "YTray.exe.config"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\YTray"; Filename: "{app}\YTray.exe"

@@ -105,10 +105,7 @@ namespace YTray.Core
             Directory.CreateDirectory(directory);
             foreach (var license in new[] {
                 (Resource: "WinSparkleLicense", File: "WinSparkle-LICENSE.txt"),
-                (Resource: "ExpatLicense", File: "Expat-LICENSE.txt"),
-                (Resource: "DotNetRuntimeLicense", File: "DotNet-Runtime-LICENSE.txt"),
-                (Resource: "DotNetDesktopLicense", File: "DotNet-Desktop-LICENSE.txt"),
-                (Resource: "DotNetThirdPartyNotices", File: "DotNet-THIRD-PARTY-NOTICES.txt") })
+                (Resource: "ExpatLicense", File: "Expat-LICENSE.txt") })
             {
                 using (var source = typeof(NativeAppUpdater).Assembly.GetManifestResourceStream("YTray." + license.Resource)
                     ?? throw new InvalidDataException("组件许可证缺失"))
