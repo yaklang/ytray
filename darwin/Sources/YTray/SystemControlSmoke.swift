@@ -39,6 +39,9 @@ func runSystemControlSmoke(application: NSApplication) {
         }
         @MainActor func call(_ stage: String, _ tool: String, _ arguments: [String: Any] = [:]) async throws -> [String: Any] {
             let before = currentState()
+            var arguments = arguments
+            // Existing cases intentionally exercise the legacy capture/token lifecycle.
+            if SystemControlController.actions.contains(tool), arguments["return_state"] == nil { arguments["return_state"] = false }
             let result = try await controller.perform(tool, arguments: arguments)
             let request: [String: Any] = ["name": tool, "arguments": arguments]
             save(stage + "-request", request)
@@ -192,6 +195,55 @@ func runSystemControlSmoke(application: NSApplication) {
                     await settle { submissions() == 2 }
                     check("foreground key", foregroundKey["isError"] as? Bool != true && submissions() == 2, detail: "Return submissions=\(submissions())")
                     _ = try await observe("18-after-foreground")
+                }
+                let full = try await observe("19-efficiency-full")
+                let compact = try await call("20-efficiency-compact", "get_window_state", ["window_id": targetWindow, "include_screenshot": false])
+                func textBytes(_ value: [String: Any]) -> Int {
+                    var copy = value
+                    copy["content"] = (value["content"] as? [[String: Any]] ?? []).filter { $0["type"] as? String != "image" }
+                    return (try? JSONSerialization.data(withJSONObject: copy, options: [.sortedKeys]).count) ?? 0
+                }
+                let compactState = compact["structuredContent"] as? [String: Any] ?? [:]
+                check("compact single representation", compactState["elements"] == nil && textBytes(compact) < textBytes(full),
+                      detail: "full=\(textBytes(full)) bytes, compact=\(textBytes(compact)) bytes excluding images; not token counts")
+                let all = (full["structuredContent"] as? [String: Any])?["elements"] as? [[String: Any]] ?? []
+                guard let button = all.first(where: { $0["label"] as? String == "Increment" }),
+                      let index = button["element_index"] as? Int, let region = button["bounds"] as? [String: Double] else { throw SystemControlError("Missing compact control mapping") }
+                let regional = try await call("21-efficiency-region", "get_window_state", ["pid": targetPID, "window_id": targetWindow, "region": region])
+                let regionalState = regional["structuredContent"] as? [String: Any] ?? [:]
+                check("region without screenshot", !(regional["content"] as? [[String: Any]] ?? []).contains { $0["type"] as? String == "image" }
+                      && SystemControlController.text(regional).contains("[\(index)]"), detail: "region=\(textBytes(regional)) bytes; original index=\(index)")
+                let beforeIndexCount = count()
+                let indexed = try await call("22-indexed-click", "click", ["window_id": targetWindow, "element_index": index,
+                    "snapshot_id": regionalState["snapshot_id"] ?? "", "return_state": true])
+                await settle { count() == beforeIndexCount + 1 }
+                check("indexed action returns state", count() == beforeIndexCount + 1 && (indexed["structuredContent"] as? [String: Any])?["observation_available"] as? Bool == true,
+                      detail: "one input call returned a fresh snapshot")
+                let staleIndex = try await call("23-stale-index", "click", ["target": target, "element_index": index,
+                    "snapshot_id": regionalState["snapshot_id"] ?? "", "return_state": true])
+                check("old index snapshot refusal", staleIndex["isError"] as? Bool == true && count() == beforeIndexCount + 1, detail: "no repeated input")
+                let typingState = try await observe("24-combined-before")
+                let oldSubmissions = submissions()
+                let combined = try await call("25-combined-type", "type_text", ["target": target,
+                    "element_token": try token(typingState, label: "Message"), "text": "Combined 你好", "replace": true, "submit": true, "return_state": true])
+                await settle { message() == "Combined 你好" && submissions() == oldSubmissions + 1 }
+                check("replace submit and state", combined["isError"] as? Bool != true && message() == "Combined 你好" && submissions() == oldSubmissions + 1,
+                      detail: "replace + confirm in one call, submissions=\(submissions())")
+                if testForeground {
+                    let before = try await observe("26-foreground-combined-before")
+                    let expected = "Foreground 你好 👨‍👩‍👧‍👦"
+                    let old = submissions()
+                    let compound = try await call("27-foreground-combined", "type_text", ["target": target,
+                        "element_token": try token(before, label: "Message"), "text": expected,
+                        "replace": true, "submit": true, "return_state": true, "delivery_mode": "foreground", "restore_focus": false])
+                    await settle { message() == expected && submissions() == old + 1 }
+                    check("foreground replace submit", compound["isError"] as? Bool != true && message() == expected && submissions() == old + 1,
+                          detail: message())
+                    let selected = try await call("28-chord-selection", "press_key", ["window_id": targetWindow,
+                        "key": "cmd+a", "return_state": true, "delivery_mode": "foreground", "restore_focus": false])
+                    let focus = (selected["structuredContent"] as? [String: Any])?["focus"] as? [String: Any]
+                    check("key chord actual selection", selected["isError"] as? Bool != true && focus?["selected_text"] as? String == expected,
+                          detail: "AX selection=\(focus?["selected_text"] ?? "unavailable")")
                 }
                 status = steps.allSatisfy { $0["passed"] as? Bool == true } ? "passed" : "failed"
             }

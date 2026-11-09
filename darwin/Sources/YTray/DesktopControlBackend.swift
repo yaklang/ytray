@@ -49,9 +49,12 @@ enum DesktopNativeTools {
             "display_id": ["type": "string", "enum": ["primary"]]
         ]]
         let input: [String: Any] = ["target": target, "pid": integer, "window_id": integer,
-                                    "delivery_mode": ["type": "string", "enum": ["background", "foreground"], "default": "background"]]
+                                    "delivery_mode": ["type": "string", "enum": ["background", "foreground"], "default": "background"],
+                                    "element_index": ["type": "integer", "minimum": 0, "maximum": 999], "snapshot_id": string,
+                                    "include_screenshot": boolean, "return_state": ["type": "boolean", "default": true],
+                                    "restore_focus": ["type": "boolean", "default": true, "description": "Foreground only: false keeps the target active for consecutive actions."]]
         func tool(_ name: String, _ description: String, _ properties: [String: Any], _ required: [String] = [], readOnly: Bool = true) -> [String: Any] {
-            ["name": name, "description": description, "inputSchema": ["type": "object", "properties": properties,
+            ["name": name, "description": description + (readOnly ? "" : " Returns latest compact controls; element_index is the original [N] in the latest snapshot. Add snapshot_id to reject an old index. return_state=false keeps the observation; images default off except coordinate actions."), "inputSchema": ["type": "object", "properties": properties,
                 "required": required, "additionalProperties": false],
              "annotations": ["readOnlyHint": readOnly, "destructiveHint": !readOnly]]
         }
@@ -59,24 +62,28 @@ enum DesktopNativeTools {
             tool("list_apps", "List running applications in the current user's macOS desktop.", [:]),
             tool("list_windows", "List CG windows with exact owner PID, window ID and screen-point bounds.", ["pid": integer, "on_screen_only": boolean]),
             tool("check_permissions", "Read YTray's actual Accessibility and Screen Recording preflight state. Does not prompt.", [:]),
-            tool("get_window_state", "Observe one exact window. Tokens are scoped to the latest snapshot of that window and this session. Screenshot coordinates use the returned coordinate scale.", [
+            tool("get_window_state", "Observe window_id from list_windows (pid optional, resolved from its actual owner). Default compact controls appear once as [N]; detail=full or tree_format exposes raw tokens. Region uses window-image pixels and defaults to no screenshot. Tokens are scoped to the latest snapshot of that window and this session. Screenshot coordinates use the returned coordinate scale.", [
                 "pid": integer, "window_id": integer, "query": string, "include_accessibility_tree": boolean, "include_screenshot": boolean,
                 "max_elements": ["type": "integer", "minimum": 1, "maximum": 1000],
                 "max_depth": ["type": "integer", "minimum": 1, "maximum": 32],
                 "timeout_ms": ["type": "integer", "minimum": 100, "maximum": 3000],
                 "max_dimension": ["type": "integer", "minimum": 100, "maximum": 4096],
                 "max_image_dimension": ["type": "integer", "minimum": 100, "maximum": 4096],
+                "detail": ["type": "string", "enum": ["compact", "full"], "default": "compact"],
+                "max_text_chars": ["type": "integer", "minimum": 256, "maximum": 30000],
+                "region": ["type": "object", "additionalProperties": false, "required": ["x", "y", "width", "height"],
+                    "properties": ["x": point, "y": point, "width": ["type": "number", "minimum": 0.01], "height": ["type": "number", "minimum": 0.01]]],
                 "tree_format": ["type": "string", "enum": ["markdown", "elements", "both"]]
-            ], ["pid", "window_id"]),
+            ], ["window_id"]),
             tool("get_desktop_state", "Capture the primary display using Apple's ScreenCaptureKit. Does not install or launch another runtime.", ["max_image_dimension": ["type": "integer", "minimum": 100, "maximum": 4096]]),
             tool("click", "Background: AXPress/AXShowMenu on the selected element. Pixel hit-testing can resolve an AX control. Arbitrary pixels require explicitly authorized foreground mode. Never escalates automatically.", input.merging([
                 "element_token": string, "capture_id": string, "x": point, "y": point,
                 "button": ["type": "string", "enum": ["left", "right"]], "count": ["type": "integer", "minimum": 1, "maximum": 2]
             ]) { _, new in new }, readOnly: false),
-            tool("type_text", "Background inserts through AXSelectedText or a writable AX text value. Unsupported controls refuse; generic Unicode key events require foreground mode.", input.merging([
-                "element_token": string, "x": point, "y": point, "text": ["type": "string", "maxLength": 20000]
+            tool("type_text", "Returns fresh compact state (no image by default); return_state=false skips it. replace=true replaces text; submit=true confirms after typing if supported. Background inserts through AXSelectedText or a writable AX text value. Unsupported controls refuse; generic Unicode key events require foreground mode.", input.merging([
+                "element_token": string, "x": point, "y": point, "text": ["type": "string", "maxLength": 20000], "replace": boolean, "submit": boolean
             ]) { _, new in new }, ["text"], readOnly: false),
-            tool("press_key", "Background supports advertised AXConfirm/AXCancel/AXPress actions. General keys and modifiers require foreground mode and exact window focus.", input.merging([
+            tool("press_key", "Background supports advertised AXConfirm/AXCancel/AXPress actions. Chords such as cmd+l are accepted. General keys and modifiers require foreground mode and exact window focus.", input.merging([
                 "element_token": string, "key": string, "modifiers": ["type": "array", "items": string]
             ]) { _, new in new }, ["key"], readOnly: false),
             tool("scroll", "Background scroll uses a window's AX scrollbar. Coordinates are within its latest screenshot; amount counts app-defined AX steps. Foreground uses native wheel events.", input.merging([

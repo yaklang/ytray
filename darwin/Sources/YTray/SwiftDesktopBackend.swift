@@ -47,6 +47,9 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                 throw DesktopOperationError("invalid_arguments", "不支持的工具或参数")
             }
             try NativeAXWorker.validate(args, schema: schema)
+            let supplied = args
+            let args = supplied["pid"] == nil && supplied["target"] == nil && supplied["window_id"] != nil
+                ? try await worker.run(id) { try $0.resolveOwner(supplied) } : supplied
             switch name {
             case "check_permissions":
                 let grants = ComputerControlPermissions.current()
@@ -66,7 +69,7 @@ final class SwiftDesktopBackend: DesktopControlBackend {
             case "list_windows": return try await worker.run(id) { try $0.listWindows(args) }
             case "get_window_state":
                 var result = try await worker.run(id) { try $0.observe(args, generation: id) }
-                if try NativeAXWorker.bool(args, "include_screenshot", fallback: true) {
+                if try DesktopObservation.wantsScreenshot(args) {
                     do {
                         let pid = try NativeAXWorker.positiveInt(args, "pid")
                         let windowID = try NativeAXWorker.positiveInt(args, "window_id")
@@ -83,14 +86,6 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                         structured["image_width"] = capture.image.width
                         structured["image_height"] = capture.image.height
                         structured["coordinate_scale"] = capture.scale
-                        if var elements = structured["elements"] as? [[String: Any]] {
-                            for index in elements.indices {
-                                if let b = elements[index]["bounds"] as? [String: Double] {
-                                    elements[index]["bounds"] = b.mapValues { $0 * Double(capture.scale) }
-                                }
-                            }
-                            structured["elements"] = elements
-                        }
                         result["structuredContent"] = structured
                         var content = result["content"] as? [[String: Any]] ?? []
                         content.append(imageBlock)
@@ -105,7 +100,7 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                     }
                 }
                 try lease.check(id)
-                return result
+                return try DesktopObservation.format(result, arguments: args)
             case "get_desktop_state":
                 guard CGPreflightScreenCaptureAccess() else { throw DesktopOperationError("permission_denied", "YTray 尚未获得屏幕录制权限") }
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -123,38 +118,95 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                 result["content"] = [["type": "text", "text": "Primary display capture"], try Self.image(capture.image)]
                 return result
             default:
-                guard AXIsProcessTrusted() else { throw DesktopOperationError("permission_denied", "YTray 尚未获得辅助功能权限") }
-                let foreground = args["delivery_mode"] as? String == "foreground"
-                let desktop = (args["target"] as? [String: Any])?["kind"] as? String == "desktop"
-                if desktop && !foreground { throw DesktopOperationError("background_unavailable", "桌面目标只支持明确授权的前台输入") }
-                let indicatorRevision = indicator.revision
-                defer { if generation == id, indicator.revision != indicatorRevision { indicator.finish() } }
-                let previous = NSWorkspace.shared.frontmostApplication
-                let target = desktop ? nil : try NativeAXWorker.windowTarget(args)
-                defer {
-                    // Restore only our own temporary activation; respect a user's intervening app switch.
-                    if foreground, let target, let previous, !previous.isTerminated, generation == id,
-                       NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid,
-                       previous.processIdentifier != target.pid {
-                        previous.activate(options: [])
-                    }
+                let normalized = try await worker.run(id) { try $0.actionArguments(args) }
+                let result: [String: Any]
+                do { result = try await performAction(name, args: normalized, generation: id) }
+                catch let error as DesktopOperationError {
+                    var failure = error.toolResult
+                    var state = failure["structuredContent"] as? [String: Any] ?? [:]
+                    state["execution_state"] = "Unknown"
+                    state["automatic_replay_allowed"] = false
+                    failure["structuredContent"] = state
+                    result = failure
                 }
-                if foreground, let target {
-                    try await worker.run(id) { try $0.raiseWindow(target, tool: name, args: args); return [:] }
-                    try lease.check(id)
-                    guard let app = NSRunningApplication(processIdentifier: target.pid), app.activate(options: []) else {
-                        throw DesktopOperationError("foreground_unavailable", "目标应用无法激活")
-                    }
-                    try lease.check(id)
-                }
-                let capture = desktopCapture
-                return try await worker.run(id) { try $0.act(name, args: args, generation: id, desktopCapture: capture) }
+                try lease.check(id)
+                guard try NativeAXWorker.bool(args, "return_state", fallback: true),
+                      (args["target"] as? [String: Any])?["kind"] as? String != "desktop" else { return result }
+                let target = try NativeAXWorker.windowTarget(normalized)
+                let observation: [String: Any] = ["pid": Int(target.pid), "window_id": Int(target.windowID),
+                    "include_screenshot": try NativeAXWorker.bool(args, "include_screenshot", fallback: args["x"] != nil || args["y"] != nil)]
+                let latest = try await request("tools/call", params: ["name": "get_window_state", "arguments": observation])
+                try lease.check(id)
+                return Self.finishAction(result, observation: latest)
             }
         } catch let error as DesktopOperationError { return error.toolResult }
         catch {
             try lease.check(id)
             return DesktopOperationError("native_error", "\(type(of: error)): \(error.localizedDescription)").toolResult
         }
+    }
+
+    private func performAction(_ name: String, args: [String: Any], generation id: UUID) async throws -> [String: Any] {
+        guard AXIsProcessTrusted() else { throw DesktopOperationError("permission_denied", "YTray 尚未获得辅助功能权限") }
+        let foreground = args["delivery_mode"] as? String == "foreground"
+        let desktop = (args["target"] as? [String: Any])?["kind"] as? String == "desktop"
+        if desktop && !foreground { throw DesktopOperationError("background_unavailable", "桌面目标只支持明确授权的前台输入") }
+        let indicatorRevision = indicator.revision
+        defer { if generation == id, indicator.revision != indicatorRevision { indicator.finish() } }
+        let previous = NSWorkspace.shared.frontmostApplication
+        let target = desktop ? nil : try NativeAXWorker.windowTarget(args)
+        defer {
+            // Restore only our own temporary activation; respect a user's intervening app switch.
+            if foreground, args["restore_focus"] as? Bool != false, let target, let previous, !previous.isTerminated, generation == id,
+               NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid,
+               previous.processIdentifier != target.pid {
+                previous.activate(options: [])
+            }
+        }
+        if foreground, let target {
+            try await worker.run(id) { try $0.raiseWindow(target, tool: name, args: args); return [:] }
+            try lease.check(id)
+            guard let app = NSRunningApplication(processIdentifier: target.pid), app.activate(options: []) else {
+                throw DesktopOperationError("foreground_unavailable", "目标应用无法激活")
+            }
+            try lease.check(id)
+        }
+        let capture = desktopCapture
+        let result = try await worker.run(id) { try $0.act(name, args: args, generation: id, desktopCapture: capture) }
+        if foreground {
+            // CGEvent posting is asynchronous. Keep the admitted target active long
+            // enough to consume the final key-up before restoring our activation.
+            try await Task.sleep(nanoseconds: 40_000_000)
+            try lease.check(id)
+        }
+        return result
+    }
+
+
+    /// Preserve execution errors independently of whether the post-action read works.
+    nonisolated static func finishAction(_ action: [String: Any], observation: [String: Any]) -> [String: Any] {
+        guard observation["isError"] as? Bool != true else {
+            var result = action
+            var state = result["structuredContent"] as? [String: Any] ?? [:]
+            state["observation_error"] = observation["structuredContent"]
+            state["observation_available"] = false
+            result["structuredContent"] = state
+            return result
+        }
+        var result = observation
+        var state = result["structuredContent"] as? [String: Any] ?? [:]
+        state["action"] = action["structuredContent"] ?? [:]
+        if action["isError"] as? Bool == true, let failure = action["structuredContent"] as? [String: Any] {
+            for key in ["error_code", "message", "execution_state", "automatic_replay_allowed"] { state[key] = failure[key] }
+        }
+        state["observation_available"] = true
+        result["structuredContent"] = state
+        result["isError"] = action["isError"] as? Bool ?? false
+        let message = ((action["content"] as? [[String: Any]] ?? []).first?["text"] as? String ?? "Action returned")
+        var content = result["content"] as? [[String: Any]] ?? []
+        if !content.isEmpty { content[0]["text"] = message + "\n" + (content[0]["text"] as? String ?? "") }
+        result["content"] = content
+        return result
     }
 
     private func captureWindow(pid: pid_t, windowID: CGWindowID, maximum: Int) async throws -> (image: CGImage, scale: CGFloat, frame: CGRect) {
