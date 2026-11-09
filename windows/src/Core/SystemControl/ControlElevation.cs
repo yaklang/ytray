@@ -23,7 +23,7 @@ namespace YTray.Core.SystemControl
             var security = new EventWaitHandleSecurity();
             security.AddAccessRule(new EventWaitHandleAccessRule(WindowsIdentity.GetCurrent().User!, EventWaitHandleRights.FullControl, AccessControlType.Allow));
             using var process = Process.GetCurrentProcess();
-            _shutdown = EventWaitHandleAcl.Create(false, EventResetMode.AutoReset, EventName(process), out _, security);
+            _shutdown = new EventWaitHandle(false, EventResetMode.AutoReset, EventName(process), out _, security);
             _registration = ThreadPool.RegisterWaitForSingleObject(_shutdown, (_, __) => dispatcher.BeginInvoke(shutdown), null, Timeout.Infinite, true);
         }
         internal static ProcessStartInfo RepairStartInfo()
@@ -52,7 +52,7 @@ namespace YTray.Core.SystemControl
             if (previous.StartTime.ToUniversalTime().Ticks != created || previous.SessionId != current.SessionId
                 || !string.Equals(previous.MainModule!.FileName, current.MainModule!.FileName, StringComparison.OrdinalIgnoreCase) || !SameUser(previous))
                 throw new InvalidOperationException("无法验证原 YTray 实例，请关闭它后以管理员身份重新打开。");
-            using (var signal = EventWaitHandleAcl.OpenExisting(EventName(previous), EventWaitHandleRights.Modify)) signal.Set();
+            using (var signal = EventWaitHandle.OpenExisting(EventName(previous), EventWaitHandleRights.Modify)) signal.Set();
             if (!previous.WaitForExit(10000)) throw new InvalidOperationException("原 YTray 仍在退出，请稍后重试。");
             return true;
         }

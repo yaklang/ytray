@@ -56,7 +56,7 @@ namespace YTray.Core
             var user = WindowsIdentity.GetCurrent().User
                 ?? throw new InvalidOperationException("无法识别当前 Windows 用户");
             security.AddAccessRule(new PipeAccessRule(user, PipeAccessRights.ReadWrite, AccessControlType.Allow));
-            return NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
+            return new NamedPipeServerStream(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
                 PipeOptions.Asynchronous, 4096, 4096, security);
         }
 

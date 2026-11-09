@@ -33,7 +33,7 @@ namespace YTray.Native
                 if (_installed != null && DateTime.UtcNow - _scanned < TimeSpan.FromMinutes(2)) return _installed.ToList();
                 var apps = new Dictionary<string, App>(StringComparer.OrdinalIgnoreCase);
                 void Add(string? path, string? name = null) {
-                    if (string.IsNullOrWhiteSpace(path)) return;
+                    if (path == null || string.IsNullOrWhiteSpace(path)) return;
                     path = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
                     if (!System.IO.Path.IsPathRooted(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) return;
                     path = System.IO.Path.GetFullPath(path);
@@ -96,8 +96,8 @@ namespace YTray.Native
                 || destination.Scheme != "https" && destination.Scheme != "http"))
                 throw new ControlException("InvalidArguments", "url 仅支持浏览器的 http/https 地址");
             var start = new ProcessStartInfo(app.Path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(app.Path)! };
-            if (newWindow && browser) start.ArgumentList.Add("--new-window");
-            if (destination != null) start.ArgumentList.Add(destination.AbsoluteUri);
+            if (newWindow && browser) start.Arguments = "--new-window";
+            if (destination != null) start.Arguments += " \"" + destination.AbsoluteUri.Replace("\"", "%22") + "\"";
             using var launched = Process.Start(start);
             var elapsed = Stopwatch.StartNew();
             while (elapsed.Elapsed < TimeSpan.FromSeconds(12)) {

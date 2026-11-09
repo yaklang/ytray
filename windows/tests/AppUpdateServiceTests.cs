@@ -50,9 +50,7 @@ namespace YTray.Tests
         [TestMethod]
         public void BuildVersionComesFromRepositoryReleaseVersion()
         {
-            var versionFile = Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "VERSION"));
+            var versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "repository-version.txt");
             Assert.AreEqual(File.ReadAllText(versionFile).Trim(), YTrayBuildInfo.Version);
         }
 

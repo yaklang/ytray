@@ -109,7 +109,7 @@ namespace YTray.Core.SystemControl
                         if (parameters["name"]?.Type != JTokenType.String || parameters["arguments"] != null && !(parameters["arguments"] is JObject)) throw new ControlException("InvalidArguments", "工具参数无效");
                         var rpcKey = generation + ":" + rpc["id"]!.ToString(Formatting.None);
                         var actionRequest = (string?)parameters["arguments"]?["request_id"];
-                        var tracked = actionRequest != null && CuaDriverSchemaAdapter.Actions.Contains((string)parameters["name"]!);
+                        var tracked = actionRequest != null && NativeControlSchema.Actions.Contains((string)parameters["name"]!);
                         if (tracked && !_activeRequests.TryAdd(rpcKey, actionRequest!)) throw new ControlException("RequestConflict", "JSON-RPC id 已有进行中的请求");
                         try { result = await _controller.CallAsync((string)parameters["name"]!, (JObject?)parameters["arguments"] ?? new JObject(), generation).ConfigureAwait(false); }
                         catch (ControlException error) { result = error.Result(); }

@@ -12,16 +12,16 @@ namespace YTray.Native
 {
     // The child is assigned to a non-inheritable kill-on-close Job AT CREATION.
     // Starting first and assigning later leaves an orphan window if the host dies.
-    internal sealed class DriverProcessLauncher : IDisposable
+    internal sealed class ControlProcessLauncher : IDisposable
     {
         private IntPtr _job;
         internal Process Process { get; private set; } = null!;
         internal Stream Input { get; private set; } = null!;
         internal Stream Output { get; private set; } = null!;
         internal Stream Error { get; private set; } = null!;
-        internal static DriverProcessLauncher Start(string executable, IDictionary<string, string> environment, string arguments = "mcp")
+        internal static ControlProcessLauncher Start(string executable, IDictionary<string, string> environment, string arguments = "--native-control-worker")
         {
-            var owner = new DriverProcessLauncher();
+            var owner = new ControlProcessLauncher();
             var childHandles = new List<SafeFileHandle>(); var parentHandles = new List<SafeFileHandle>();
             IntPtr attributes = IntPtr.Zero, jobValue = IntPtr.Zero, handlesValue = IntPtr.Zero, environmentBlock = IntPtr.Zero;
             var info = new ProcessInformation();

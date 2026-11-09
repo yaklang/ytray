@@ -16,14 +16,14 @@ namespace YTray.Tests
     [TestClass]
     public class SystemControlLifecycleTests
     {
-        private static string Fake => Environment.GetEnvironmentVariable("YTRAY_FAKE_DRIVER_EXE") ?? Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "FakeDriver", "bin", "Debug", "net10.0-windows10.0.17763.0", "FakeDriver.exe"));
-        private static string Host => IntPtr.Size == 8 ? Fake : Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "FakeDriver", "bin", "x86", "Debug", "FakeDriver.exe"));
+        private static string Fake => Environment.GetEnvironmentVariable("YTRAY_TEST_WORKER_FIXTURE_EXE") ?? Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "ControlWorkerFixture", "bin", "Debug", "net472", "ControlWorkerFixture.exe"));
+        private static string Host => IntPtr.Size == 8 ? Fake : Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "ControlWorkerFixture", "bin", "x86", "Debug", "ControlWorkerFixture.exe"));
         private static Dictionary<string, string> EnvironmentBlock() { var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); foreach (DictionaryEntry pair in Environment.GetEnvironmentVariables()) result[(string)pair.Key] = pair.Value as string ?? ""; return result; }
         [TestMethod, TestCategory("ControlLifecycle")]
         public async Task RealStdioCorrelatesOutOfOrderResponsesAndDrainsStderr()
         {
-            Assert.IsTrue(File.Exists(Fake), "Build windows/tests/FakeDriver/FakeDriver.csproj first");
-            using var transport = new CuaDriverConnection(); await transport.StartAsync(Fake, EnvironmentBlock(), CancellationToken.None);
+            Assert.IsTrue(File.Exists(Fake), "Build windows/tests/ControlWorkerFixture/ControlWorkerFixture.csproj first");
+            using var transport = new NativeControlConnection(); await transport.StartAsync(Fake, EnvironmentBlock(), CancellationToken.None);
             var slow = transport.RequestAsync("test/echo", new JObject { ["value"] = "中文🚀", ["delay"] = 150 }, CancellationToken.None);
             var fast = transport.RequestAsync("test/echo", new JObject { ["value"] = "fast" }, CancellationToken.None);
             Assert.AreEqual("fast", (string?)(await fast)["value"]); Assert.AreEqual("中文🚀", (string?)(await slow)["value"]);
@@ -33,7 +33,7 @@ namespace YTray.Tests
         [TestMethod, TestCategory("ControlLifecycle")]
         public async Task TimeoutCompletesPendingAndJobKillsChildWithoutKillingCaller()
         {
-            using var transport = new CuaDriverConnection(); await transport.StartAsync(Fake, EnvironmentBlock(), CancellationToken.None);
+            using var transport = new NativeControlConnection(); await transport.StartAsync(Fake, EnvironmentBlock(), CancellationToken.None);
             var response = await transport.RequestAsync("test/child", new JObject(), CancellationToken.None); using var child = Process.GetProcessById((int)response["pid"]!);
             var pending = transport.RequestAsync("test/hang", new JObject(), CancellationToken.None, 200);
             var error = await Assert.ThrowsExactlyAsync<ControlException>(async () => await pending);
@@ -43,7 +43,7 @@ namespace YTray.Tests
         public async Task KillingHostAlsoKillsCreationBoundJobChild()
         {
             Assert.IsTrue(File.Exists(Host), "Build the matching architecture of the Job host harness first");
-            using var host = Process.Start(new ProcessStartInfo(Host, "--job-host \"" + typeof(CuaDriverConnection).Assembly.Location + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true });
+            using var host = Process.Start(new ProcessStartInfo(Host, "--job-host \"" + typeof(NativeControlConnection).Assembly.Location + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true });
             Assert.IsNotNull(host);
             try {
                 var line = host!.StandardOutput.ReadLineAsync(); Assert.AreEqual(line, await Task.WhenAny(line, Task.Delay(5000)), "Job harness did not start");
@@ -54,7 +54,7 @@ namespace YTray.Tests
         [TestMethod, TestCategory("ControlLifecycle")]
         public async Task BadFrameFailsAllPendingAndRuntimeCannotBeReused()
         {
-            using var transport = new CuaDriverConnection(); await transport.StartAsync(Fake, EnvironmentBlock(), CancellationToken.None);
+            using var transport = new NativeControlConnection(); await transport.StartAsync(Fake, EnvironmentBlock(), CancellationToken.None);
             var hanging = transport.RequestAsync("test/hang", new JObject(), CancellationToken.None);
             await Assert.ThrowsExactlyAsync<ControlException>(() => transport.RequestAsync("test/badframe", new JObject(), CancellationToken.None));
             await Assert.ThrowsExactlyAsync<ControlException>(async () => await hanging);
