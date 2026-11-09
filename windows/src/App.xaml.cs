@@ -20,6 +20,7 @@ namespace YTray
         private TrayApp? _tray;
         private LaunchAtLoginManager? _launchAtLogin;
         private NativeControlServer? _nativeControl;
+        private Core.SystemControl.ControlElevation? _controlElevation;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -31,11 +32,22 @@ namespace YTray
             CrashGuard.Install(this, StatePersistence.DefaultApplicationDirectory);
 
             var args = Environment.GetCommandLineArgs();
+            var repairControl = false;
+            try { repairControl = Core.SystemControl.ControlElevation.CompleteHandoff(e.Args); }
+            catch (Exception error) { MessageBox.Show(error.Message, "修复控制权限", MessageBoxButton.OK, MessageBoxImage.Information); Shutdown(1); return; }
             string? designCaptureDirectory = null;
             bool captureSitePreviewOnly = false;
             bool startupLaunch = false;
+            bool openSystemControl = false;
+            bool openWidget = false;
+            bool openMcp = false;
             for (int i = 0; i < args.Length; i++)
             {
+                if ((args[i] == "--preview-system-control" || args[i] == "--capture-control-review") && i + 1 < args.Length)
+                {
+                    CrashGuard.Observe(Core.SystemControl.ControlReviewCapture.RunAsync(args[i + 1], args[i] == "--preview-system-control"), "control-review");
+                    return;
+                }
                 if ((args[i] == "--capture-widget-review" || args[i] == "--preview-widget") && i + 1 < args.Length)
                 {
                     var preview = args[i] == "--preview-widget";
@@ -81,6 +93,9 @@ namespace YTray
                     startupLaunch = true;
                     continue;
                 }
+                if (args[i] == "--system-control") { openSystemControl = true; continue; }
+                if (args[i] == "--widget") { openWidget = true; continue; }
+                if (args[i] == "--mcp") { openMcp = true; continue; }
                 if (args[i] == "--smoke-browser" && i + 1 < args.Length)
                 {
                     // Do not synchronously block the WPF synchronization context around awaits.
@@ -105,6 +120,7 @@ namespace YTray
                 return;
             }
             _store = new InstanceStore();
+            _controlElevation = new Core.SystemControl.ControlElevation(Dispatcher, () => Shutdown());
             _store.ConfirmLaunchWithoutPlugins = Views.ExtensionLaunchDialog.Confirm;
             _nativeControl = new NativeControlServer(_store);
             _nativeControl.Start();
@@ -149,9 +165,17 @@ namespace YTray
                 );
             }
             // A login launch stays in the tray. A normal launch opens the manager immediately.
-            if (!startupLaunch) _tray.ShowManager();
+            if (openWidget && !repairControl) _tray.ShowWidget();
+            else if (!startupLaunch || repairControl) _tray.ShowManager(repairControl || openSystemControl ? "system" : openMcp ? "mcp" : null);
+            CrashGuard.Observe(repairControl ? RepairControlAndRestoreAsync() : _store.RestoreComputerControlAsync(), "computer-control-startup");
             if (_store.Settings.McpAutoStart) _store.StartMcpService();
             else _store.SetMcpStatus(false, "自动启动已关闭，可在 MCP 页面手动启动");
+        }
+
+        private async Task RepairControlAndRestoreAsync()
+        {
+            await _store!.RepairComputerControlAsync();
+            await _store.RestoreComputerControlAsync();
         }
 
         private static void VerifyStandalone(string markerPath)
@@ -192,7 +216,8 @@ namespace YTray
                 application = "YTray",
                 updateEngineSha256 = NativeAppUpdater.EngineHash,
                 version = YTrayBuildInfo.Version,
-                framework = ".NET Framework 4.8.1",
+                framework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                runtimeMajor = Environment.Version.Major,
                 jsonAssembly = typeof(JsonConvert).Assembly.GetName().Name,
                 bundledExtensionVersion = bundledVersion,
                 bundledExtensionName = bundledName,
@@ -243,6 +268,7 @@ namespace YTray
         {
             DiagnosticLog.Info("app.exit", $"application exiting; code={e.ApplicationExitCode}");
             _nativeControl?.Dispose();
+            _controlElevation?.Dispose();
             _tray?.Dispose();
             _launchAtLogin = null;
             _store?.Dispose();

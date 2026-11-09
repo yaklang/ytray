@@ -64,7 +64,7 @@ namespace YTray.Views.Pages
             _subscribed = false;
         }
 
-        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (!IsLoaded || _refreshScheduled) return;
             _refreshScheduled = true;

@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <PlatformTarget Condition="'$(PlatformTarget)' == ''">x64</PlatformTarget>
+    <BaseIntermediateOutputPath>obj/$(PlatformTarget)/</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

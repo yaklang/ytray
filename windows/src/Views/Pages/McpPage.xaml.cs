@@ -1,10 +1,8 @@
 #nullable enable
 using System;
 using System.ComponentModel;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using YTray.Core;
 
 namespace YTray.Views.Pages
@@ -13,86 +11,60 @@ namespace YTray.Views.Pages
     {
         private readonly InstanceStore _store;
         private bool _refreshing;
-        private static readonly string Configuration = "{\r\n  \"servers\": {\r\n    \"ytray\": {\r\n      \"type\": \"http\",\r\n      \"url\": \"" + McpServer.Endpoint + "\"\r\n    }\r\n  }\r\n}";
-
         public McpPage(InstanceStore store)
         {
-            InitializeComponent();
-            _store = store;
+            InitializeComponent(); _store = store;
             EndpointText.Text = McpServer.Endpoint;
-            ConfigTextBox.Text = Configuration;
-            Loaded += OnLoaded;
-            Unloaded += OnUnloaded;
+            ComputerEndpointText.Text = store.SystemControl.Endpoint;
+            ConfigTextBox.Text = McpConfiguration.YTray;
+            Loaded += (_, __) => { _store.PropertyChanged += Changed; _store.SystemControl.PropertyChanged += Changed; Refresh(); };
+            Unloaded += (_, __) => { _store.PropertyChanged -= Changed; _store.SystemControl.PropertyChanged -= Changed; };
             Refresh();
         }
-
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        private void Changed(object? sender, PropertyChangedEventArgs e)
         {
-            _store.PropertyChanged += OnStoreChanged;
-            Refresh();
+            if (Dispatcher.CheckAccess()) Refresh(); else Dispatcher.BeginInvoke(new Action(Refresh));
         }
-
-        private void OnUnloaded(object sender, RoutedEventArgs e) => _store.PropertyChanged -= OnStoreChanged;
-
-        private void OnStoreChanged(object sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName != string.Empty && e.PropertyName != nameof(InstanceStore.IsMcpAvailable)
-                && e.PropertyName != nameof(InstanceStore.McpStatusMessage)
-                && e.PropertyName != nameof(InstanceStore.IsMcpAutoStartEnabled)) return;
-            if (Dispatcher.CheckAccess()) Refresh();
-            else Dispatcher.BeginInvoke(new Action(Refresh));
-        }
-
         private void Refresh()
         {
-            if (ServiceToggle == null) return;
-            var running = _store.IsMcpAvailable;
-            var failed = !running && _store.McpStatusMessage.StartsWith("启动失败", StringComparison.Ordinal);
-            var statusBrush = (Brush)FindResource(running ? "SuccessBrush" : failed ? "DangerBrush" : "TextTertiaryBrush");
             _refreshing = true;
-            try
-            {
-                ServiceToggle.IsChecked = running;
-                AutoStartToggle.IsChecked = _store.IsMcpAutoStartEnabled;
-            }
-            finally { _refreshing = false; }
-            HeaderStatusDot.Fill = statusBrush;
-            HeaderStatusText.Text = running ? "服务运行中" : failed ? "启动失败" : "服务已停止";
-            ServiceStatusTitle.Text = running ? "正在接受 Agent 连接" : failed ? "监听器启动失败" : "当前不接受连接";
-            ServiceStatusDetail.Text = _store.McpStatusMessage;
-            StatusPill.Background = (Brush)FindResource(running ? "SuccessPaleBrush" : failed ? "DangerPaleBrush" : "SurfaceMutedBrush");
-            HeaderStatusText.Foreground = (Brush)FindResource(running ? "SuccessBrush" : failed ? "DangerBrush" : "TextSecondaryBrush");
+            ServiceToggle.IsChecked = _store.IsMcpAvailable;
+            AutoStartToggle.IsChecked = _store.IsMcpAutoStartEnabled;
+            ComputerToggle.IsChecked = _store.SystemControl.IsEnabled;
+            _refreshing = false;
+            ServiceStatusDetail.Text = _store.IsMcpAvailable ? "已开启 · " + _store.McpStatusMessage : _store.McpStatusMessage;
+            ComputerStatusText.Text = _store.SystemControl.StatusText + (_store.SystemControl.IsEnabled ? " · 保持开启即可随时使用" : " · 开启后可复制连接配置");
+            CopyComputerButton.IsEnabled = CopyBothButton.IsEnabled = _store.SystemControl.ConfigurationJSON != null;
+            ConnectionHint.Text = _store.SystemControl.IsEnabled ? "两个配置分别对应 ytray 和 ytray-system。电脑控制配置在总开关关闭后失效。" : "电脑控制尚未开启。可先复制 YTray 配置；开启电脑控制后，可复制包含两个服务的完整 JSON。";
         }
-
         private void ServiceToggle_Changed(object sender, RoutedEventArgs e)
         {
             if (_refreshing) return;
-            if (ServiceToggle.IsChecked == true) _store.StartMcpService();
-            else _store.StopMcpService();
+            if (ServiceToggle.IsChecked == true) _store.StartMcpService(); else _store.StopMcpService();
             Refresh();
         }
-
-        private void AutoStartToggle_Changed(object sender, RoutedEventArgs e)
+        private void AutoStartToggle_Changed(object sender, RoutedEventArgs e) { if (!_refreshing) _store.SetMcpAutoStart(AutoStartToggle.IsChecked == true); }
+        private async void ComputerToggle_Click(object sender, RoutedEventArgs e)
         {
-            if (!_refreshing) _store.SetMcpAutoStart(AutoStartToggle.IsChecked == true);
+            ComputerToggle.IsEnabled = false;
+            try { await _store.SetComputerControlEnabledAsync(ComputerToggle.IsChecked == true); }
+            catch (Exception error) { CopyFeedback.Text = error.Message; }
+            finally { ComputerToggle.IsEnabled = true; Refresh(); }
         }
-
-        private async void CopyEndpoint_Click(object sender, RoutedEventArgs e) =>
-            await CopyAsync(McpServer.Endpoint, CopyEndpointButton, "复制地址");
-
-        private async void CopyConfig_Click(object sender, RoutedEventArgs e) =>
-            await CopyAsync(Configuration, CopyConfigButton, "复制配置");
-
-        private static async Task CopyAsync(string value, Button button, string idleText)
+        private void Copy(string? configuration, string message)
         {
-            try
-            {
-                Clipboard.SetText(value);
-                button.Content = "已复制";
-            }
-            catch { button.Content = "复制失败"; }
-            await Task.Delay(TimeSpan.FromMilliseconds(1500));
-            button.Content = idleText;
+            if (configuration == null) return;
+            try { Clipboard.SetText(configuration); CopyFeedback.Text = message; }
+            catch { CopyFeedback.Text = "复制失败，请重试。"; }
+        }
+        private void CopyConfig_Click(object sender, RoutedEventArgs e) => Copy(McpConfiguration.YTray, "YTray MCP 配置已复制。");
+        private void CopyEndpoint_Click(object sender, RoutedEventArgs e) => Copy(McpServer.Endpoint, "YTray MCP 地址已复制。");
+        private void CopyComputer_Click(object sender, RoutedEventArgs e) => Copy(_store.SystemControl.ConfigurationJSON, "电脑控制 MCP 配置已复制。");
+        private void CopyBoth_Click(object sender, RoutedEventArgs e) => Copy(McpConfiguration.Both(_store.SystemControl.ConfigurationJSON), "两个 MCP 的配置已复制，粘贴一次即可添加两个服务。");
+        private void ComputerTools_Click(object sender, RoutedEventArgs e) => new SystemMcpWindow(_store.SystemControl) { Owner = Window.GetWindow(this) }.Show();
+        private void ComputerSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var settings = new SystemControlSettingsWindow(_store); settings.ShowFor(Window.GetWindow(this)!);
         }
     }
 }

@@ -47,7 +47,7 @@ namespace YTray.Tests
             using (var client = new HttpClient(new StubHandler(
                        new StringContent("<html>proxy error</html>", Encoding.UTF8, "text/html"))))
             {
-                var error = await Assert.ThrowsExceptionAsync<YTrayException>(() =>
+                var error = await Assert.ThrowsExactlyAsync<YTrayException>(() =>
                     RuntimeInstaller.FetchVersionsAsync(
                         client, new Uri("https://example.test/manifest.json"), CancellationToken.None));
                 var message = ((Exception)error).Message;
@@ -65,7 +65,7 @@ namespace YTray.Tests
             File.WriteAllText(Path.Combine(destination, "original.txt"), "original");
             try
             {
-                var error = Assert.ThrowsException<YTrayException>(() =>
+                var error = Assert.ThrowsExactly<YTrayException>(() =>
                     RuntimeInstaller.ReplaceInstallation(Path.Combine(root, "missing"), destination, "152.0.0.0"));
                 Assert.IsInstanceOfType(error.InnerException, typeof(DirectoryNotFoundException));
                 Assert.AreEqual("original", File.ReadAllText(Path.Combine(destination, "original.txt")));
