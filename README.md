@@ -182,7 +182,7 @@ open dist/darwin-arm64-dev/YTrayDev.app
 
 ### Windows
 
-要求 Windows、.NET 10 SDK（版本由 `windows/global.json` 选择）和 PowerShell 7；生成安装包还需要 Inno Setup 6。发布包自带 .NET Desktop Runtime，用户无需另装运行库。系统基线、电脑控制架构限制及完整验证步骤见 [Windows README](windows/README.md)：
+构建要求 Windows、.NET 10 SDK（版本由 `windows/global.json` 选择）和 PowerShell 7；生成安装包还需要 Inno Setup 6。发布包使用 Windows 10 1809 及更新系统自带的 .NET Framework 4.7.2 或更高兼容版本，用户无需另装运行库。系统基线、电脑控制架构及完整验证步骤见 [Windows README](windows/README.md)：
 
 ```powershell
 ./windows/build.ps1 -Release -Test -Package -Installer -Architecture amd64

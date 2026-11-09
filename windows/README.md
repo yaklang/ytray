@@ -13,7 +13,7 @@ Windows 原生实现（C# / WPF / .NET Framework 4.7.2），与 macOS 版本（`
 
 两个服务可分别启停和复制配置；电脑控制开启后，“复制两个 MCP 配置”可生成一个含两个条目的 `mcpServers` JSON。小组件电脑控制卡片的复制按钮仅复制电脑控制配置。复制操作不会替用户开启电脑控制。
 
-后续开发请参考 [Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md)：包含当前代码基线、Cua Driver 接入、授权与协议、分期任务和 Windows 验收步骤。该文档是实施计划，新增系统控制能力尚未交付。
+[Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md) 保留早期设计记录；当前实现已改用 Windows 原生 API，不再依赖 Cua Driver，实际架构和验收方式以本文为准。
 
 ## 功能
 
@@ -189,7 +189,7 @@ Windows 便携产物为 `YTray.exe` 与 `.exe.config`，同时带有经过大小
 
 | 架构 / 产物 | 原自带 .NET 10 和外部引擎版本 | 原生版本 |
 | --- | ---: | ---: |
-| x64 EXE | 117.6 | 5.24 |
+| x64 EXE | 117.6 | 5.27 |
 | x64 安装包 | 109.2 | 4.65 |
 | x86 安装包 | — | 4.52 |
 
