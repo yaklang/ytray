@@ -1,0 +1,57 @@
+name: Linux
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "linux/**"
+      - ".github/workflows/linux.yml"
+      - "VERSION"
+  pull_request:
+    paths:
+      - "linux/**"
+      - ".github/workflows/linux.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: linux/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync version
+        run: npm run sync-version
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Prepare bundled extension
+        run: bash scripts/prepare-bundled-extension.sh
+
+      - name: Build AppImage
+        run: npm run package
+        env:
+          # electron-builder refuses to publish without an explicit target.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytray-linux-appimage
+          path: linux/dist/*.AppImage
+          if-no-files-found: error

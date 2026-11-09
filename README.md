@@ -82,6 +82,7 @@ YTray 不修改系统浏览器的名称、Bundle ID、签名或默认浏览器�
 | macOS 14+ | Intel / amd64 | `YTray-<version>-darwin-amd64.dmg` |
 | Windows 10/11 | x64 / amd64 | `YTray-<version>-windows-amd64-setup.exe` |
 | Windows 10/11 | x86 / 386 | `YTray-<version>-windows-386-setup.exe` |
+| Linux（实验性） | x86_64 | `YTray-<version>-linux-x86_64.AppImage` |
 
 Windows on ARM 当前可以通过系统兼容层运行 x64 版；项目暂未发布原生 Windows ARM64 安装包。
 
@@ -225,11 +226,12 @@ https://aliyun-oss.yaklang.com/ytray/<version>/<filename>
 ```text
 darwin/                 Swift / AppKit / SwiftUI 应用与测试
 windows/                C# / WPF 应用、测试与 Inno Setup
+linux/                  Electron / TypeScript 应用（实验性，见 linux/README.md）
 script/                 macOS 打包、插件准备和发布索引
 site/                   Next.js / React / shadcn 官方网站（静态导出）
 assets/app-icon/        跨平台应用图标的 1024px 核心美术源文件
 docs/images/v0.1.0/     由应用真实渲染的版本化截图
-.github/workflows/      macOS、Windows、Pages 与 Release 流程
+.github/workflows/      macOS、Windows、Linux、Pages 与 Release 流程
 ```
 
 ## 安全与隐私边界

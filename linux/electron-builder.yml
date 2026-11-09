@@ -1,0 +1,40 @@
+appId: io.yaklang.ytray
+productName: YTray
+copyright: Yaklang
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+  - from: resources/bundled-extension
+    to: bundled-extension
+
+asar: true
+
+linux:
+  target:
+    - AppImage
+  category: Network
+  icon: build/icon.png
+  executableName: ytray
+  syncDesktopName: true
+  synopsis: 多身份浏览器实例工作台
+  description: 隔离用户目录、代理与调试端口，管理多个 Chromium 浏览器身份实例。
+  desktop:
+    entry:
+      Name: YTray
+      Comment: 多身份浏览器实例工作台
+      StartupWMClass: YTray
+      Keywords: browser;chromium;proxy;debug;
+
+appImage:
+  artifactName: YTray-${version}-linux-${arch}.AppImage
+
+publish: null
