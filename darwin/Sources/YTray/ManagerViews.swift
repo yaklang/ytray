@@ -52,7 +52,12 @@ struct ManagerView: View {
                 .listRowBackground(Color.clear)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 200, ideal: ManagerMetrics.sidebarWidth, max: 240)
+            .frame(minWidth: ManagerMetrics.sidebarMinimumWidth)
+            .navigationSplitViewColumnWidth(
+                min: ManagerMetrics.sidebarMinimumWidth,
+                ideal: ManagerMetrics.sidebarWidth,
+                max: ManagerMetrics.sidebarMaximumWidth
+            )
             .navigationTitle("YTray")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
