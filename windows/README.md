@@ -13,6 +13,8 @@ Windows 原生实现（C# / WPF / .NET Framework 4.7.2），与 macOS 版本（`
 
 两个服务可分别启停和复制配置；电脑控制开启后，“复制两个 MCP 配置”可生成一个含两个条目的 `mcpServers` JSON。小组件电脑控制卡片的复制按钮仅复制电脑控制配置。复制操作不会替用户开启电脑控制。
 
+后续开发请参考 [Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md)：包含当前代码基线、Cua Driver 接入、授权与协议、分期任务和 Windows 验收步骤。该文档是实施计划，新增系统控制能力尚未交付。
+
 ## 功能
 
 与 macOS 版本对等：

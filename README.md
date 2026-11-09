@@ -72,6 +72,12 @@ YTray 不修改系统浏览器的名称、Bundle ID、签名或默认浏览器�
 
 桌面贴边入口提供同一个面板，也可以只展开直连与代理两个启动按钮。面板默认失焦隐藏，PIN 后保持显示。
 
+## macOS 浏览器页面与电脑控制
+
+macOS 小组件提供“电脑控制”开关和“MCP 复制”入口。AI 可以通过浏览器 CDP 读取页面或执行 JavaScript，也可以在用户开启会话并授予系统权限后，通过 Swift 原生后端读取 AX 树、截图、点击、输入、按键和滚动。电脑控制默认关闭，支持权限引导、重开应用、临时会话和陶土红发光操作光标。
+
+完整功能、三组 MCP 地址与函数、配置示例、AX 文本与坐标解释、权限排查和开发验证见 **[macOS 使用说明](darwin/README.md)**。已有的浏览器实例管理 MCP 继续使用下文的 `19222/mcp`；新增页面与电脑控制网关默认使用 `51373`。
+
 ## 下载与平台支持
 
 最新版本由 [GitHub Releases](https://github.com/yaklang/ytray/releases/latest) 和 [Yaklang OSS](https://aliyun-oss.yaklang.com/ytray/releases.json) 同步提供。
@@ -127,6 +133,7 @@ macOS：
 ├── Runtimes/       # 可选 Chrome for Testing
 ├── Screenshots/    # 用户导出的页面截图
 ├── Logs/           # YTray 运行日志、错误日志与浏览器实例日志
+├── MCP/token       # 仅当前用户可读的浏览器 MCP 令牌（系统会话令牌仅在内存中）
 └── state.json      # 配置和历史
 ```
 
@@ -164,9 +171,18 @@ swift test --package-path darwin
 
 也可以显式指定 `--arch arm64`、`--arch amd64` 或 `--arch universal`。
 
+本机桌面控制开发请构建 `.app`：
+
+```bash
+./script/package-macos.sh --dev --arch arm64
+open dist/darwin-arm64-dev/YTrayDev.app
+```
+
+开发包固定使用已有代码签名身份，避免重建后系统权限归属变化。证书选择、旧授权迁移和一键重开应用见 [macOS 稳定开发签名说明](darwin/README.md#稳定开发签名)。
+
 ### Windows
 
-要求 Visual Studio 2022 Build Tools、.NET Framework 4.8.1 Developer Pack、PowerShell 7；生成安装包还需要 Inno Setup 6：
+要求 Windows、.NET 10 SDK（版本由 `windows/global.json` 选择）和 PowerShell 7；生成安装包还需要 Inno Setup 6。发布包自带 .NET Desktop Runtime，用户无需另装运行库。系统基线、电脑控制架构限制及完整验证步骤见 [Windows README](windows/README.md)：
 
 ```powershell
 ./windows/build.ps1 -Release -Test -Package -Installer -Architecture amd64
@@ -206,7 +222,7 @@ React Bits Pro 授权只保存在本机的 `site/.env.local`；其授权信息�
 
 ## CI、Pages 与发版
 
-- `macOS`：在 macOS 14 和 Tahoe 26 上执行 Swift Release 构建、测试、真实 UI 渲染、更新器验证、最新版插件打包、通用 DMG 挂载及真实启动/窗口唤回检查；可指定已发布版本测试 Apple 芯片和 Intel 正式包。
+- `macOS`：在 macOS 15 和 Tahoe 26 上执行 Swift Release 构建、测试、真实 UI 渲染、更新器验证、最新版插件打包、通用 DMG 挂载及真实启动/窗口唤回检查；可指定已发布版本测试 Apple 芯片和 Intel 正式包。
 - `Windows`：WPF 构建、测试、独立 EXE 冒烟、真实设计截图和 Inno Setup 安装包。
 - `Pages`：安装锁定依赖、装配版本化真实截图、静态导出 Next.js 官网，发布后用 `deploy-meta.json` 验证线上 commit。
 - `Release`：仅由 `v*` tag 触发；分别构建 macOS arm64/amd64 与 Windows amd64/386，确认四个安装包使用同一最新插件版本，再发布到 GitHub 与 OSS。

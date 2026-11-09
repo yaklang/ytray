@@ -77,6 +77,13 @@ command -v magick >/dev/null 2>&1 || {
     exit 1
 }
 
+# Resolve before touching the existing app: a missing signing key must not
+# destroy the build whose OS permissions the user has already granted.
+SIGN_IDENTITY="-"
+if [[ "$DEVELOPMENT_BUILD" -eq 1 ]]; then
+    SIGN_IDENTITY="$("$SCRIPT_DIR/resolve-macos-dev-signing.sh")"
+fi
+
 rm -rf "$APP_OUTPUT_ROOT"
 mkdir -p "$APP_OUTPUT_ROOT"
 "$SCRIPT_DIR/prepare-yakit-browser-agent.sh" "$BUNDLED_EXTENSION_DIR"
@@ -129,9 +136,23 @@ fi
 
 UPDATE_PUBLIC_KEY="$(tr -d '[:space:]' < "$PROJECT_ROOT/resources/updates/ed25519-public-key.txt")"
 /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $UPDATE_PUBLIC_KEY" "$APP_BUNDLE/Contents/Info.plist"
-# Local packages are ad-hoc signed. The release workflow replaces this with a
-# stable Developer ID signature and notarization when the repository secrets exist.
-codesign --force --deep --sign - "$APP_BUNDLE"
+# Development builds use the same pinned identity across rebuilds so TCC can
+# recognize them as updates. Release CI signs/notarizes in its separate stage.
+if [[ "$DEVELOPMENT_BUILD" -eq 1 ]]; then
+    /usr/libexec/PlistBuddy -c "Add :YTrayDevelopmentSigningIdentity string $SIGN_IDENTITY" "$APP_BUNDLE/Contents/Info.plist"
+    # Keep embedded Sparkle helpers on the same identity as the development host.
+    FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+    for code in "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc" \
+                "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc" \
+                "$FRAMEWORK/Versions/B/Autoupdate" \
+                "$FRAMEWORK/Versions/B/Updater.app" "$FRAMEWORK"; do
+        test -e "$code"
+        codesign --force --options runtime --timestamp=none --preserve-metadata=entitlements --sign "$SIGN_IDENTITY" "$code"
+    done
+    codesign --force --options runtime --timestamp=none --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+else
+    codesign --force --deep --sign - "$APP_BUNDLE"
+fi
 codesign --verify --deep --strict "$APP_BUNDLE"
 
 ARCHS="$(lipo -archs "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME")"
@@ -144,6 +165,7 @@ esac
 echo "app=$APP_BUNDLE"
 echo "version=$VERSION"
 echo "flavor=$FLAVOR_LABEL"
+echo "signing_identity=$SIGN_IDENTITY"
 echo "architecture=$ARCH_LABEL"
 echo "binary_archs=$ARCHS"
 echo "bundled_extension=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$BUNDLED_EXTENSION_DIR/bundled-extension.json")"
