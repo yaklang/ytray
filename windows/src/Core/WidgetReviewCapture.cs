@@ -150,6 +150,14 @@ namespace YTray.Core
             // CI desktops may be only 768 px tall. Render the complete fixture even when
             // part of the HWND is offscreen; interactive widgets still respect the work area.
             widget.MaxHeight = double.PositiveInfinity;
+            // SizeToContent is itself constrained by the monitor even after
+            // MaxHeight is cleared. Measure the content unconstrained, then use
+            // that explicit height only for the offscreen comparison fixture.
+            var content = (FrameworkElement)widget.Content;
+            content.Measure(new Size(widget.Width, double.PositiveInfinity));
+            var height = content.DesiredSize.Height;
+            widget.SizeToContent = SizeToContent.Manual;
+            widget.Height = height;
             widget.UpdateLayout();
         }
 

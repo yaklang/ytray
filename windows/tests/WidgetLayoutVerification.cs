@@ -26,8 +26,7 @@ namespace YTray.Tests
                 {
                     widget.Show();
                     widget.RefreshAndMeasure();
-                    widget.MaxHeight = 1200;
-                    widget.UpdateLayout();
+                    WidgetReviewCapture.PrepareFullCapture(widget);
                     Assert.AreEqual(390, widget.ActualWidth, 0.01);
                     Assert.AreEqual(816, widget.ActualHeight, 0.01, "The computer-control row adds 70 DIP while preserving all instance rows.");
                     Assert.AreEqual(212, widget.ProxyCard.ActualHeight, 0.01);
