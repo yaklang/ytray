@@ -59,6 +59,42 @@
         <Setter Property="BorderBrush" Value="Transparent"/>
         <Setter Property="Padding" Value="0"/>
     </Style>
+    <Style x:Key="WidgetControlLink" TargetType="Button" BasedOn="{StaticResource WidgetGhostButton}">
+        <Setter Property="Height" Value="18"/>
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource WidgetTextSecondaryBrush}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/></Trigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="WidgetControlToggle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="38"/><Setter Property="Height" Value="24"/>
+        <Setter Property="Cursor" Value="Hand"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Grid x:Name="SwitchRoot" Background="Transparent">
+                        <Border x:Name="FocusRing" CornerRadius="13" BorderThickness="1" BorderBrush="Transparent"/>
+                        <Border x:Name="Track" Width="34" Height="20" CornerRadius="10" Background="{DynamicResource WidgetSwitchOffBrush}"/>
+                        <Ellipse x:Name="Thumb" Width="16" Height="16" Fill="White" HorizontalAlignment="Left" Margin="4,0,0,0">
+                            <Ellipse.RenderTransform><TranslateTransform X="0"/></Ellipse.RenderTransform>
+                            <Ellipse.Effect><DropShadowEffect BlurRadius="2" ShadowDepth="1" Opacity="0.16"/></Ellipse.Effect>
+                        </Ellipse>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource WidgetSwitchOnBrush}"/>
+                            <Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="14" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.EnterActions>
+                            <Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="0" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Track" Property="Opacity" Value="0.88"/></Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="BorderBrush" Value="{DynamicResource WidgetAccentBrush}"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="SwitchRoot" Property="Opacity" Value="0.45"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style x:Key="WidgetIconButton" TargetType="Button" BasedOn="{StaticResource WidgetButton}">
         <Setter Property="Width" Value="24"/>
         <Setter Property="Height" Value="24"/>

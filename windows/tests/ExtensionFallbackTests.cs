@@ -29,7 +29,7 @@ namespace YTray.Tests
             Assert.AreEqual(1, calls);
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow(false)]
         [DataRow(true)]
         public async Task MissingOrDisabledPluginsUseNewApiAndVerifyEnabledState(bool disabled)
@@ -50,7 +50,7 @@ namespace YTray.Tests
             Assert.AreEqual(3, calls);
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("invalid-id")]
         [DataRow("disabled")]
         [DataRow("wrong-path")]
@@ -58,7 +58,7 @@ namespace YTray.Tests
         public async Task LoadFailureCannotBeReportedAsSuccess(string failure)
         {
             var calls = 0;
-            await Assert.ThrowsExceptionAsync<ExtensionLoadingException>(() => BrowserExtensionService.EnsureLoadedAsync(new[] { PluginPath }, false, (method, args) =>
+            await Assert.ThrowsExactlyAsync<ExtensionLoadingException>(() => BrowserExtensionService.EnsureLoadedAsync(new[] { PluginPath }, false, (method, args) =>
             {
                 calls++;
                 if (calls == 1) return Task.FromResult(new JObject { ["extensions"] = new JArray() });
@@ -83,7 +83,7 @@ namespace YTray.Tests
             });
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow(true)]
         [DataRow(false)]
         public async Task UnavailableApiOnlyRetainsLegacyWhenSupported(bool legacy)
@@ -91,19 +91,19 @@ namespace YTray.Tests
             var task = BrowserExtensionService.EnsureLoadedAsync(new[] { PluginPath }, legacy,
                 (method, args) => throw new DevToolsCommandException(-32601, "Unknown method"));
             if (legacy) await task;
-            else await Assert.ThrowsExceptionAsync<ExtensionLoadingException>(() => task);
+            else await Assert.ThrowsExactlyAsync<ExtensionLoadingException>(() => task);
         }
 
         [TestMethod]
         public async Task ObservedMissingPluginCannotSilentlyFallBackToLegacy()
         {
-            await Assert.ThrowsExceptionAsync<ExtensionLoadingException>(() => BrowserExtensionService.EnsureLoadedAsync(new[] { PluginPath }, true,
+            await Assert.ThrowsExactlyAsync<ExtensionLoadingException>(() => BrowserExtensionService.EnsureLoadedAsync(new[] { PluginPath }, true,
                 (method, args) => method == "Extensions.getExtensions"
                     ? Task.FromResult(new JObject { ["extensions"] = new JArray() })
                     : throw new DevToolsCommandException(-32601, "Unknown method")));
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("136.0.1", true)]
         [DataRow("137.0.1", false)]
         [DataRow("152.0.7977.83", false)]
@@ -114,7 +114,7 @@ namespace YTray.Tests
                 { BrowserKind = BrowserKind.Chrome, Version = version }));
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("user", "")]
         [DataRow("", "password")]
         [DataRow("user", "password")]

@@ -29,7 +29,7 @@ namespace YTray.Tests
                     widget.MaxHeight = 1200;
                     widget.UpdateLayout();
                     Assert.AreEqual(390, widget.ActualWidth, 0.01);
-                    Assert.AreEqual(746, widget.ActualHeight, 0.01, "2 running + 3 history rows must match the 780 × 1492 macOS reference.");
+                    Assert.AreEqual(816, widget.ActualHeight, 0.01, "The computer-control row adds 70 DIP while preserving all instance rows.");
                     Assert.AreEqual(212, widget.ProxyCard.ActualHeight, 0.01);
                     foreach (var input in new FrameworkElement[] { widget.SchemeCombo, widget.HostBox, widget.PortBox, widget.RemarkBox, widget.UsernameBox, widget.PasswordInput, widget.TargetBox })
                         Assert.AreEqual(16, input.ActualHeight, 0.01, input.Name);
@@ -38,6 +38,16 @@ namespace YTray.Tests
                     Assert.AreEqual(32, widget.StartupBtn.ActualHeight, 0.01);
                     Assert.AreEqual(Color.FromRgb(57, 57, 57), ((SolidColorBrush)widget.RootBorder.Background).Color);
                     Assert.AreEqual(Color.FromRgb(30, 30, 30), ((SolidColorBrush)widget.ProxyCard.Background).Color);
+                    Assert.AreEqual(64, widget.ComputerControlCard.ActualHeight, 0.01);
+                    Assert.AreEqual(38, widget.ComputerControlToggle.ActualWidth, 0.01);
+                    Assert.AreEqual("复制电脑控制配置", widget.ComputerCopyLabel.Text);
+                    var copyRight = widget.ComputerMcpButton.TranslatePoint(new Point(widget.ComputerMcpButton.ActualWidth, 0), widget).X;
+                    var advancedLeft = widget.ComputerAdvancedButton.TranslatePoint(new Point(), widget).X;
+                    Assert.IsTrue(copyRight < advancedLeft, "Copy configuration and advanced settings overlap");
+                    widget.ComputerControlToggle.IsChecked = true;
+                    Assert.IsFalse(store.SystemControl.IsEnabled, "Refreshing the visual switch must not grant desktop access");
+                    widget.RefreshAndMeasure();
+                    Assert.IsFalse(widget.ComputerControlToggle.IsChecked == true);
 
                     widget.SchemeCombo.ApplyTemplate();
                     var toggle = Descendants(widget.SchemeCombo).OfType<ToggleButton>().Single();
@@ -86,7 +96,7 @@ namespace YTray.Tests
                     Assert.IsTrue(widget.InstanceScroll.ViewportHeight > 0);
                     Assert.IsTrue(widget.StartupBtn.TranslatePoint(new Point(0, widget.StartupBtn.ActualHeight), widget).Y <= widget.ActualHeight);
                     WidgetReviewCapture.PrepareFullCapture(widget);
-                    Assert.AreEqual(746, widget.ActualHeight, 0.01, "The comparison capture must include every row even on a short CI desktop.");
+                    Assert.AreEqual(816, widget.ActualHeight, 0.01, "The comparison capture must include every row even on a short CI desktop.");
                     Assert.AreEqual(0, widget.InstanceScroll.ScrollableHeight, 0.01);
                     store.Instances.Clear();
                     widget.RefreshAndMeasure();
@@ -95,6 +105,17 @@ namespace YTray.Tests
                     Assert.AreEqual(Visibility.Visible, widget.HistoryEmpty.Visibility);
                     Assert.AreEqual(Visibility.Collapsed, widget.RunningList.Visibility);
                     Assert.IsFalse(widget.ClearHistoryBtn.IsEnabled);
+                    widget.ComputerAdvancedButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    var settings = widget.ComputerSettingsWindow;
+                    Assert.IsNotNull(settings); Assert.IsTrue(settings!.IsVisible);
+                    widget.ComputerAdvancedButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.AreSame(settings, widget.ComputerSettingsWindow, "Advanced settings opened a duplicate window");
+                    Assert.IsInstanceOfType(settings.Content, typeof(YTray.Views.Pages.SystemControlPage));
+                    settings.Close(); Assert.IsNull(widget.ComputerSettingsWindow);
+                    widget.Show();
+                    widget.PinBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    WidgetView.DismissForComputerUse();
+                    Assert.IsFalse(widget.IsVisible, "Foreground computer use must dismiss even a pinned topmost popover before targeting another app");
                 }
                 finally { widget.Close(); }
             }

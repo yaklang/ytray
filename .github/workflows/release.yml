@@ -138,6 +138,9 @@ jobs:
         arch: [amd64, "386"]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Build, test, and package

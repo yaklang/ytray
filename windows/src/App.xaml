@@ -79,6 +79,24 @@
             <SolidColorBrush x:Key="PrimaryBrushDark" Color="{DynamicResource BrandOrangePressedColor}"/>
             <SolidColorBrush x:Key="PrimaryBrushLight" Color="#F7B184"/>
 
+            <Style x:Key="YTrayControlListItem" TargetType="ListBoxItem">
+                <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Padding" Value="10,9"/>
+                <Setter Property="Margin" Value="3,2"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+                    <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="6">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                    </Border>
+                </ControlTemplate></Setter.Value></Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource BrandPaleBrush}"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.6"/></Trigger>
+                </Style.Triggers>
+            </Style>
             <Style TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>

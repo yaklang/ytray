@@ -75,6 +75,20 @@ namespace YTray.Core
             // Unpin visually for the reference; the renderer executes before any focus change.
             widget.PinBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Render(widget, Path.Combine(directory, "widget-dark-expanded.png"));
+            RenderControlHeader(widget, Path.Combine(directory, "control-header-dark-off.png"));
+            // Visual fixture only: exercise the on-state template without granting
+            // access to the machine or starting the desktop runtime.
+            widget.ComputerControlToggle.IsChecked = true;
+            widget.ComputerStatusText.Text = "已开启 · 随时可用";
+            widget.ComputerStateDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "WidgetSuccessBrush");
+            widget.ComputerMcpButton.IsEnabled = true;
+            await Task.Delay(160); widget.UpdateLayout();
+            RenderControlHeader(widget, Path.Combine(directory, "control-header-dark-on.png"));
+            ThemeManager.SetPreference(AppThemePreference.Light);
+            await Task.Delay(160); widget.UpdateLayout();
+            RenderControlHeader(widget, Path.Combine(directory, "control-header-light-on.png"));
+            ThemeManager.SetPreference(AppThemePreference.Dark);
+            widget.RefreshAndMeasure();
             File.WriteAllText(Path.Combine(directory, "metrics.json"), JsonConvert.SerializeObject(new
             {
                 width = widget.ActualWidth, height = widget.ActualHeight,
@@ -95,6 +109,14 @@ namespace YTray.Core
             }
             try
             {
+                widget.ComputerAdvancedButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var settings = widget.ComputerSettingsWindow!;
+                await settings.Dispatcher.InvokeAsync(() => settings.UpdateLayout(), DispatcherPriority.ApplicationIdle);
+                SystemControl.ControlReviewCapture.Save(settings, Path.Combine(directory, "control-advanced-dark.png"));
+                ThemeManager.SetPreference(AppThemePreference.Light); settings.UpdateLayout();
+                SystemControl.ControlReviewCapture.Save(settings, Path.Combine(directory, "control-advanced-light.png"));
+                settings.Close(); widget.Show(); widget.CancelPendingDismiss();
+                ThemeManager.SetPreference(AppThemePreference.Dark);
                 widget.AdvancedBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await SettleAsync(widget);
                 Render(widget, Path.Combine(directory, "widget-dark-collapsed.png"));
@@ -140,6 +162,15 @@ namespace YTray.Core
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bitmap));
             using (var stream = File.Create(path)) encoder.Save(stream);
+        }
+
+        private static void RenderControlHeader(WidgetView widget, string path)
+        {
+            widget.UpdateLayout();
+            var height = widget.ComputerControlCard.TranslatePoint(new Point(0, widget.ComputerControlCard.ActualHeight), widget).Y + 10;
+            var image = new RenderTargetBitmap((int)Math.Ceiling(widget.ActualWidth * 2), (int)Math.Ceiling(height * 2), 192, 192, PixelFormats.Pbgra32);
+            image.Render(widget); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
+            using var file = File.Create(path); encoder.Save(file);
         }
 
         private static void DrawThumbnail(string path, string title, string color)
