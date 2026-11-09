@@ -159,9 +159,9 @@ YTray 提供工具和执行能力，模型由 MCP 客户端选择和调用。使
 | `list_apps` | 列出当前桌面运行中的应用与 PID |
 | `list_windows` | 列出窗口 ID、所属 PID 和边界；可按 `pid`、`on_screen_only` 筛选 |
 | `check_permissions` | 读取实际权限和捕获能力，不弹授权窗口 |
-| `get_window_state` | 用 `pid`、`window_id` 观察确切窗口，返回 AX 文本、元素、token 和可选截图 |
+| `get_window_state` | 用 `window_id` 观察确切窗口（`pid` 可省略），默认返回紧凑控件编号和可选截图 |
 | `get_desktop_state` | 获取**主显示器**截图和截图尺寸；可设置 `max_image_dimension` |
-| `click` | 按 `element_token` 或截图坐标点击；支持左右键和 1～2 次点击，实际行为受输入模式限制 |
+| `click` | 按最新 `element_index`、`element_token` 或截图坐标点击；支持左右键和 1～2 次点击，实际行为受输入模式限制 |
 | `type_text` | 向目标插入 `text`，支持中文和 emoji；单次最多 20,000 字符 |
 | `press_key` | 对目标执行 `key`，前台模式支持原生实现所列按键和修饰键 |
 | `scroll` | 指定 `direction`、`by: line/page`、`amount: 1..50` 和目标，执行滚动 |
@@ -176,7 +176,7 @@ YTray 提供工具和执行能力，模型由 MCP 客户端选择和调用。使
 
 AX 是应用向 macOS 辅助功能接口公开的控件信息，不是 OCR 对截图的猜测。返回内容包括角色、名称、值、支持的动作、层级和元素 token。安全输入框的值会被遮蔽为 `[secure]`。
 
-下面是结构示意，名称、数值和 token 不代表当前桌面的真实状态：
+下面是显式指定 `tree_format:"both"` 时的完整结构示意，名称、数值和 token 不代表当前桌面的真实状态；默认紧凑格式见下一节：
 
 ```text
 window_id=456 pid=123 size=640x568 elements=4 snapshot_id=sExample backend=swift-native
@@ -189,6 +189,42 @@ window_id=456 pid=123 size=640x568 elements=4 snapshot_id=sExample backend=swift
 AI 可以选择“增加计数”的 token 调用 `click`，不必估计按钮像素中心。结构化 `elements` 同时提供 `role`、`label`、`value`、`actions`、`bounds` 等字段；实际字段取决于应用公开了什么。
 
 AX 读取受元素数、层级和时间限制，结果中的 `truncated`、`degraded`、`ax_errors` 用于说明内容是否被截断或降级。读到部分树不代表窗口所有控件都已被发现。
+
+### 紧凑观察与更少的往返
+
+默认 `get_window_state` 只在文本中返回一份 `[N]` 控件列表，不再同时重复 markdown 与结构化元素数组。编号沿用完整观察的原始索引，过滤、区域读取和链接去重不会重新编号。默认最多展示 80 行、约 6,000 字符的控件文本；聚焦控件和可编辑控件优先，较长值带省略提示，`context_truncated` 与 AX 采集本身的 `truncated` 分开报告。
+
+```json
+{"name":"get_window_state","arguments":{"window_id":456,"include_screenshot":false}}
+```
+
+选择返回的控件编号即可操作；可以附上该次返回的 `snapshot_id`，明确拒绝旧观察：
+
+```json
+{"name":"click","arguments":{"window_id":456,"element_index":17,"snapshot_id":"实际返回的 snapshot_id"}}
+```
+
+YTray 根据 CG 窗口 ID 确认实际 PID，然后继续进行原有 AX 窗口归属、几何及令牌检查；不会回退到当前活动窗口。原有 `pid`、`target`、`element_token` 调用仍然支持。`element_index` 只表示最新观察的编号，不能跨观察复用；新状态到来后重新选择。
+
+窗口动作默认自动返回一次最新紧凑状态，原始动作结果保存在 `structuredContent.action`，读取新状态不会把动作错误变成成功。Agent 应先使用动作已返回的状态，避免立即再发一次同样的观察请求。语义动作默认不附图；坐标动作默认返回新图，也可显式设置 `include_screenshot`。`return_state:false` 保留旧调用方式，跳过动作后观察。没有截图的新观察不能沿用上一次图片坐标，需要显式重新截图。桌面目标的动作需另行调用 `get_desktop_state` 观察结果。
+
+只读取窗口的一块区域时，`region` 使用同一 `max_image_dimension` 下的窗口图片像素坐标，默认不截图，也不要求先截图：
+
+```json
+{"name":"get_window_state","arguments":{"window_id":456,"max_image_dimension":1400,"region":{"x":0,"y":0,"width":600,"height":200}}}
+```
+
+区域只返回有已知几何且与区域相交的元素；区域外焦点不返回选中文本。窗口内的区域筛选是一种观察方式，授权范围仍为该窗口。`query` 可以进一步按标签、值、标识符或角色筛选。`detail:"full"` 查看完整元素；显式 `tree_format:"elements"` 只返回结构化元素和简短摘要，`markdown`、`both` 保持兼容。`max_text_chars` 可在 256～30,000 之间设置控件文本预算。
+
+同一 Web Area 内具有完全相同 HTTP(S) URL 的链接别名在默认视图中合并，优先保留聚焦项或描述性标题；不同查询参数、片段、状态和 Web Area 保持独立。原始 AX 节点和可操作索引留在后端，完整观察仍可查看。
+
+`type_text` 支持 `replace:true` 和 `submit:true`，一次调用完成替换、输入、确认并返回最终观察：
+
+```json
+{"name":"type_text","arguments":{"window_id":456,"element_index":9,"text":"新的内容","replace":true,"submit":true}}
+```
+
+后台替换要求目标提供可写 AXValue；后台提交要求 AXConfirm，并在写入前检查，不能因为后台不支持就自动改前台。前台组合输入要求显式授权，并检查目标窗口中的文本焦点；优先对确切的 AX 文本控件写入，需要物理按键替换时还须读回非安全文本控件的全选范围，无法确认时拒绝发送替换文本。`press_key` 支持 `key:"cmd+l"`、`key:"cmd+shift+l"` 这类组合键简写；使用简写时不要同时传 `modifiers`。连续前台操作可显式指定 `restore_focus:false`，让目标保持活动，避免每次恢复再激活；默认仍恢复之前应用。该选项不授予前台权限，输入仍检查确切窗口焦点。输入中断可能已产生部分效果，仍应根据返回状态确认，不自动重放。
 
 ### 截图坐标是怎么换算的
 
@@ -214,7 +250,7 @@ AX 读取受元素数、层级和时间限制，结果中的 `truncated`、`degr
 | 动作 | 后台模式 | 显式前台模式 |
 | --- | --- | --- |
 | 点击 | 对目标调用 `AXPress` / `AXShowMenu`；坐标可先命中 AX 控件 | 通过 CGEvent 发送实际鼠标事件，支持任意有效截图位置 |
-| 输入 | 写入 `AXSelectedText` 或可写文本值 | 使用 Unicode 键盘事件输入，可先定位目标 |
+| 输入 | 写入 `AXSelectedText` 或可写文本值 | 优先直接写入确切 AX 文本控件；无法使用 AX 时才用 Unicode 键盘事件，可先定位目标 |
 | 按键 | 只执行控件提供的 `AXConfirm`、`AXCancel`、`AXPress` 等动作 | 发送受支持的原生按键和组合键 |
 | 滚动 | 使用 AX 滚动条或容器动作；步数由应用定义 | 发送原生滚轮事件 |
 
@@ -228,8 +264,8 @@ AX 读取受元素数、层级和时间限制，结果中的 `truncated`、`degr
 
 1. 用 `list_apps` / `list_windows` 选择目标。
 2. 用 `get_window_state` 读取最新 AX 树和需要的截图。
-3. 优先使用元素 token；AX 无法表达目标时再考虑截图定位。
-4. 执行一次动作，随后重新观察并核对结果，再决定下一步。
+3. 优先使用最新控件编号或元素 token；AX 无法表达目标时再考虑截图定位。
+4. 执行一次动作，核对自动返回的新状态；若设置 return_state:false，则显式重新观察。
 5. 遇到旧 token、页面切换或滚动后重新定位；结果未知的发送、提交等动作先确认是否已完成，不能盲目重放。
 
 下面是 `tools/call` 的参数结构示意。运行时将 PID、窗口 ID 和 token 替换为刚刚观察到的真实值：

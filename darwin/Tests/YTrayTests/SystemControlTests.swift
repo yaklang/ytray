@@ -92,6 +92,25 @@ final class SystemControlTests: XCTestCase {
         XCTAssertFalse(text.contains("launch_app"))
     }
 
+    func testCompactWorkflowOptionsKeepTheNativeForegroundBoundary() async throws {
+        let (controller, fake, defaults) = try fixture()
+        defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
+        await controller.start()
+        _ = try await controller.perform("type_text", arguments: ["window_id": 1, "element_index": 7,
+            "snapshot_id": "latest", "text": "hello", "replace": true, "submit": true, "return_state": true])
+        XCTAssertEqual(fake.calls.last?.1["delivery_mode"] as? String, "background")
+        XCTAssertEqual(fake.calls.last?.1["element_index"] as? Int, 7)
+        let count = fake.calls.count
+        do {
+            _ = try await controller.perform("type_text", arguments: ["window_id": 1, "text": "hello", "submit": true, "delivery_mode": "foreground"])
+            XCTFail("Combined input bypassed foreground authorization")
+        } catch { }
+        XCTAssertEqual(fake.calls.count, count)
+        _ = try await controller.perform("get_window_state", arguments: ["window_id": 1, "detail": "compact",
+            "region": ["x": 0, "y": 0, "width": 200, "height": 100]])
+        XCTAssertNotNil(fake.calls.last?.1["region"])
+    }
+
     func testBackendErrorsPermissionsAndExplicitForegroundArePreserved() async throws {
         let (controller, fake, defaults) = try fixture()
         defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }

@@ -206,7 +206,7 @@ final class NativeAXWorker: @unchecked Sendable {
         var entries: [Entry] = [], seen = Set<CFHashCode>(), truncated = false, errors: [String] = []
         let names = [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute,
                      kAXHelpAttribute, kAXIdentifierAttribute, kAXEnabledAttribute, kAXFocusedAttribute, kAXChildrenAttribute,
-                     kAXPositionAttribute, kAXSizeAttribute]
+                     kAXPositionAttribute, kAXSizeAttribute, kAXURLAttribute]
         func visit(_ node: AXUIElement, depth: Int, parent: Int?) throws {
             try lease.check(generation)
             guard entries.count < maximum, ProcessInfo.processInfo.systemUptime < deadline else { truncated = true; return }
@@ -228,7 +228,14 @@ final class NativeAXWorker: @unchecked Sendable {
             let secure = (valuesByName[kAXSubroleAttribute] as? String ?? "").contains("Secure")
             let row = entries.count
             var data: [String: Any] = ["role": role, "label": title.isEmpty ? description : title, "depth": depth,
-                "element_token": "\(id):\(row)", "actions": actions(node)]
+                "element_token": "\(id):\(row)", "element_index": row, "actions": actions(node)]
+            if let url = valuesByName[kAXURLAttribute] as? URL { data["url"] = url.absoluteString }
+            else if let url = valuesByName[kAXURLAttribute] as? String { data["url"] = url }
+            var ancestor = parent
+            while let index = ancestor {
+                if entries[index].data["role"] as? String == "AXWebArea" { data["web_area_index"] = index; break }
+                ancestor = entries[index].parent
+            }
             if !identifier.isEmpty { data["identifier"] = identifier }
             if let subrole = valuesByName[kAXSubroleAttribute] as? String, !subrole.isEmpty { data["subrole"] = subrole }
             if let parent { data["parent_index"] = parent }
@@ -256,21 +263,67 @@ final class NativeAXWorker: @unchecked Sendable {
         try lease.check(generation)
         snapshots[target] = Snapshot(id: id, window: window, createdAt: Date(), entries: entries)
         while snapshots.count > 16, let oldest = snapshots.min(by: { $0.value.createdAt < $1.value.createdAt })?.key { snapshots.removeValue(forKey: oldest) }
-        let query = (args["query"] as? String ?? "").lowercased()
-        let visible = entries.filter { query.isEmpty || String(describing: $0.data).lowercased().contains(query) }
         var structured: [String: Any] = ["pid": Int(target.pid), "window_id": Int(target.windowID), "snapshot_id": id,
-            "backend": "swift-native", "elements": visible.map(\.data), "truncated": truncated, "degraded": !errors.isEmpty,
-            "ax_errors": errors, "coordinate_scale": 1, "screenshot_frame_valid": false,
+            "backend": "swift-native", "window_title": String(window.title.prefix(512)), "elements": entries.map(\.data), "truncated": truncated, "degraded": !errors.isEmpty,
+            "ax_errors": Array(errors.prefix(8)), "coordinate_scale": 1, "screenshot_frame_valid": false,
             "window_bounds": Self.bounds(window.frame), "token_ttl_seconds": 60]
-        let tree = visible.map { entry -> String in
-            let row = entry.data["element_token"] as? String ?? ""
-            let label = (entry.data["label"] as? String ?? "").debugDescription
-            let value = entry.data["value"].map { " value=" + String(describing: $0).debugDescription } ?? ""
-            return String(repeating: "  ", count: entry.depth) + "- [\(row)] \(entry.data["role"] ?? "") \(label)\(value) actions=\(entry.data["actions"] ?? [])"
-        }.joined(separator: "\n")
-        if args["tree_format"] as? String == "markdown" { structured.removeValue(forKey: "elements") }
-        let text = "window_id=\(target.windowID) pid=\(target.pid) size=\(Int(window.frame.width))x\(Int(window.frame.height)) elements=\(entries.count) snapshot_id=\(id) backend=swift-native\n" + tree
-        return SwiftDesktopBackend.result(text, structured)
+        let globalFocus = element(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute)
+        let localFocus = element(AXUIElementCreateApplication(target.pid), kAXFocusedUIElementAttribute)
+        if let focused = localFocus, belongs(focused, to: window.element) {
+            var focus: [String: Any] = ["status": globalFocus.map { CFEqual($0, focused) } == true ? "focused" : "background"]
+            let index = entries.firstIndex(where: { CFEqual($0.element, focused) })
+            if let index { focus["element_index"] = index }
+            let secure = string(focused, kAXSubroleAttribute).contains("Secure") || index.map { entries[$0].data["value"] as? String == "[secure]" } == true
+            if !secure, let selected = copy(focused, kAXSelectedTextAttribute) as? String {
+                focus["selected_text"] = String(selected.prefix(160))
+                focus["selection_truncated"] = selected.count > 160
+            }
+            structured["focus"] = focus
+        } else { structured["focus"] = ["status": globalFocus == nil ? "unavailable" : "other_window"] }
+        return SwiftDesktopBackend.result("Window observed", structured)
+    }
+
+    /// CG IDs identify one live window. Resolve its actual owner rather than
+    /// making the caller repeat a PID or falling back to the active window.
+    func resolveOwner(_ args: [String: Any]) throws -> [String: Any] {
+        guard args["target"] == nil, args["pid"] == nil, args["window_id"] != nil else { return args }
+        let id = try Self.positiveInt(args, "window_id")
+        let matches = rows(onScreen: false).filter { ($0[kCGWindowNumber as String] as? Int) == id && ($0[kCGWindowLayer as String] as? Int) == 0 }
+        guard matches.count == 1, let owner = matches[0][kCGWindowOwnerPID as String] as? Int, owner > 0 else {
+            throw DesktopOperationError("window_unavailable", "无法确定 window_id 的唯一进程；请重新列出窗口")
+        }
+        var result = args; result["pid"] = owner
+        return result
+    }
+    static func keyArguments(_ args: [String: Any]) throws -> [String: Any] {
+        guard let key = args["key"] as? String, key.contains("+") else { return args }
+        let parts = key.split(separator: "+", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        guard parts.count > 1, !parts.contains(""), args["modifiers"] == nil,
+              parts.dropLast().allSatisfy({ ["cmd", "command", "meta", "ctrl", "control", "alt", "option", "shift"].contains($0) }) else {
+            throw DesktopOperationError("invalid_arguments", "组合键示例为 cmd+l；不要同时传 modifiers")
+        }
+        var result = args; result["key"] = parts.last!; result["modifiers"] = Array(parts.dropLast())
+        return result
+    }
+
+    /// Numeric indexes are aliases of the latest snapshot's existing tokens.
+    /// Resolution does not refresh/rematch by a label, which could hit another control.
+    func actionArguments(_ args: [String: Any]) throws -> [String: Any] {
+        let args = try Self.keyArguments(args)
+        guard args["element_index"] != nil || args["snapshot_id"] != nil else { return args }
+        let snapshot = try fresh(Self.windowTarget(args))
+        if let id = args["snapshot_id"] as? String, id != snapshot.id {
+            throw DesktopOperationError("stale_observation", "snapshot_id 不是此窗口的最新观察")
+        }
+        var result = args
+        if args["element_index"] != nil {
+            let index = try Self.integer(args, "element_index", fallback: -1, range: 0...999)
+            guard snapshot.entries.indices.contains(index) else { throw DesktopOperationError("invalid_element_index", "控件编号不属于当前观察") }
+            let token = snapshot.entries[index].data["element_token"] as! String
+            if let supplied = args["element_token"] as? String, supplied != token { throw DesktopOperationError("invalid_arguments", "element_index 与 element_token 冲突") }
+            result["element_token"] = token
+        }
+        return result
     }
     func setCapture(_ id: String, scale: CGFloat, frame: CGRect) throws {
         guard let target = snapshots.first(where: { $0.value.id == id })?.key,
@@ -407,6 +460,64 @@ final class NativeAXWorker: @unchecked Sendable {
                 frame = capture.frame; scale = capture.scale
                 if let id = args["capture_id"] as? String, id != capture.id { throw DesktopOperationError("stale_capture", "桌面截图已过期") }
             }
+            if name == "press_key", let snapshot, (args["key"] as? String)?.lowercased() == "a",
+               let modifiers = args["modifiers"] as? [String], modifiers.count == 1,
+               ["cmd", "command", "meta"].contains(modifiers[0].lowercased()),
+               let editor = element(AXUIElementCreateApplication(snapshot.window.target.pid), kAXFocusedUIElementAttribute),
+               belongs(editor, to: snapshot.window.element),
+               ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(string(editor, kAXRoleAttribute)),
+               !string(editor, kAXSubroleAttribute).contains("Secure"),
+               let value = copy(editor, kAXValueAttribute) as? String,
+               writable(editor, kAXSelectedTextRangeAttribute) {
+                if let supplied = args["element_token"] as? String {
+                    guard CFEqual(editor, try selected(["element_token": supplied], snapshot: snapshot)) else {
+                        throw DesktopOperationError("focus_unverified", "指定控件不是当前文本焦点")
+                    }
+                }
+                if writable(editor, kAXFocusedAttribute) { try set(editor, kAXFocusedAttribute, kCFBooleanTrue) }
+                var range = CFRange(location: 0, length: value.utf16.count)
+                guard let selection = AXValueCreate(.cfRange, &range) else { throw DesktopOperationError("selection_unverified", "无法创建全选范围") }
+                try showCursor(.key, at: self.frame(editor).map { CGPoint(x: $0.midX, y: $0.midY) } ?? CGPoint(x: frame.midX, y: frame.midY), generation: generation)
+                try set(editor, kAXSelectedTextRangeAttribute, selection)
+                return SwiftDesktopBackend.result("Selected the exact AX editor's text.",
+                    ["backend": "swift-native", "delivery_mode": "foreground", "mechanism": "AXSelectedTextRange", "delivered": true, "verification": "unverified"])
+            }
+            // Prefer exact AX text writes even while the window is foreground.
+            // Physical Unicode events can be transformed by the active IME; AX
+            // insertion also avoids click/select-all/event ordering races.
+            if name == "type_text", let snapshot {
+                var textArgs = args
+                if textArgs["element_token"] == nil, args["x"] == nil, args["y"] == nil,
+                   let focused = element(AXUIElementCreateApplication(snapshot.window.target.pid), kAXFocusedUIElementAttribute),
+                   let index = snapshot.entries.firstIndex(where: { CFEqual($0.element, focused) }) {
+                    textArgs["element_token"] = snapshot.entries[index].data["element_token"]
+                }
+                if textArgs["element_token"] != nil {
+                    let node = try selected(textArgs, snapshot: snapshot)
+                    let replace = args["replace"] as? Bool == true
+                    let writableText = replace ? writable(node, kAXValueAttribute) : writable(node, kAXSelectedTextAttribute) || writable(node, kAXValueAttribute)
+                    if writableText && !string(node, kAXSubroleAttribute).contains("Secure") {
+                        if writable(node, kAXFocusedAttribute) { try set(node, kAXFocusedAttribute, kCFBooleanTrue) }
+                        textArgs["delivery_mode"] = "background"; textArgs["submit"] = false
+                        var result = try act(name, args: textArgs, generation: generation, desktopCapture: nil)
+                        var state = result["structuredContent"] as? [String: Any] ?? [:]
+                        if args["submit"] as? Bool == true {
+                            if actions(node).contains(kAXConfirmAction) {
+                                try perform(node, kAXConfirmAction)
+                                state["mechanism"] = String(describing: state["mechanism"] ?? "AX") + "+" + kAXConfirmAction
+                            } else {
+                                var enter = textArgs; enter["key"] = "return"; enter["modifiers"] = [] as [String]
+                                _ = try foregroundInput("press_key", args: enter, snapshot: snapshot, frame: frame, scale: scale, generation: generation)
+                                state["mechanism"] = String(describing: state["mechanism"] ?? "AX") + "+CGEventReturn"
+                            }
+                        }
+                        state["delivery_mode"] = "foreground"
+                        result["structuredContent"] = state
+                        result["content"] = [["type": "text", "text": "type_text delivered to the exact AX editor."]]
+                        return result
+                    }
+                }
+            }
             return try foregroundInput(name, args: args, snapshot: snapshot, frame: frame, scale: scale, generation: generation)
         }
         guard let snapshot else { throw DesktopOperationError("background_unavailable", "后台输入必须指定窗口") }
@@ -422,7 +533,14 @@ final class NativeAXWorker: @unchecked Sendable {
         case "type_text":
             guard let text = args["text"] as? String else { throw DesktopOperationError("invalid_arguments", "缺少 text") }
             guard !string(node, kAXSubroleAttribute).contains("Secure") else { throw DesktopOperationError("secure_input", "安全输入控件不支持后台写入") }
-            if writable(node, kAXSelectedTextAttribute) {
+            let replace = args["replace"] as? Bool == true
+            let submit = args["submit"] as? Bool == true
+            if submit && !actions(node).contains(kAXConfirmAction) { throw DesktopOperationError("background_unavailable", "控件不支持后台确认；没有输入文本") }
+            if replace {
+                guard writable(node, kAXValueAttribute) else { throw DesktopOperationError("background_unavailable", "控件不支持后台替换整个文本值") }
+                try indicate(.type, args: args, snapshot: snapshot, node: node, generation: generation)
+                try set(node, kAXValueAttribute, text as CFString); mechanism = kAXValueAttribute
+            } else if writable(node, kAXSelectedTextAttribute) {
                 if !text.isEmpty { try indicate(.type, args: args, snapshot: snapshot, node: node, generation: generation) }
                 try set(node, kAXSelectedTextAttribute, text as CFString); mechanism = kAXSelectedTextAttribute
             } else if writable(node, kAXValueAttribute), let current = copy(node, kAXValueAttribute) as? String {
@@ -441,6 +559,7 @@ final class NativeAXWorker: @unchecked Sendable {
                 }
                 mechanism = kAXValueAttribute
             } else { throw DesktopOperationError("background_unavailable", "此控件没有可写的 AX 文本属性") }
+            if submit { try perform(node, kAXConfirmAction); mechanism += "+" + kAXConfirmAction }
         case "press_key":
             guard (args["modifiers"] as? [String] ?? []).isEmpty else { throw DesktopOperationError("background_unavailable", "组合键需要明确授权前台输入") }
             let key = (args["key"] as? String ?? "").lowercased()
@@ -454,8 +573,8 @@ final class NativeAXWorker: @unchecked Sendable {
         default: throw DesktopOperationError("unknown_tool", "不支持的输入工具")
         }
         try lease.check(generation)
-        return SwiftDesktopBackend.result("\(name) delivered via \(mechanism). Observe again to verify the application result.",
-            ["backend": "swift-native", "delivery_mode": "background", "mechanism": mechanism, "delivered": true, "verification": "observe_required"])
+        return SwiftDesktopBackend.result("\(name) delivered via \(mechanism).",
+            ["backend": "swift-native", "delivery_mode": "background", "mechanism": mechanism, "delivered": true, "verification": "unverified"])
     }
     private func scroll(_ node: AXUIElement, args: [String: Any], snapshot: Snapshot, generation: UUID) throws -> String {
         let direction = args["direction"] as? String ?? "down"
@@ -522,10 +641,17 @@ final class NativeAXWorker: @unchecked Sendable {
         throw DesktopOperationError("focus_unverified", "不能确认目标窗口已获得前台焦点，拒绝发送事件")
     }
     private func foregroundInput(_ name: String, args: [String: Any], snapshot: Snapshot?, frame: CGRect, scale: CGFloat, generation: UUID) throws -> [String: Any] {
+        var keyboardTarget: AXUIElement?
         func post(_ event: CGEvent?) throws {
             guard let event else { throw DesktopOperationError("event_creation_failed", "无法创建系统输入事件") }
             try lease.check(generation)
             if let snapshot { try verifyFocus(snapshot.window, generation: generation) }
+            if let keyboardTarget {
+                let source = snapshot.map { AXUIElementCreateApplication($0.window.target.pid) } ?? AXUIElementCreateSystemWide()
+                guard let focused = element(source, kAXFocusedUIElementAttribute), CFEqual(focused, keyboardTarget) else {
+                    throw DesktopOperationError("focus_unverified", "文本焦点已改变，没有继续发送输入")
+                }
+            }
             try lease.check(generation)
             event.post(tap: .cghidEventTap)
         }
@@ -575,9 +701,65 @@ final class NativeAXWorker: @unchecked Sendable {
                 try stroke(CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: p, mouseButton: .left),
                            CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left))
             } else if !text.isEmpty { try showCursor(.type, at: keyboardPoint(), generation: generation) }
-            // Keep composed characters together and avoid splitting UTF-16 surrogate pairs.
-            for character in text {
-                let units = Array(String(character).utf16)
+            if let snapshot, args["element_token"] != nil {
+                let node = try selected(args, snapshot: snapshot)
+                if writable(node, kAXFocusedAttribute) { try set(node, kAXFocusedAttribute, kCFBooleanTrue) }
+                let application = AXUIElementCreateApplication(snapshot.window.target.pid)
+                let deadline = ProcessInfo.processInfo.systemUptime + 0.25
+                while true {
+                    try lease.check(generation)
+                    if let focused = element(application, kAXFocusedUIElementAttribute), CFEqual(node, focused) { break }
+                    guard ProcessInfo.processInfo.systemUptime < deadline else {
+                        throw DesktopOperationError("focus_unverified", "目标文本控件尚未取得焦点，没有发送文本")
+                    }
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+            }
+            if args["replace"] as? Bool == true || args["submit"] as? Bool == true {
+                let source = snapshot.map { AXUIElementCreateApplication($0.window.target.pid) } ?? AXUIElementCreateSystemWide()
+                guard let editor = element(source, kAXFocusedUIElementAttribute),
+                      ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(string(editor, kAXRoleAttribute)),
+                      snapshot.map({ belongs(editor, to: $0.window.element) }) ?? true else {
+                    throw DesktopOperationError("focus_unverified", "组合输入需要目标窗口中的已聚焦文本控件")
+                }
+                keyboardTarget = editor
+                if let snapshot, args["element_token"] != nil, !CFEqual(editor, try selected(args, snapshot: snapshot)) {
+                    throw DesktopOperationError("focus_unverified", "组合输入的焦点不属于指定控件")
+                }
+            }
+            if args["replace"] as? Bool == true {
+                guard let editor = keyboardTarget,
+                      !string(editor, kAXSubroleAttribute).contains("Secure"),
+                      let value = copy(editor, kAXValueAttribute) as? String else {
+                    throw DesktopOperationError("selection_unverified", "无法确认待替换文本的范围，没有发送文本")
+                }
+                let length = value.utf16.count
+                if writable(editor, kAXSelectedTextRangeAttribute) {
+                    var range = CFRange(location: 0, length: length)
+                    guard let selection = AXValueCreate(.cfRange, &range) else { throw DesktopOperationError("selection_unverified", "无法创建文本选择范围") }
+                    try set(editor, kAXSelectedTextRangeAttribute, selection)
+                } else {
+                    let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+                    let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+                    down?.flags = .maskCommand; up?.flags = .maskCommand
+                    try stroke(down, up)
+                }
+                let deadline = ProcessInfo.processInfo.systemUptime + 0.25
+                while true {
+                    try lease.check(generation)
+                    if let selected = copy(editor, kAXSelectedTextRangeAttribute), CFGetTypeID(selected) == AXValueGetTypeID() {
+                        var range = CFRange()
+                        if AXValueGetValue(selected as! AXValue, .cfRange, &range), range.location == 0, range.length == length { break }
+                    }
+                    guard ProcessInfo.processInfo.systemUptime < deadline else {
+                        throw DesktopOperationError("selection_unverified", "全选范围未确认，没有发送替换文本")
+                    }
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+            }
+            // Yield to the target's event queue between bounded Unicode chunks.
+            // Never split a composed character or restore focus with queued text.
+            for units in Self.unicodeChunks(text) {
                 let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
                 let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
                 units.withUnsafeBufferPointer { buffer in
@@ -585,6 +767,15 @@ final class NativeAXWorker: @unchecked Sendable {
                     up?.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress!)
                 }
                 try stroke(down, up)
+                Thread.sleep(forTimeInterval: 0.008)
+            }
+            if text.isEmpty && args["replace"] as? Bool == true {
+                try stroke(CGEvent(keyboardEventSource: nil, virtualKey: 51, keyDown: true),
+                           CGEvent(keyboardEventSource: nil, virtualKey: 51, keyDown: false))
+            }
+            if args["submit"] as? Bool == true {
+                try stroke(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true),
+                           CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false))
             }
         case "press_key":
             if let snapshot, args["element_token"] != nil {
@@ -622,9 +813,20 @@ final class NativeAXWorker: @unchecked Sendable {
             event?.location = p; try post(event)
         default: throw DesktopOperationError("unknown_tool", "未知工具")
         }
-        return SwiftDesktopBackend.result("\(name) posted as native foreground events. Observe again to verify.",
-            ["backend": "swift-native", "delivery_mode": "foreground", "mechanism": "CGEvent", "delivered": true, "verification": "observe_required"])
+        return SwiftDesktopBackend.result("\(name) posted as native foreground events.",
+            ["backend": "swift-native", "delivery_mode": "foreground", "mechanism": "CGEvent", "delivered": true, "verification": "unverified"])
     }
+    static func unicodeChunks(_ text: String) -> [[UniChar]] {
+        var chunks: [[UniChar]] = [], current: [UniChar] = []
+        for character in text {
+            let units = Array(String(character).utf16)
+            if !current.isEmpty && current.count + units.count > 32 { chunks.append(current); current = [] }
+            current += units
+        }
+        if !current.isEmpty { chunks.append(current) }
+        return chunks
+    }
+
     private static let keyCodes: [String: CGKeyCode] = [
         "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11,
         "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
