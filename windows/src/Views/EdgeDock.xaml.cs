@@ -71,7 +71,7 @@ namespace YTray.Views
             Hide();
         }
 
-        private void OnDisplaySettingsChanged(object sender, EventArgs e) =>
+        private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
             Dispatcher.BeginInvoke(new Action(Reposition), DispatcherPriority.Background);
 
         private DpiScale CurrentDpi()
@@ -84,7 +84,7 @@ namespace YTray.Views
         {
             var handle = new WindowInteropHelper(this).Handle;
             return handle == IntPtr.Zero
-                ? System.Windows.Forms.Screen.PrimaryScreen
+                ? System.Windows.Forms.Screen.PrimaryScreen ?? System.Windows.Forms.Screen.AllScreens[0]
                 : System.Windows.Forms.Screen.FromHandle(handle);
         }
 

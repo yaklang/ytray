@@ -13,7 +13,7 @@ namespace YTray.Tests
     [TestClass]
     public class BrowserIdentityColorTests
     {
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("A", 242, 98, 21)]
         [DataRow("B", 37, 99, 235)]
         [DataRow("C", 22, 163, 74)]
@@ -46,10 +46,10 @@ namespace YTray.Tests
                 Assert.IsTrue((Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05) >= 4.5, badge);
                 Assert.AreEqual(BrowserIdentityColor.ForBadge(DockBadgeLabel.DefaultLabel((ordinal - 1) % 6 + 1)), background);
             }
-            Assert.ThrowsException<YTrayException>(() => BrowserIdentityColor.ForBadge("123"));
+            Assert.ThrowsExactly<YTrayException>(() => BrowserIdentityColor.ForBadge("123"));
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow(LaunchMode.Quick)]
         [DataRow(LaunchMode.Custom)]
         [DataRow(LaunchMode.Isolated)]

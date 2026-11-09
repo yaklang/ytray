@@ -32,7 +32,6 @@ namespace YTray.Tests
                 InstanceStore? store = null;
                 try
                 {
-                    Application.ResourceAssembly = typeof(App).Assembly;
                     application = new App(initializeServices: false) { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                     application.InitializeComponent();
                     SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
@@ -75,6 +74,7 @@ namespace YTray.Tests
                     widget.Hide();
                     WidgetLayoutVerification.Run(directory);
                     ExtensionFallbackVerification.Run(directory);
+                    ControlUiVerification.Run(store);
                 }
                 catch (Exception ex) { failure = ex; }
                 finally

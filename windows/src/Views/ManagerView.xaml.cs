@@ -53,7 +53,7 @@ namespace YTray.Views
             RefreshUpdateControls();
         }
 
-        private void OnClosed(object sender, EventArgs e)
+        private void OnClosed(object? sender, EventArgs e)
         {
             _store.PropertyChanged -= OnStorePropertyChanged;
             _updater.PropertyChanged -= OnUpdaterPropertyChanged;
@@ -62,9 +62,9 @@ namespace YTray.Views
             _pageCache.Clear();
         }
 
-        private void OnThemeChanged(object sender, EventArgs e) => RefreshStatusBar();
+        private void OnThemeChanged(object? sender, EventArgs e) => RefreshStatusBar();
 
-        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (!IsLoaded) return;
             if (_sidebarRefreshScheduled) return;
@@ -82,7 +82,7 @@ namespace YTray.Views
 
         private void RefreshSidebarStatus() => RefreshStatusBar();
 
-        private void OnUpdaterPropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnUpdaterPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (_updateRefreshScheduled || Dispatcher.HasShutdownStarted) return;
             _updateRefreshScheduled = true;
@@ -299,6 +299,7 @@ namespace YTray.Views
                     case "launch": page = new ProxyLaunchPage(_store); break;
                     case "plugins": page = new PluginsPage(_store); break;
                     case "mcp": page = new McpPage(_store); break;
+                    case "system": page = new SystemControlPage(_store); break;
                     case "startup": page = new StartupPage(_launchAtLogin); break;
                     default: page = new QuickLaunchPage(_store); tag = "overview"; break;
                 }
@@ -316,6 +317,8 @@ namespace YTray.Views
                 NavPlugins.IsSelected = true;
             else if (string.Equals(tag, "mcp", StringComparison.OrdinalIgnoreCase))
                 NavMcp.IsSelected = true;
+            else if (string.Equals(tag, "system", StringComparison.OrdinalIgnoreCase))
+                NavSystem.IsSelected = true;
             else if (string.Equals(tag, "runtimes", StringComparison.OrdinalIgnoreCase))
                 NavRuntimes.IsSelected = true;
             ShowPage(tag);

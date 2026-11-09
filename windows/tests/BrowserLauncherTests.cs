@@ -94,10 +94,10 @@ namespace YTray.Tests
             Assert.AreEqual("BA", DockBadgeLabel.DefaultLabel(53));
             Assert.AreEqual("ZZ", DockBadgeLabel.DefaultLabel(702));
             Assert.AreEqual("AB", DockBadgeLabel.Normalize(" ab "));
-            Assert.ThrowsException<YTrayException>(() => DockBadgeLabel.Normalize(""));
-            Assert.ThrowsException<YTrayException>(() => DockBadgeLabel.Normalize("ABC"));
-            Assert.ThrowsException<YTrayException>(() => DockBadgeLabel.Normalize("A1"));
-            Assert.ThrowsException<YTrayException>(() => DockBadgeLabel.Normalize("中"));
+            Assert.ThrowsExactly<YTrayException>(() => DockBadgeLabel.Normalize(""));
+            Assert.ThrowsExactly<YTrayException>(() => DockBadgeLabel.Normalize("ABC"));
+            Assert.ThrowsExactly<YTrayException>(() => DockBadgeLabel.Normalize("A1"));
+            Assert.ThrowsExactly<YTrayException>(() => DockBadgeLabel.Normalize("中"));
         }
 
         [TestMethod]
@@ -253,8 +253,8 @@ namespace YTray.Tests
         {
             Assert.AreEqual("http://127.0.0.1:8083", HTTPProxyAddress.Normalize("127.0.0.1:8083"));
             Assert.AreEqual("https://proxy.example:8443", HTTPProxyAddress.Normalize(" HTTPS://proxy.example:8443/ "));
-            Assert.ThrowsException<YTrayException>(() => HTTPProxyAddress.Normalize(""));
-            Assert.ThrowsException<YTrayException>(() => HTTPProxyAddress.Normalize("socks5://127.0.0.1:1080"));
+            Assert.ThrowsExactly<YTrayException>(() => HTTPProxyAddress.Normalize(""));
+            Assert.ThrowsExactly<YTrayException>(() => HTTPProxyAddress.Normalize("socks5://127.0.0.1:1080"));
             Assert.AreEqual("https://proxy.example:8443", HTTPProxyAddress.Build(ProxyScheme.Https, "proxy.example", 8443));
             var ep = HTTPProxyAddress.Split("http://[::1]:8083");
             Assert.AreEqual(ProxyScheme.Http, ep.Scheme);
@@ -499,7 +499,7 @@ namespace YTray.Tests
         public void CustomFlagsCannotOverrideIsolationBoundary()
         {
             var settings = new LaunchSettings { AdditionalFlags = "--user-data-dir=/tmp/shared" };
-            Assert.ThrowsException<YTrayException>(() =>
+            Assert.ThrowsExactly<YTrayException>(() =>
                 BrowserLauncher.BuildArguments(LaunchMode.Custom, settings, "/tmp/isolated", 9555, new List<BrowserPlugin>()));
 
             foreach (var flag in new[]
@@ -512,7 +512,7 @@ namespace YTray.Tests
             })
             {
                 settings.AdditionalFlags = flag;
-                Assert.ThrowsException<YTrayException>(() =>
+                Assert.ThrowsExactly<YTrayException>(() =>
                     BrowserLauncher.BuildArguments(LaunchMode.Custom, settings, "/tmp/isolated", 9555, new List<BrowserPlugin>()),
                     "代理边界不应被附加参数覆盖：" + flag);
             }
