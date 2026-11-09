@@ -54,7 +54,7 @@ enum DesktopNativeTools {
                                     "include_screenshot": boolean, "return_state": ["type": "boolean", "default": true],
                                     "restore_focus": ["type": "boolean", "default": true, "description": "Foreground only: false keeps the target active for consecutive actions."]]
         func tool(_ name: String, _ description: String, _ properties: [String: Any], _ required: [String] = [], readOnly: Bool = true) -> [String: Any] {
-            ["name": name, "description": description + (readOnly ? "" : " Returns latest compact controls; element_index is the original [N] in the latest snapshot. Add snapshot_id to reject an old index. return_state=false keeps the observation; images default off except coordinate actions."), "inputSchema": ["type": "object", "properties": properties,
+            ["name": name, "description": description + (readOnly ? "" : " Window actions return fresh compact state. element_index is the latest snapshot's original [N]; add snapshot_id to reject old indexes. return_state=false skips observation. Images default off except coordinate actions."), "inputSchema": ["type": "object", "properties": properties,
                 "required": required, "additionalProperties": false],
              "annotations": ["readOnlyHint": readOnly, "destructiveHint": !readOnly]]
         }
@@ -80,7 +80,7 @@ enum DesktopNativeTools {
                 "element_token": string, "capture_id": string, "x": point, "y": point,
                 "button": ["type": "string", "enum": ["left", "right"]], "count": ["type": "integer", "minimum": 1, "maximum": 2]
             ]) { _, new in new }, readOnly: false),
-            tool("type_text", "Returns fresh compact state (no image by default); return_state=false skips it. replace=true replaces text; submit=true confirms after typing if supported. Background inserts through AXSelectedText or a writable AX text value. Unsupported controls refuse; generic Unicode key events require foreground mode.", input.merging([
+            tool("type_text", "replace=true replaces text; submit=true confirms after typing if supported. Background inserts through AXSelectedText or a writable AX text value. Unsupported controls refuse; generic Unicode key events require foreground mode.", input.merging([
                 "element_token": string, "x": point, "y": point, "text": ["type": "string", "maxLength": 20000], "replace": boolean, "submit": boolean
             ]) { _, new in new }, ["text"], readOnly: false),
             tool("press_key", "Background supports advertised AXConfirm/AXCancel/AXPress actions. Chords such as cmd+l are accepted. General keys and modifiers require foreground mode and exact window focus.", input.merging([
