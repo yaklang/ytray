@@ -85,6 +85,7 @@ jobs:
           name: ytray-windows-ci-${{ matrix.arch }}
           path: |
             windows/artifacts/${{ matrix.arch }}/YTray-*-windows-${{ matrix.arch }}-setup.exe
+            windows/artifacts/tests/${{ matrix.arch }}/**
             ${{ runner.temp }}/ytray-design-review/**
           if-no-files-found: error
           retention-days: 14

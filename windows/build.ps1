@@ -43,7 +43,8 @@ try {
             & $dotnet build (Join-Path $windowsDir 'tests/FakeDriver/FakeDriver.csproj') -p:PlatformTarget=x86 -p:OutputPath=bin/x86/Debug/ -p:UseSharedCompilation=false -m:1 --nologo -v:quiet
             if ($LASTEXITCODE -ne 0) { throw 'x86 Job host build failed.' }
         }
-        & $dotnet test (Join-Path $windowsDir 'tests/YTray.Tests.csproj') -c $config -p:PlatformTarget=$platformTarget -p:UseSharedCompilation=false -m:1 --nologo -v:quiet
+        $testResults = Join-Path $windowsDir "artifacts/tests/$Architecture"
+        & $dotnet test (Join-Path $windowsDir 'tests/YTray.Tests.csproj') -c $config -p:PlatformTarget=$platformTarget -p:UseSharedCompilation=false -m:1 --nologo -v:minimal --logger 'trx;LogFileName=results.trx' --results-directory $testResults
         if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
     }
     if ($Package) {
