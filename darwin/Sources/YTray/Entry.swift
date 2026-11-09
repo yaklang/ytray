@@ -11,8 +11,14 @@ enum YTrayMain {
 
     @MainActor
     static func main() {
+        if ApplicationRelauncher.runHelperIfRequested(arguments: CommandLine.arguments) { return }
         if CommandLine.arguments.contains("--diagnose-environment") {
             print("name=\(AppEnvironment.displayName)")
+            if let identity = AppSigningIdentity.current {
+                print("signing_adhoc=\(identity.isAdHoc)")
+                print("signing_team=\(identity.teamIdentifier ?? "missing")")
+                print("signing_cdhash=\(identity.codeHash ?? "missing")")
+            }
             print("bundle_id=\(Bundle.main.bundleIdentifier ?? "missing")")
             print("development=\(AppEnvironment.isDevelopmentBuild)")
             print("application_directory=\(AppEnvironment.applicationDirectoryName)")
@@ -31,6 +37,16 @@ enum YTrayMain {
         }
 
         let application = NSApplication.shared
+        if CommandLine.arguments.contains("--smoke-system-control") {
+            runSystemControlSmoke(application: application)
+            return
+        }
+        for mode in ["--render-mcp-window", "--render-computer-permissions"] {
+            if let index = CommandLine.arguments.firstIndex(of: mode), index + 1 < CommandLine.arguments.count {
+                renderControlUI(application: application, output: CommandLine.arguments[index + 1], permissions: mode == "--render-computer-permissions")
+                return
+            }
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--render-widget") {
             let output = index + 1 < CommandLine.arguments.count
                 ? CommandLine.arguments[index + 1] : "/tmp/ytray-widget.png"
@@ -187,10 +203,51 @@ enum YTrayMain {
     }
 
     @MainActor
+    private static func renderControlUI(application: NSApplication, output: String, permissions: Bool) {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ytray-mcp-render-\(UUID())", isDirectory: true)
+        let suite = "ytray.mcp.render.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        let store = InstanceStore(applicationDirectory: scratch, discoverSystemBrowsers: false)
+        let mcp = YTrayMCPController(store: store, defaults: defaults)
+        let hosting: NSHostingView<AnyView>
+        let size: NSSize
+        if permissions {
+            hosting = NSHostingView(rootView: AnyView(ComputerControlPermissionView(controller: store.systemControl)))
+            size = NSSize(width: 480, height: 490)
+        } else {
+            hosting = NSHostingView(rootView: AnyView(MCPConfigurationView(
+                controller: mcp, computer: store.systemControl, openComputerSettings: {},
+                initialSelection: CommandLine.arguments.contains("--computer-tab") ? .computer : .browser
+            )))
+            size = NSSize(width: 860, height: 680)
+        }
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.title = permissions ? "启用电脑控制" : "YTray · MCP 接入与函数"
+        window.orderFrontRegardless()
+        application.setActivationPolicy(.prohibited)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            hosting.layoutSubtreeIfNeeded()
+            if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+                hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                if let png = bitmap.representation(using: .png, properties: [:]) { try? png.write(to: URL(fileURLWithPath: output)) }
+            }
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: scratch)
+            application.terminate(nil)
+        }
+        application.run()
+        withExtendedLifetime(window) {}
+    }
+
+    @MainActor
     private static func renderWidget(application: NSApplication, output: String) {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("ytray-render-\(UUID().uuidString)", isDirectory: true)
         let store = InstanceStore(applicationDirectory: scratch)
+        let previewDefaults = UserDefaults(suiteName: "ytray.render.\(UUID().uuidString)")!
+        let mcp = YTrayMCPController(store: store, defaults: previewDefaults)
         if let runtime = store.defaultRuntime {
             var samples: [BrowserInstance] = []
             if CommandLine.arguments.contains("--running") {
@@ -264,6 +321,8 @@ enum YTrayMain {
                 backend: PreviewLaunchAtLoginBackend(),
                 packagedApplication: true
             ),
+            mcp: mcp,
+            openMCP: {},
             openManager: { _ in },
             closeWidget: {}
         ))
@@ -352,6 +411,7 @@ enum YTrayMain {
             store: store,
             navigation: navigation,
             launchAtLogin: launchAtLogin,
+            mcp: YTrayMCPController(store: store),
             quitApplication: { application.terminate(nil) }
         ))
         hosting.frame = NSRect(origin: .zero, size: size)

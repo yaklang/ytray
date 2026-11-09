@@ -319,6 +319,7 @@ namespace YTray.Models
         public AppThemePreference ThemePreference { get; set; } = AppThemePreference.System;
         public bool LaunchAtLoginSetupCompleted { get; set; }
         public bool McpAutoStart { get; set; } = true;
+        public bool ComputerControlEnabled { get; set; }
 
         public static readonly string[] BlockedCustomPrefixes =
         {
@@ -384,6 +385,7 @@ namespace YTray.Models
                 ThemePreference = ThemePreference,
                 LaunchAtLoginSetupCompleted = LaunchAtLoginSetupCompleted,
                 McpAutoStart = McpAutoStart,
+                ComputerControlEnabled = ComputerControlEnabled,
                 CheckForAppUpdates = CheckForAppUpdates,
             };
         }

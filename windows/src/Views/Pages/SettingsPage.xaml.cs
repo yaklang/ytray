@@ -35,7 +35,7 @@ namespace YTray.Views.Pages
             ThemeManager.ThemeChanged -= OnThemeChanged;
         }
 
-        private void OnThemeChanged(object sender, EventArgs e)
+        private void OnThemeChanged(object? sender, EventArgs e)
         {
             if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(SyncThemeSelection)); return; }
             SyncThemeSelection();

@@ -26,6 +26,9 @@ namespace YTray.Views
         private bool _refreshScheduled;
         private int _dismissGeneration;
         private int _actionFeedbackGeneration;
+        private int _computerCopyFeedbackGeneration;
+        internal SystemControlSettingsWindow? ComputerSettingsWindow { get; private set; }
+        internal SystemControlSettingsWindow? McpSettingsWindow { get; private set; }
         private readonly ThumbnailPreviewWindow _thumbnailPreview = new ThumbnailPreviewWindow();
         private string? _runningSignature;
         private string? _historySignature;
@@ -48,21 +51,62 @@ namespace YTray.Views
                 ThemeManager.ThemeChanged -= OnThemeChanged;
                 _launchAtLogin.PropertyChanged -= OnStorePropertyChanged;
                 _thumbnailPreview.Close();
+                ComputerSettingsWindow?.Close();
+                McpSettingsWindow?.Close();
             };
             _store.PropertyChanged += OnStorePropertyChanged;
+            _store.SystemControl.PropertyChanged += OnStorePropertyChanged;
+            Closed += (_, __) => _store.SystemControl.PropertyChanged -= OnStorePropertyChanged;
             InstanceThumbnailImageSource.ImageLoaded += OnThumbnailImageLoaded;
             ThemeManager.ThemeChanged += OnThemeChanged;
             _launchAtLogin.PropertyChanged += OnStorePropertyChanged;
         }
 
-        private void OnThumbnailImageLoaded(object sender, EventArgs e)
+        private async void ComputerControl_Click(object sender, RoutedEventArgs e)
+        {
+            try { await _store.SetComputerControlEnabledAsync(ComputerControlToggle.IsChecked == true); Refresh(); }
+            catch (Exception error) { RefreshComputerControl(); ComputerStatusText.Text = "开启失败"; ComputerStatusText.ToolTip = error.Message; }
+        }
+        private async void ComputerMcp_Click(object sender, RoutedEventArgs e)
+        {
+            if (_store.SystemControl.ConfigurationJSON is string configuration) {
+                var generation = ++_computerCopyFeedbackGeneration;
+                try { Clipboard.SetText(configuration); ComputerCopyLabel.Text = "已复制"; }
+                catch { ComputerCopyLabel.Text = "复制失败"; }
+                await System.Threading.Tasks.Task.Delay(2200);
+                if (generation == _computerCopyFeedbackGeneration && IsLoaded) ComputerCopyLabel.Text = "复制电脑控制配置";
+            }
+        }
+        private void ComputerAdvanced_Click(object sender, RoutedEventArgs e)
+        {
+            if (ComputerSettingsWindow == null) {
+                var settings = new SystemControlSettingsWindow(_store);
+                settings.Closed += (_, __) => { if (ReferenceEquals(ComputerSettingsWindow, settings)) ComputerSettingsWindow = null; };
+                ComputerSettingsWindow = settings;
+            }
+            ComputerSettingsWindow.ShowFor(this);
+            HideWidget();
+        }
+
+        private void McpSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (McpSettingsWindow == null) {
+                var settings = new SystemControlSettingsWindow(_store, mcp: true);
+                settings.Closed += (_, __) => { if (ReferenceEquals(McpSettingsWindow, settings)) McpSettingsWindow = null; };
+                McpSettingsWindow = settings;
+            }
+            McpSettingsWindow.ShowFor(this);
+            HideWidget();
+        }
+
+        private void OnThumbnailImageLoaded(object? sender, EventArgs e)
         {
             _runningSignature = null;
             _historySignature = null;
             ScheduleRefresh();
         }
 
-        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             ScheduleRefresh();
         }
@@ -78,7 +122,7 @@ namespace YTray.Views
             }), DispatcherPriority.Background);
         }
 
-        private void OnDeactivated(object sender, EventArgs e)
+        private void OnDeactivated(object? sender, EventArgs e)
         {
             if (ShouldStayOpen) return;
             var generation = ++_dismissGeneration;
@@ -116,6 +160,13 @@ namespace YTray.Views
             _dismissGeneration++;
             _thumbnailPreview.Dismiss();
             Hide();
+        }
+
+        internal static void DismissForComputerUse()
+        {
+            var application = Application.Current;
+            if (application == null) return;
+            foreach (var widget in application.Windows.OfType<WidgetView>().Where(w => w.IsVisible).ToArray()) widget.HideWidget();
         }
 
         public void RefreshAndMeasure()
@@ -170,6 +221,7 @@ namespace YTray.Views
 
         private void Refresh()
         {
+            RefreshComputerControl();
             if (!IsLoaded) return;
 
             var running = _store.RunningInstances;
@@ -218,6 +270,15 @@ namespace YTray.Views
             foreach (var button in FindVisualChildren<Button>(HistoryList).Where(b => b.Name == "RestoreButton"))
                 button.IsEnabled = !_store.IsLaunching;
         }
+        private void RefreshComputerControl()
+        {
+            var control = _store.SystemControl;
+            ComputerControlToggle.IsChecked = control.IsEnabled;
+            ComputerMcpButton.IsEnabled = control.ConfigurationJSON != null;
+            ComputerStatusText.Text = !control.IsEnabled ? "未开启" : control.IsRunning ? "已开启 · 随时可用" : control.Phase == "Paused" ? "已开启 · 等待解锁" : "连接中…";
+            ComputerStatusText.ToolTip = control.LastError.Length == 0 ? control.StatusText : control.LastError;
+            ComputerStateDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, !control.IsEnabled ? "WidgetTextTertiaryBrush" : control.IsRunning ? "WidgetSuccessBrush" : "WidgetAccentBrush");
+        }
 
         private bool ShouldStayOpen => _isPinned || _hasModal || _menuOpen
             || SchemeCombo.IsDropDownOpen || _store.IsConfirmingLaunch
@@ -239,6 +300,8 @@ namespace YTray.Views
                 ("WidgetComboBrush", "#565656", "#DDDDDD"),
                 ("WidgetHoverBrush", "#494949", "#EAEAEA"),
                 ("WidgetBorderBrush", "#484848", "#C9C9C9"),
+                ("WidgetSwitchOffBrush", "#606064", "#CECED2"),
+                ("WidgetSwitchOnBrush", "#30D158", "#34C759"),
                 ("WidgetHairlineBrush", "#3E3E3E", "#DCDCDC"),
                 ("WidgetTextPrimaryBrush", "#DEDEDE", "#262626"),
                 ("WidgetTextSecondaryBrush", "#9E9E9E", "#6B6B6B"),

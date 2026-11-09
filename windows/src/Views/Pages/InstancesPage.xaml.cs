@@ -51,12 +51,12 @@ namespace YTray.Views.Pages
             _subscribed = false;
         }
 
-        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             ScheduleRefresh();
         }
 
-        private void OnThumbnailImageLoaded(object sender, EventArgs e)
+        private void OnThumbnailImageLoaded(object? sender, EventArgs e)
         {
             // The model signature does not change when a background decode completes. Invalidate
             // only the presentation snapshot so the frozen bitmap is attached without waiting for

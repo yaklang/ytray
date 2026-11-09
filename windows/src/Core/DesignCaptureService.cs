@@ -133,7 +133,7 @@ namespace YTray.Core
                     await CaptureWizardAsync(store, outputDirectory, captures);
                     await CaptureFloatingAsync(store, outputDirectory, captures);
                     CaptureIdentityIcons(outputDirectory, captures);
-                    CaptureTrayContextMenu(outputDirectory, captures);
+                    await CaptureTrayContextMenuAsync(outputDirectory, captures);
                     await WidgetReviewCapture.RunAsync(Path.Combine(outputDirectory, "widget-parity"), preview: false);
                     foreach (var state in new[] { "dark-expanded", "dark-collapsed", "light-expanded", "dark-empty" })
                         captures.Add(new CaptureItem
@@ -399,7 +399,7 @@ namespace YTray.Core
         private static async Task CaptureFloatingAsync(InstanceStore store, string root, List<CaptureItem> captures)
         {
             store.Settings.EdgeDockOnLeft = false;
-            var screen = Forms.Screen.PrimaryScreen.WorkingArea;
+            var screen = (Forms.Screen.PrimaryScreen ?? Forms.Screen.AllScreens[0]).WorkingArea;
             var backdrop = new Window
             {
                 Title = "YTray Design Capture Backdrop",
@@ -543,65 +543,28 @@ namespace YTray.Core
             captures.Add(new CaptureItem { RelativePath = relative, Caption = "A–F / AA / ZZ · 16/32/64px · 明暗任务栏" });
         }
 
-        private static void CaptureTrayContextMenu(string root, List<CaptureItem> captures)
+        private static async Task CaptureTrayContextMenuAsync(string root, List<CaptureItem> captures)
         {
             const string relative = "floating/system-tray-context-menu.png";
-            using (var anchor = new Forms.Form
-            {
-                FormBorderStyle = Forms.FormBorderStyle.None,
-                ShowInTaskbar = false,
+            var screen = Forms.Screen.PrimaryScreen ?? Forms.Screen.AllScreens[0];
+            using var anchor = new Forms.Form {
+                FormBorderStyle = Forms.FormBorderStyle.None, ShowInTaskbar = false,
                 StartPosition = Forms.FormStartPosition.Manual,
-                Location = new Drawing.Point(Forms.Screen.PrimaryScreen.WorkingArea.Right - 420,
-                    Forms.Screen.PrimaryScreen.WorkingArea.Bottom - 430),
-                Size = new Drawing.Size(2, 2),
-                Opacity = 0.01,
-            })
-            using (var menu = new Forms.ContextMenu())
-            using (var timer = new Forms.Timer { Interval = 320 })
-            {
-                menu.MenuItems.Add("无代理启动", (s, e) => { });
-                menu.MenuItems.Add("使用 HTTP 代理启动", (s, e) => { });
-                menu.MenuItems.Add("显示小组件", (s, e) => { });
-                menu.MenuItems.Add("全部管理", (s, e) => { });
-                menu.MenuItems.Add("关闭开机启动…", (s, e) => { });
-                menu.MenuItems.Add("-");
-                menu.MenuItems.Add("显示边缘小组件", (s, e) => { });
-                menu.MenuItems.Add("-");
-                menu.MenuItems.Add("退出 YTray", (s, e) => { });
-
-                var captured = false;
-                timer.Tick += (s, e) =>
-                {
-                    var popup = FindWindow("#32768", null);
-                    if (popup != IntPtr.Zero)
-                    {
-                        GetWindowThreadProcessId(popup, out var processId);
-                        if (processId == (uint)Process.GetCurrentProcess().Id && GetWindowRect(popup, out var rect))
-                        {
-                            CaptureScreen(Drawing.Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom),
-                                Path.Combine(root, relative));
-                            captured = true;
-                        }
-                    }
-                    timer.Stop();
-                    // ContextMenu.Show owns a native modal menu loop. EndMenu is
-                    // deterministic on headless runners; simulated Escape can be
-                    // delivered to another foreground window and leave CI hung.
-                    EndMenu();
-                };
-
-                anchor.Show();
-                timer.Start();
+                Location = new Drawing.Point(screen.WorkingArea.Right - 420, screen.WorkingArea.Bottom - 430),
+                Size = new Drawing.Size(2, 2), Opacity = 0.01
+            };
+            using var menu = new Forms.ContextMenuStrip();
+            foreach (var title in new[] { "无代理启动", "使用 HTTP 代理启动", "显示小组件", "全部管理", "电脑控制…", "关闭开机启动…", "-", "显示边缘小组件", "-", "退出 YTray" })
+                menu.Items.Add(title);
+            anchor.Show();
+            try {
                 menu.Show(anchor, Drawing.Point.Empty);
-                timer.Stop();
-                anchor.Hide();
-                if (!captured)
-                    throw new InvalidOperationException("系统托盘菜单截图失败");
-            }
-
+                await Task.Delay(350);
+                if (!menu.Visible) throw new InvalidOperationException("系统托盘菜单未显示");
+                CaptureScreen(menu.Bounds, Path.Combine(root, relative));
+            } finally { menu.Close(); anchor.Hide(); }
             captures.Add(new CaptureItem { RelativePath = relative, Caption = "系统托盘 · 右键菜单" });
         }
-
         private static void ApplyPreviewTheme(InstanceStore store, AppThemePreference preference)
         {
             store.Settings.ThemePreference = preference;
@@ -613,7 +576,7 @@ namespace YTray.Core
 
         private static void PositionWidgetForReview(WidgetView widget)
         {
-            var screen = Forms.Screen.PrimaryScreen.WorkingArea;
+            var screen = (Forms.Screen.PrimaryScreen ?? Forms.Screen.AllScreens[0]).WorkingArea;
             var dpi = VisualTreeHelper.GetDpi(widget);
             widget.Left = screen.Right / dpi.DpiScaleX - widget.ActualWidth - 120;
             widget.Top = screen.Top / dpi.DpiScaleY + 120;
@@ -652,7 +615,7 @@ namespace YTray.Core
 
             var bounds = WindowBounds(window);
             var handle = new WindowInteropHelper(window).Handle;
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
             using (var bitmap = new Drawing.Bitmap(bounds.Width, bounds.Height,
                 System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             using (var graphics = Drawing.Graphics.FromImage(bitmap))
@@ -697,7 +660,7 @@ namespace YTray.Core
                 bitmap.Render(window);
                 bitmap.Freeze();
 
-                Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using (var stream = File.Create(outputPath)) encoder.Save(stream);
@@ -719,7 +682,7 @@ namespace YTray.Core
                 Math.Max(1, (int)Math.Round(element.ActualHeight * dpi.DpiScaleY)),
                 96d * dpi.DpiScaleX, 96d * dpi.DpiScaleY, PixelFormats.Pbgra32);
             bitmap.Render(element);
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bitmap));
             using (var stream = File.Create(outputPath)) encoder.Save(stream);
@@ -748,7 +711,7 @@ namespace YTray.Core
             bounds = Drawing.Rectangle.Intersect(bounds, Forms.SystemInformation.VirtualScreen);
             if (bounds.Width <= 0 || bounds.Height <= 0)
                 throw new InvalidOperationException("截图区域无效：" + bounds);
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
             using (var bitmap = new Drawing.Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             using (var graphics = Drawing.Graphics.FromImage(bitmap))
             {

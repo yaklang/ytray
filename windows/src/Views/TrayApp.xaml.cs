@@ -24,8 +24,9 @@ namespace YTray
         private ManagerView? _manager;
         private bool _managerShowInProgress;
         private readonly EdgeDock _edgeDock;
-        private System.Windows.Forms.ContextMenu? _menu;
+        private System.Windows.Forms.ContextMenuStrip? _menu;
         private bool _statusRefreshScheduled;
+        private bool _controlEnabledInMenu;
         private bool _launchAtLoginRefreshScheduled;
         private bool _updateRefreshScheduled;
 
@@ -35,6 +36,7 @@ namespace YTray
             _store.ChooseBrowserEngine = BrowserEngineSelectionDialog.Choose;
             _launchAtLogin = launchAtLogin;
             _store.PropertyChanged += OnStorePropertyChanged;
+            _store.SystemControl.PropertyChanged += OnControlChanged;
             _launchAtLogin.PropertyChanged += OnLaunchAtLoginChanged;
             _updater.PropertyChanged += OnUpdaterPropertyChanged;
 
@@ -62,7 +64,7 @@ namespace YTray
             _updater.Start();
         }
 
-        private void OnThemeChanged(object sender, EventArgs e)
+        private void OnThemeChanged(object? sender, EventArgs e)
         {
             var replacement = LoadTrayIcon();
             var previous = _trayIcon;
@@ -71,7 +73,7 @@ namespace YTray
             previous?.Dispose();
         }
 
-        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher == null || dispatcher.HasShutdownStarted || _statusRefreshScheduled) return;
@@ -83,7 +85,7 @@ namespace YTray
             }), DispatcherPriority.Background);
         }
 
-        private void OnLaunchAtLoginChanged(object sender, PropertyChangedEventArgs e)
+        private void OnLaunchAtLoginChanged(object? sender, PropertyChangedEventArgs e)
         {
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher == null || dispatcher.HasShutdownStarted || _launchAtLoginRefreshScheduled) return;
@@ -95,7 +97,7 @@ namespace YTray
             }), DispatcherPriority.Background);
         }
 
-        private void OnUpdaterPropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnUpdaterPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName != nameof(AppUpdateService.Phase)
                 && e.PropertyName != nameof(AppUpdateService.AvailableVersion)
@@ -112,24 +114,30 @@ namespace YTray
 
         private void BuildMenu()
         {
-            _notify.ContextMenu = null;
+            _notify.ContextMenuStrip = null;
             _menu?.Dispose();
-            _menu = new System.Windows.Forms.ContextMenu();
-            _menu.MenuItems.Add("无代理启动", (s, e) => LaunchFromTray(false));
-            _menu.MenuItems.Add("使用 HTTP 代理启动", (s, e) => LaunchFromTray(true));
-            _menu.MenuItems.Add("显示小组件", (s, e) => ShowWidget());
-            _menu.MenuItems.Add("全部管理", (s, e) => ShowManager());
-            _menu.MenuItems.Add(_launchAtLogin.IsEnabled ? "关闭开机启动…" : "开启开机启动", (s, e) => ToggleLaunchAtLogin());
-            _menu.MenuItems.Add("-");
+            _menu = new System.Windows.Forms.ContextMenuStrip();
+            _menu.Items.Add("无代理启动", null, (s, e) => LaunchFromTray(false));
+            _menu.Items.Add("使用 HTTP 代理启动", null, (s, e) => LaunchFromTray(true));
+            _menu.Items.Add("显示小组件", null, (s, e) => ShowWidget());
+            _menu.Items.Add("全部管理", null, (s, e) => ShowManager());
+            _menu.Items.Add("电脑控制…", null, (s, e) => ShowManager("system"));
+            _menu.Items.Add(_store.SystemControl.IsEnabled ? "关闭电脑控制" : "授权开启电脑控制", null, async (s, e) => {
+                try { await _store.SetComputerControlEnabledAsync(!_store.SystemControl.IsEnabled); BuildMenu(); }
+                catch (Exception error) { _notify.ShowBalloonTip(5000, "电脑控制", error.Message, System.Windows.Forms.ToolTipIcon.Info); }
+            });
+            _controlEnabledInMenu = _store.SystemControl.IsEnabled;
+            _menu.Items.Add(_launchAtLogin.IsEnabled ? "关闭开机启动…" : "开启开机启动", null, (s, e) => ToggleLaunchAtLogin());
+            _menu.Items.Add("-");
             var updateTitle = _updater.IsUpdateAvailable
                 ? $"安装 YTray v{_updater.AvailableVersion}…"
                 : "检查 YTray 更新…";
-            _menu.MenuItems.Add(updateTitle, (s, e) => OpenUpdatePage());
-            _menu.MenuItems.Add("-");
-            _menu.MenuItems.Add("显示边缘小组件", (s, e) => _edgeDock.ShowDock());
-            _menu.MenuItems.Add("-");
-            _menu.MenuItems.Add("退出 YTray", (s, e) => Application.Current.Shutdown());
-            _notify.ContextMenu = _menu;
+            _menu.Items.Add(updateTitle, null, (s, e) => OpenUpdatePage());
+            _menu.Items.Add("-");
+            _menu.Items.Add("显示边缘小组件", null, (s, e) => _edgeDock.ShowDock());
+            _menu.Items.Add("-");
+            _menu.Items.Add("退出 YTray", null, (s, e) => Application.Current.Shutdown());
+            _notify.ContextMenuStrip = _menu;
         }
 
         private void LaunchFromTray(bool usePresetProxy)
@@ -145,10 +153,17 @@ namespace YTray
         private void UpdateStatusTitle()
         {
             var count = _store.RunningInstances.Count;
-            _notify.Text = $"YTray · {count} 个运行中实例 · 左键打开主界面";
+            _notify.Text = $"YTray · {count} 个实例 · {_store.SystemControl.StatusText}";
         }
 
-        private void OnNotifyMouseClick(object sender, System.Windows.Forms.MouseEventArgs e)
+        private void OnControlChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            UpdateStatusTitle();
+            if (_controlEnabledInMenu != _store.SystemControl.IsEnabled)
+                Application.Current.Dispatcher.BeginInvoke(new Action(BuildMenu), DispatcherPriority.Background);
+        }
+
+        private void OnNotifyMouseClick(object? sender, System.Windows.Forms.MouseEventArgs e)
         {
             // Keep right-click exclusively for the native tray menu. A regular left-click is
             // the shortest path back to the manager after its window has been closed.
@@ -226,7 +241,7 @@ namespace YTray
                 CrashGuard.Observe(_updater.CheckAsync(), "check-app-update-menu");
         }
 
-        private void OnUpdateBalloonClicked(object sender, EventArgs e) => OpenUpdatePage();
+        private void OnUpdateBalloonClicked(object? sender, EventArgs e) => OpenUpdatePage();
 
         private void ToggleLaunchAtLogin()
         {
@@ -245,7 +260,7 @@ namespace YTray
                 MessageBox.Show(_launchAtLogin.ErrorMessage ?? "设置失败。", "YTray", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
-        private void OnManagerClosed(object sender, EventArgs e)
+        private void OnManagerClosed(object? sender, EventArgs e)
         {
             if (sender is ManagerView manager) manager.Closed -= OnManagerClosed;
             _manager = null;
@@ -271,6 +286,7 @@ namespace YTray
 
         public void Dispose()
         {
+            _store.SystemControl.PropertyChanged -= OnControlChanged;
             _store.PropertyChanged -= OnStorePropertyChanged;
             _launchAtLogin.PropertyChanged -= OnLaunchAtLoginChanged;
             _updater.PropertyChanged -= OnUpdaterPropertyChanged;
@@ -282,7 +298,7 @@ namespace YTray
             _notify.MouseClick -= OnNotifyMouseClick;
             _notify.BalloonTipClicked -= OnUpdateBalloonClicked;
             _notify.Visible = false;
-            _notify.ContextMenu = null;
+            _notify.ContextMenuStrip = null;
             _notify.Dispose();
             _menu?.Dispose();
             _menu = null;

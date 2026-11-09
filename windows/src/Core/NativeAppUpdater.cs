@@ -103,12 +103,17 @@ namespace YTray.Core
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "YTray", "UpdateEngine", EngineHash);
             Directory.CreateDirectory(directory);
-            foreach (var license in new[] { "WinSparkle", "Expat" })
+            foreach (var license in new[] {
+                (Resource: "WinSparkleLicense", File: "WinSparkle-LICENSE.txt"),
+                (Resource: "ExpatLicense", File: "Expat-LICENSE.txt"),
+                (Resource: "DotNetRuntimeLicense", File: "DotNet-Runtime-LICENSE.txt"),
+                (Resource: "DotNetDesktopLicense", File: "DotNet-Desktop-LICENSE.txt"),
+                (Resource: "DotNetThirdPartyNotices", File: "DotNet-THIRD-PARTY-NOTICES.txt") })
             {
-                using (var source = typeof(NativeAppUpdater).Assembly.GetManifestResourceStream("YTray." + license + "License")
-                    ?? throw new InvalidDataException("更新组件许可证缺失"))
+                using (var source = typeof(NativeAppUpdater).Assembly.GetManifestResourceStream("YTray." + license.Resource)
+                    ?? throw new InvalidDataException("组件许可证缺失"))
                 using (var reader = new StreamReader(source))
-                    File.WriteAllText(Path.Combine(directory, license + "-LICENSE.txt"), reader.ReadToEnd());
+                    File.WriteAllText(Path.Combine(directory, license.File), reader.ReadToEnd());
             }
             var path = Path.Combine(directory, "WinSparkle.dll");
             if (!File.Exists(path))

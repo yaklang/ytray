@@ -22,6 +22,37 @@ namespace YTray.Core
     public class InstanceStore : INotifyPropertyChanged, IDisposable
     {
         public string ApplicationDirectory { get; }
+        private SystemControl.SystemControlController? _systemControl;
+        private SystemControl.ControlGateway? _controlGateway;
+        public SystemControl.SystemControlController SystemControl => _systemControl ??= new SystemControl.SystemControlController(ApplicationDirectory);
+        public void StartControlGateway()
+        {
+            if (_controlGateway != null) return;
+            var gateway = new SystemControl.ControlGateway(SystemControl);
+            try { gateway.Start(); _controlGateway = gateway; } catch { gateway.Dispose(); throw; }
+        }
+        public async Task SetComputerControlEnabledAsync(bool enabled)
+        {
+            if (enabled) {
+                StartControlGateway();
+                Settings.ComputerControlEnabled = true; SaveSettings();
+                try { await SystemControl.EnableAsync(); }
+                catch { Settings.ComputerControlEnabled = SystemControl.IsEnabled; SaveSettings(); throw; }
+            } else { Settings.ComputerControlEnabled = false; SaveSettings(); SystemControl.Stop(); }
+            Settings.ComputerControlEnabled = SystemControl.IsEnabled;
+            SaveSettings();
+        }
+        public async Task RestoreComputerControlAsync()
+        {
+            if (!Settings.ComputerControlEnabled) return;
+            StartControlGateway();
+            await SystemControl.RestoreAsync();
+        }
+        public async Task RepairComputerControlAsync()
+        {
+            if (!SystemControl.IsElevated) { await Task.Run(() => YTray.Core.SystemControl.ControlElevation.RequestRepair()); return; }
+            await SystemControl.RepairAsync();
+        }
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _persistenceTimer;
         private readonly McpServer _mcpServer;
@@ -205,7 +236,7 @@ namespace YTray.Core
                 $"state loaded; runtimes={Runtimes.Count}; plugins={Plugins.Count}; instances={Instances.Count}");
         }
 
-        private void OnMaintenanceTick(object sender, EventArgs e)
+        private void OnMaintenanceTick(object? sender, EventArgs e)
         {
             if (_disposed) return;
             RefreshProcessStates();
@@ -213,7 +244,7 @@ namespace YTray.Core
             ScheduleAutomaticThumbnailRefresh();
         }
 
-        private void OnPersistenceTick(object sender, EventArgs e)
+        private void OnPersistenceTick(object? sender, EventArgs e)
         {
             _persistenceTimer.Stop();
             PersistPendingState();
@@ -1764,6 +1795,8 @@ namespace YTray.Core
         public void Dispose()
         {
             if (_disposed) return;
+            _systemControl?.Dispose();
+            _controlGateway?.Dispose();
             _mcpServer.Dispose();
             _timer?.Stop();
             _persistenceTimer?.Stop();

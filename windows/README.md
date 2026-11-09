@@ -1,6 +1,17 @@
 # YTray for Windows
 
-Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`darwin/`）分别维护各自的托盘、窗口、进程管理和浏览器路径逻辑。
+Windows 原生实现（C# / WPF / .NET 10），与 macOS 版本（`darwin/`）分别维护各自的托盘、窗口、进程管理和浏览器路径逻辑。发布包自带 .NET Desktop Runtime，用户无需另装 .NET Framework、.NET 或开发工具。
+
+系统基线为 Windows 10 1809（build 17763）及以上、Windows 11。Win8 / 8.1、Win7 和 XP 不支持。电脑控制目前使用原生 x64 组件；32 位和原生 ARM64 系统不开放该功能。当前完整桌面链路已在 Win11 验证，旧 Win10/LTSC 仍需实机验收。
+
+## 两个 MCP
+
+小组件底部的“MCP 配置”和管理器的“MCP”页面是统一入口：
+
+- **YTray MCP**（`ytray`，`http://127.0.0.1:19222/mcp`）：管理浏览器运行时与实例。
+- **电脑控制 MCP**（`ytray-system`，`http://127.0.0.1:51373/system/mcp`）：观察窗口、截图、点击与输入。
+
+两个服务可分别启停和复制配置；电脑控制开启后，“复制两个 MCP 配置”可生成一个含两个条目的 `mcpServers` JSON。小组件电脑控制卡片的复制按钮仅复制电脑控制配置。复制操作不会替用户开启电脑控制。
 
 后续开发请参考 [Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md)：包含当前代码基线、Cua Driver 接入、授权与协议、分期任务和 Windows 验收步骤。该文档是实施计划，新增系统控制能力尚未交付。
 
@@ -23,6 +34,61 @@ Windows 原生实现（C# / WPF / .NET Framework 4.8.1），与 macOS 版本（`
 - 浏览器来源管理（系统发现 + 自定义路径 + 安装 Chrome for Testing）
 - 启动设置（调试端口/启动地址/WebRTC/通知/证书/附加参数）
 - `state.json` 持久化 + ACL 权限限制为当前用户（对应 macOS 0600）
+- 原生电脑控制：应用/窗口发现、UIA 控件树、窗口/主屏截图、后台点击/输入/滚动、前台输入、常驻 MCP 总开关与 UAC 权限修复
+
+## 电脑控制与 MCP
+
+在“全部管理 → 电脑控制”点击“授权开启”，或直接打开小组件中的电脑控制开关。首次自动准备控制组件，默认允许当前用户的全部应用、主屏截图、控件读取、点击、输入、按键和滚动，无需设置只读、应用范围或有效期。
+
+总开关保持开启，直到用户主动关闭。没有授权期限或空闲超时；开关写入设置，YTray 重启、桌面解锁和控制组件重连后自动恢复，不会重放已投递的输入。
+
+点击“复制电脑控制配置”，粘贴到支持 HTTP 和 Bearer 请求头的本机客户端。地址为 `http://127.0.0.1:51373/system/mcp`，与 `19222/mcp` 浏览器管理服务分开。配置在保持开启期间持续有效，组件崩溃、程序重启及结束一次客户端操作不会令它失效。主动关闭总开关后旧配置立即失效，下次开启生成新配置。凭据由 Windows DPAPI 加密保存，并限制当前用户访问。支持 MCP `2025-11-25` / `2025-06-18` 的 JSON POST 和通知 202，GET/SSE 未提供。
+
+“修复控制权限”通过系统 `runas` 请求 UAC，确认后以管理员身份重启同一个 YTray，再检查和修复组件。取消 UAC 保持当前运行状态。重启保留总开关和 MCP 配置，已有浏览器进程继续运行。已在管理员模式时直接修复组件。锁屏、安全桌面、其他用户/会话及系统级窗口不接受输入。
+
+小组件将电脑控制整理为紧凑卡片：滑动开关、状态、“复制电脑控制配置”和“高级”。复制后原位置短暂显示“已复制”；高级打开独立的电脑控制设置窗口，并复用已经打开的窗口。底部“MCP 配置”打开两个服务的总览。管理页提供授权开启/关闭、复制电脑控制配置、查看工具和权限修复。
+
+核心工具共 11 个：`list_apps`、`list_windows`、`launch_app`、`activate_window`、`get_window_state`、`get_desktop_state`、`click`、`type_text`、`press_key`、`scroll`、`system_status`。客户端不需要创建、恢复或结束会话，也不需要维护请求编号、观察编号或截止时间。旧接口保留兼容，但不再出现在工具发现列表里。
+
+直接调用 `launch_app({"app":"chrome","url":"https://baidu.com"})` 打开浏览器并进入网页，获得 `window_id`；已有窗口可通过 `list_windows` 查找。默认切到前台并保持目标窗口在前，最小化窗口自动恢复。`type_text` 可指定 `element_index` 聚焦输入框，`replace:true` 替换原有文本，`submit:true` 在输入成功后按 Enter。例如 `type_text({"window_id":123,"element_index":45,"text":"yaklang.io","replace":true,"submit":true})` 一次完成聚焦、替换、搜索，只返回最终结果。普通按键仍使用 `press_key({"window_id":123,"key":"ctrl+l"})`。
+
+每次动作自动返回最新截图、带编号的控件和该应用的窗口列表，无需再调用一次观察。点击使用最新界面中的控件编号或截图像素坐标，不额外乘 DPI。前台操作会自动收起 YTray 的置顶小组件，避免它遮挡目标；组合输入的每一步都保留目标输入框，由底层确认焦点后再发送按键。窗口标题在观察后从 HWND 重新读取，避免页面跳转后仍显示旧标题。组件退出、底层连接失效和桌面重新可用时自动恢复；只会重试已确认尚未执行的输入，结果不明确时返回最新界面供客户端判断。
+
+默认上下文为当前窗口的完整精简快照：只显示可见控件、短文本和当前值，去掉容器层级、隐藏扩展、屏幕外内容及重复标签；保留原控件编号。控件正文只在 `content[].text` 中出现一次，`structuredContent` 保留 `window_id`、标题、窗口列表、图片尺寸和裁剪信息，不再重复整棵树。读取具体控件可用 `get_window_state({"window_id":123,"query":"搜索"})`；`detail:"full"` 返回完整树，并兼容 `structuredContent.tree_markdown` 字段。快照不依赖客户端历史，也没有增量游标。
+
+截图默认保留；明确不需要图片时，读取和输入动作可传 `include_screenshot:false`，仍返回最新控件。此时要使用图片坐标，须先读取一次带截图的状态。内部输入步骤之间只采集控件，页面加载时只轮询文本，最后采集一次截图。组合输入失败会停止后续步骤，保留底层具体错误原因和错误步骤；若提交失败但文本已输入，错误中会标记 `text_sent:true`，客户端不要重新输入整段文字。
+
+每次应用窗口的最终观察带一行焦点与文本选区摘要，例如 `Focus: [45] | selected: "yaklang.io"`。选中文字最多显示 160 字符，正文不在元数据中重复；`structuredContent.focus` 只保留状态、控件编号和选区状态。窗口未在前台时明确返回 `other_window`，控件不支持选区或提供者未及时响应时返回 `unavailable`，不会把未知选区当作空选区。补充读取有 200 ms 上限，不参与内部输入预检和加载轮询，也不会改变焦点或选区。
+
+`get_window_state` 可传 `region:{x,y,width,height}`，按控件边界读取与区域相交的可访问控件及文字。坐标沿用整个窗口图片的像素坐标，默认长边 1400；若截图使用其他 `max_image_dimension`，区域读取传相同值。区域坐标由当前窗口尺寸计算，不依赖之前的截图或客户端状态。区域读取默认不附截图；显式 `include_screenshot:true` 仍返回完整窗口图片，便于继续使用同一坐标系。原控件编号可直接用于下一次输入；`query`、`detail:"full"` 仍可结合使用。区域外的选中文字不带入结果，区域内也只报告选区状态。缺少文字或达到读取上限时会明确标记；图片/画布未暴露的文字不会被当作 OCR 结果。
+
+同一完整 HTTP/HTTPS 目标的标题、URL、缩略图等链接在精简快照中只保留一个原始编号，优先保留焦点链接或可读标题。不同路径、查询参数、锚点保持区分；`duplicate_links_omitted` 报告合并数量，`detail:"full"` 保留全部别名。区域读取会核对前台控件的命中位置，剔除确认被编辑框/按钮覆盖的文字及重复 URL 别名；保留有名称的主要操作控件。刷新后也不会把已确认在屏幕外的标签重新作为无坐标文字带回来。
+
+```json
+{"window_id":123,"region":{"x":100,"y":105,"width":555,"height":22}}
+```
+
+上例直接取得搜索栏附近的精简文字，不需要先创建会话。激活窗口也支持 `include_screenshot:false`；常规动作继续自动返回最新状态。
+
+后端使用固定的官方 Rust **cua-driver 0.38.0 集成候选（上游标记 prerelease）**，采用 `standard` 模式和明确的工具 allowlist，不限制应用资源，也不设置 expiry/idle timeout。只有独立测试的受限范围使用 resource manifest。使用私有 stdio 进程与创建时绑定的 kill-on-close Job Object，不启动共享 daemon，不安装感知模型，关闭 telemetry。版本、源码和 archive/EXE/helper 摘要见 `resources/cua-driver/runtime-manifest.json`。发布包内嵌经校验的 archive，可离线准备；源码未内嵌时按固定地址下载并校验。
+
+当前支持 Windows x64，ARM64 与 32 位 Windows 未启用。x86 宿主到 x64 helper 的 stdio/Job 链路已有独立回归，真实应用、RDP、跨屏和不同 DPI 仍需扩大实机覆盖。复制配置用于本机客户端，网页跨来源接入尚未提供设置入口。桌面端点不公开任意 shell、文件路径、JavaScript 或 raw CDP；现有 Yakit 浏览器 Pipe 保留原有消息。
+
+### 本机验证
+
+构建与测试统一使用 .NET 10 SDK，项目由 `windows/global.json` 选择稳定的 10.0 SDK；开发时需安装 SDK，发布包包含自己的运行库。
+
+```powershell
+pwsh -File windows/build.ps1 -Release -Test -Architecture amd64
+pwsh -File windows/test-system-control.ps1 -Configuration Release -Suite Protocol
+pwsh -File windows/test-system-control.ps1 -Configuration Release -Suite Lifecycle
+pwsh -File windows/test-system-control.ps1 -Configuration Release -Suite Authorization
+pwsh -File windows/test-system-control.ps1 -Configuration Release -Suite Desktop -Interactive
+pwsh -File windows/test-system-control.ps1 -Configuration Release -Suite AlwaysOn
+windows/src/bin/Release/YTray.exe --capture-control-review windows/artifacts/control-ui-review
+```
+
+`Desktop -Interactive` 仅对独立 WPF fixture 输入，覆盖后台控件点击、中文/emoji、滚动、同标题窗口、缩放坐标和前台回车读回。`AlwaysOn` 使用真实组件空闲 130 秒，再验证崩溃自动恢复、客户端结束操作、重启后配置不变，以及主动关闭后撤销。协议/生命周期测试覆盖乱序回复、stderr 排空、坏帧、超时、父进程强杀和 Job 子进程清理。TRX 与 UI PNG 位于忽略提交的 `windows/artifacts/`。
 
 ## ★ Chrome 任务栏图标区分（AUMID）
 
@@ -43,7 +109,7 @@ macOS 版本通过 Dock 角标（A/B/C）区分实例图标。Windows 版本使�
 windows/
 ├── YTray.sln
 ├── build.ps1                           # 构建 + 测试脚本
-├── src/YTray/
+├── src/
 │   ├── YTray.csproj
 │   ├── App.xaml / App.xaml.cs           # 入口、命令行模式（--probe-aumid / --smoke-browser）
 │   ├── Models/Models.cs                  # 数据模型（对等 Models.swift）
@@ -73,10 +139,9 @@ windows/
 
 ### 依赖
 
-- Visual Studio 2022 Build Tools（MSBuild + Roslyn csc）
-- .NET Framework 4.8.1 引用程序集（随 VS BuildTools 安装）
-- NuGet 包通过 MSBuild 自动还原（Newtonsoft.Json / MSTest）
-- Release 使用 Costura/Fody 将 HandyControl、Newtonsoft.Json 等托管依赖嵌入单个 `YTray.exe`
+- .NET 10 SDK；不要求 Visual Studio 或 .NET Framework 引用程序集
+- NuGet 包在构建时自动还原（Newtonsoft.Json / MSTest 等）
+- `-Package` 使用 .NET 自包含单文件发布，将 Desktop Runtime、HandyControl、Newtonsoft.Json 等依赖打包进单个 `YTray.exe`；关闭裁剪，保留 WPF 和反射所需类型
 - `-Package` 会读取 OSS 发布清单的 `latest`，下载并校验对应的 Yakit Browser Agent，再作为资源嵌入同一个 EXE
 - 正式版启动后会读取 YTray OSS `latest.json`；用户可在设置页查看下载进度，安装包通过大小与 SHA-256 校验后由 Inno Setup 静默替换并自动重启
 
@@ -86,17 +151,16 @@ windows/
 pwsh -File windows/build.ps1
 # Release:
 pwsh -File windows/build.ps1 -Release
-# 生成可直接分发的单文件 windows/artifacts/YTray.exe：
+# 生成单文件 windows/artifacts/amd64/YTray-{版本}-windows-amd64.exe：
 pwsh -File windows/build.ps1 -Release -Test -Package
 # 构建 + 测试:
 pwsh -File windows/build.ps1 -Test
 ```
 
-或直接用 MSBuild：
+或直接使用 SDK：
 
 ```powershell
-$msbuild = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
-& $msbuild windows\YTray.sln -p:Configuration=Debug -restore -nologo -v:minimal
+dotnet build windows\YTray.sln -c Debug
 ```
 
 ### 测试
@@ -107,7 +171,7 @@ pwsh -File windows/build.ps1 -Test
 
 测试覆盖：应用更新版本比较与架构选择、Dock 角标序列/校验、浏览器类型推断、HTTP 代理规范化、代理探测请求/响应解析、启动参数隔离边界、自定义参数防护、插件加载、Chrome for Testing 标志、会话恢复、命令行扩展能力、稳定实例 AUMID、Windows Shell PropertyKey 和 PROPVARIANT 生命周期。
 
-CI 上传的 Windows Release artifact 只包含 `YTray.exe`，其中同时带有经过大小和 SHA-256 校验的 Yakit Browser Agent。首次启动会释放并默认启用该插件，之后仍可在插件页更新、重新下载或移除。目标机器仍需安装 Windows 自带/系统提供的 .NET Framework 4.8.1；第三方托管 DLL 不需要与 exe 一起分发。
+Windows 便携产物为一个自包含 `YTray.exe`，同时带有经过大小和 SHA-256 校验的 Yakit Browser Agent 和电脑控制组件。目标机器无需安装 .NET；首次启动时 .NET 会将所需原生运行库释放到当前用户临时目录。浏览器插件首次启动会默认启用，之后仍可在插件页更新、重新下载或移除。安装包明确拒绝 Windows 10 1809 以前的系统。
 
 ### 命令行模式
 

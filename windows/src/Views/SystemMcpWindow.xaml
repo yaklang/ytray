@@ -1,0 +1,41 @@
+<Window x:Class="YTray.Views.SystemMcpWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="YTray · MCP 接入与函数" Width="880" Height="660" MinWidth="680" MinHeight="480" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource TextPrimaryBrush}">
+    <Window.Resources>
+        <Style x:Key="McpAction" TargetType="Button" BasedOn="{StaticResource YTrayButton}"><Setter Property="Height" Value="32"/><Setter Property="MinHeight" Value="0"/><Setter Property="Padding" Value="13,0"/><Setter Property="FontSize" Value="12"/></Style>
+    </Window.Resources>
+    <Grid x:Name="RootLayout" Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,16"><TextBlock Text="MCP 接入与函数" FontSize="22" FontWeight="SemiBold"/><TextBlock x:Name="HeaderSubtitle" Text="连接电脑控制，查看授权范围内的可用工具。" FontSize="12.5" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,7,0,0"/></StackPanel>
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceRaisedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="9" Padding="15,13" Margin="0,0,0,17">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel><StackPanel Orientation="Horizontal"><Ellipse x:Name="StateDot" Width="7" Height="7" Fill="{DynamicResource TextTertiaryBrush}" Margin="0,0,7,0"/><TextBlock x:Name="StatusText" FontSize="12.5" FontWeight="SemiBold"/></StackPanel>
+                    <TextBlock x:Name="EndpointText" FontFamily="Consolas" FontSize="12" Margin="14,8,0,0" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="ConnectionHint" FontSize="11.5" Margin="14,7,14,0" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center"><Button x:Name="CopyConfigButton" Content="复制电脑控制配置" Click="CopyConfig_Click" Style="{StaticResource McpAction}" Background="{DynamicResource BrandOrangeBrush}" Foreground="White"/>
+                    <Button x:Name="SettingsButton" Content="电脑控制设置" Click="Settings_Click" Style="{StaticResource McpAction}" Margin="0,7,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        <Grid x:Name="ToolColumns" Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="236" MinWidth="190"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*" MinWidth="280"/></Grid.ColumnDefinitions>
+            <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <DockPanel Margin="2,0,2,10"><TextBlock x:Name="ToolCountText" DockPanel.Dock="Right" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}"/><TextBlock x:Name="ToolListTitle" Text="可用工具" FontSize="13" FontWeight="SemiBold"/></DockPanel>
+                <ListBox x:Name="ToolList" Grid.Row="1" SelectionChanged="Tool_Selected" Background="{DynamicResource SurfaceRaisedBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                         BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" ItemContainerStyle="{DynamicResource YTrayControlListItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Name}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Title}" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+            <Border Grid.Column="2" Background="{DynamicResource SurfaceRaisedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="9" Padding="17">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <StackPanel><TextBlock x:Name="ToolTitleText" FontSize="17" FontWeight="SemiBold"/><TextBlock x:Name="ToolNameText" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource BrandOrangeBrush}" Margin="0,6,0,0"/><TextBlock x:Name="ToolSummaryText" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/></StackPanel>
+                    <TextBlock Grid.Row="1" x:Name="SchemaHintText" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,13,0,0"/>
+                    <TextBlock Grid.Row="2" Text="参数定义" FontSize="12" FontWeight="SemiBold" Margin="0,15,0,9"/>
+                    <TextBox Grid.Row="3" x:Name="SchemaTextBox" IsReadOnly="True" FontFamily="Consolas" FontSize="12" VerticalContentAlignment="Top" HorizontalContentAlignment="Left"
+                             Padding="12" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="{DynamicResource SurfaceMutedBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource HairlineBrush}"/>
+                </Grid>
+            </Border>
+        </Grid>
+        <TextBlock x:Name="FooterHint" Grid.Row="3" Text="连接配置包含访问凭据，请仅提供给可信客户端。关闭电脑控制总开关后，旧配置立即失效。" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="1,14,1,0"/>
+    </Grid>
+</Window>

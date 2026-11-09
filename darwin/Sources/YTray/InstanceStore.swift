@@ -29,6 +29,8 @@ final class InstanceStore: NSObject, ObservableObject {
     @Published private(set) var isMCPAvailable = false
     @Published private(set) var mcpStatusMessage = "等待 MCP 服务启动"
 
+    lazy var systemControl = SystemControlController()
+
     let applicationDirectory: URL
     var confirmLaunchWithoutPlugins: (ExtensionLaunchPrompt) -> Bool = { $0.present() }
     private let browserProcessLauncher: URL?

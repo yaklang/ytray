@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-26]
+        os: [macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -55,6 +55,7 @@ jobs:
             exit 1
           fi
           bash -n script/*.sh
+          bash script/test-macos-dev-signing.sh
           python3 script/verify-app-icons.py
 
       - name: Run release metadata tests
@@ -78,6 +79,9 @@ jobs:
           bin_path="$(swift build --package-path darwin --configuration release --show-bin-path)"
           bash script/render-macos-console.sh "$RUNNER_TEMP" "$bin_path/YTray"
           "$bin_path/YTray" --render-widget "$RUNNER_TEMP/ytray-widget.png" --running --history --proxy-advanced
+          "$bin_path/YTray" --render-mcp-window "$RUNNER_TEMP/ytray-mcp-window.png"
+          "$bin_path/YTray" --render-mcp-window "$RUNNER_TEMP/ytray-mcp-computer.png" --computer-tab
+          "$bin_path/YTray" --render-computer-permissions "$RUNNER_TEMP/ytray-computer-permissions.png"
           "$bin_path/YTray" --render-wizard "$RUNNER_TEMP/ytray-custom-launch.png"
           "$bin_path/YTray" --render-edge-dock "$RUNNER_TEMP/ytray-edge-dock.png"
           for image in "$RUNNER_TEMP"/ytray-*.png; do
@@ -126,7 +130,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             arch: arm64
           - os: macos-26
             arch: arm64

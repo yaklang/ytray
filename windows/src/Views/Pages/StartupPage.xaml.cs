@@ -30,7 +30,7 @@ namespace YTray.Views.Pages
         private void OnUnloaded(object sender, RoutedEventArgs e) =>
             _manager.PropertyChanged -= OnManagerChanged;
 
-        private void OnManagerChanged(object sender, PropertyChangedEventArgs e)
+        private void OnManagerChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (!Dispatcher.CheckAccess()) Dispatcher.BeginInvoke(new Action(Refresh));
             else Refresh();

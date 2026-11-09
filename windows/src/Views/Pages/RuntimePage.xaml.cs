@@ -70,7 +70,7 @@ namespace YTray.Views.Pages
             _subscribed = false;
         }
 
-        private void OnStorePropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             ScheduleRefresh();
         }
