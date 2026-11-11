@@ -195,10 +195,11 @@ namespace YTray.Core.SystemControl
             // only the compact API; driver session bookkeeping stays behind this boundary.
             return arguments["target_ref"] != null || arguments["request_id"] != null || arguments["observation_id"] != null
                 || name == "check_permissions" || name == "end_session" || name.StartsWith("ytray_", StringComparison.Ordinal)
-                ? CallLegacyAsync(name, arguments, expectedGeneration) : CallSimpleAsync(name, arguments);
+                ? CallLegacyAsync(name, arguments, expectedGeneration) : CallSimpleAsync(name, arguments, expectedGeneration);
         }
         private async Task<JObject> CallLegacyAsync(string name, JObject arguments, string? expectedGeneration = null, bool waitForOperation = false)
         {
+            RequirePublicGrant();
             if (expectedGeneration != null && expectedGeneration != _generation) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察");
             if (!IsEnabled || _grant == null) throw new ControlException("ControlDisabled", "电脑控制已关闭，请在本机开启");
             var generation = _generation;
@@ -326,7 +327,7 @@ namespace YTray.Core.SystemControl
             RequireGeneration(generation); WindowsControlTarget.RequireDesktop();
             if (action && target != null) target.Revalidate();
             if (action && target != null && (string?)arguments["delivery_mode"] == "foreground") {
-                await WindowsApplicationControl.ActivateAsync(target).ConfigureAwait(false);
+                await WindowsApplicationControl.ActivateAsync(target, () => { RequirePublicGrant(); RequireGeneration(generation); }).ConfigureAwait(false);
                 // WPF accepts plain window-addressed keys while foreground. This avoids
                 // reattaching/resetting its input queue for an unmodified key; chords and
                 // other toolkits retain the native foreground input path.
@@ -411,7 +412,9 @@ namespace YTray.Core.SystemControl
         private void RequireGeneration(string generation) { if (!IsEnabled || _generation != generation || _lifetime?.IsCancellationRequested != false) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察，旧请求不会重放。"); }
         internal async Task<JObject> CallNativeAsync(string name, JObject args, CancellationToken cancellation, int timeout = 10000)
         {
+            RequirePublicGrant();
             var connection = _connection ?? throw new ControlException("DriverUnavailable", "原生控制进程已停止");
+            if (_publicRequest.Value is ControlRequestScope scope && NativeControlSchema.Actions.Contains(name)) scope.InputMayHaveExecuted = true;
             return await connection.RequestAsync("tools/call", new JObject { ["name"] = name, ["arguments"] = args }, cancellation, timeout).ConfigureAwait(false);
         }
         private static bool NativeSessionEnded(JObject result) => (string?)result["structuredContent"]?["refusal"]?["code"] is string code

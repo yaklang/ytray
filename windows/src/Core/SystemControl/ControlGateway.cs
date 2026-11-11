@@ -76,8 +76,10 @@ namespace YTray.Core.SystemControl
                 cors["Access-Control-Max-Age"] = "60";
             }
             if (request.Method == "OPTIONS") return new HttpResponse(origin == null ? 403 : 200, "", cors);
-            if (!_controller.Authorized(request.Header("authorization"), origin)) { cors["WWW-Authenticate"] = "Bearer realm=\"YTray\""; return new HttpResponse(401, "Authorization required", cors); }
+            // Snapshot before checking credentials: Stop/re-enable between those
+            // operations must not bind an old authorized request to the new grant.
             var generation = _controller.Generation;
+            if (!_controller.Authorized(request.Header("authorization"), origin)) { cors["WWW-Authenticate"] = "Bearer realm=\"YTray\""; return new HttpResponse(401, "Authorization required", cors); }
             if (request.Method != "POST") return new HttpResponse(405, "Use POST", cors);
             lock (_rateLock) {
                 if ((DateTime.UtcNow - _rateWindow).TotalSeconds >= 1) { _rateWindow = DateTime.UtcNow; _rateCount = 0; }
