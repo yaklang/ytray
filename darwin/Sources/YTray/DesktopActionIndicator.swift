@@ -88,13 +88,14 @@ final class DesktopActionIndicator {
         hideTask?.cancel()
         artwork.finish()
         hideTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(nanoseconds: 1_800_000_000) } catch { return }
+            do { try await Task.sleep(nanoseconds: DesktopFeedbackTiming.cursorHold) } catch { return }
             guard let self, self.revision == current else { return }
             let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 1; fade.toValue = 0; fade.duration = 0.2
+            fade.fromValue = 1; fade.toValue = 0; fade.duration = DesktopFeedbackTiming.fadeDuration
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             fade.fillMode = .forwards; fade.isRemovedOnCompletion = false
             self.artwork.layer?.add(fade, forKey: "fade")
-            do { try await Task.sleep(nanoseconds: 220_000_000) } catch { return }
+            do { try await Task.sleep(nanoseconds: DesktopFeedbackTiming.fadeWait) } catch { return }
             guard self.revision == current else { return }
             self.panel.orderOut(nil)
         }
@@ -116,7 +117,7 @@ private final class DesktopCursorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Hollow arrow, red glow, and an action ripple centered on the arrow's actual hotspot.
+/// Matches the Windows dart: terracotta fill, ivory edge, fold and broad soft glow.
 @MainActor
 final class DesktopCursorView: NSView {
     private let arrow = CAShapeLayer()
@@ -131,20 +132,17 @@ final class DesktopCursorView: NSView {
         let tip = DesktopCursorGeometry.hotspot
         let path = CGMutablePath()
         path.move(to: tip)
-        for p in [CGPoint(x: 0, y: -24), CGPoint(x: 6.5, y: -18), CGPoint(x: 11, y: -29),
-                  CGPoint(x: 16, y: -27), CGPoint(x: 11, y: -17), CGPoint(x: 20, y: -17)] {
+        for p in [CGPoint(x: 32, y: -12), CGPoint(x: 19, y: -19), CGPoint(x: 12, y: -32)] {
             path.addLine(to: CGPoint(x: tip.x + p.x, y: tip.y + p.y))
         }
         path.closeSubpath()
         arrow.frame = bounds
         arrow.path = path
-        arrow.fillColor = NSColor.clear.cgColor
-        arrow.strokeColor = Brand.controlCursorNS.cgColor
-        arrow.lineWidth = 2.2
+        arrow.fillColor = Brand.controlCursorNS.withAlphaComponent(180.0 / 255).cgColor
+        arrow.strokeColor = NSColor(srgbRed: 1, green: 244.0 / 255, blue: 234.0 / 255, alpha: 225.0 / 255).cgColor
+        arrow.lineWidth = 1.5
         arrow.lineJoin = .round
         arrow.lineCap = .round
-        // Clip the glow out of the arrow interior: a blurred outline alone can
-        // otherwise make a small hollow cursor look like a solid red pointer.
         glowLayer.frame = bounds
         glowLayer.path = path
         glowLayer.fillColor = NSColor.clear.cgColor
@@ -156,16 +154,6 @@ final class DesktopCursorView: NSView {
         glowLayer.shadowOpacity = 0.9
         glowLayer.shadowRadius = 12
         glowLayer.shadowOffset = .zero
-        let outside = CGMutablePath()
-        outside.addRect(bounds)
-        outside.addPath(path)
-        let glowMask = CAShapeLayer()
-        glowMask.frame = bounds
-        glowMask.path = outside
-        glowMask.fillRule = .evenOdd
-        glowLayer.mask = glowMask
-        // A broad, soft terracotta aura complements the crisp hollow outline.
-        // Its radial gradient is fully transparent at the edge and masked out of the arrow.
         ambientGlow.frame = bounds
         let scale: CGFloat = 2
         if let context = CGContext(data: nil, width: Int(bounds.width * scale), height: Int(bounds.height * scale),
@@ -182,11 +170,13 @@ final class DesktopCursorView: NSView {
             ambientGlow.contents = context.makeImage()
             ambientGlow.contentsScale = scale
         }
-        let ambientMask = CAShapeLayer()
-        ambientMask.frame = bounds
-        ambientMask.path = outside
-        ambientMask.fillRule = .evenOdd
-        ambientGlow.mask = ambientMask
+        let fold = CAShapeLayer()
+        let foldPath = CGMutablePath()
+        foldPath.move(to: CGPoint(x: tip.x + 4, y: tip.y - 4))
+        foldPath.addLine(to: CGPoint(x: tip.x + 19, y: tip.y - 19))
+        fold.path = foldPath
+        fold.strokeColor = NSColor(srgbRed: 1, green: 220.0 / 255, blue: 199.0 / 255, alpha: 150.0 / 255).cgColor
+        fold.lineWidth = 1
         let radius: CGFloat = 13
         ripple.bounds = CGRect(x: -radius, y: -radius, width: radius * 2, height: radius * 2)
         ripple.position = tip
@@ -203,6 +193,7 @@ final class DesktopCursorView: NSView {
         layer?.addSublayer(ambientGlow)
         layer?.addSublayer(glowLayer)
         layer?.addSublayer(arrow)
+        layer?.addSublayer(fold)
     }
     required init?(coder: NSCoder) { nil }
     func animate(_ kind: DesktopActionCue.Kind, reduceMotion: Bool) {

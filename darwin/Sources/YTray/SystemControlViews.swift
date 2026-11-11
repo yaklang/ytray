@@ -151,83 +151,102 @@ struct SystemControlPage: View {
     @State private var localError = ""
     @State private var copied = false
     @State private var showPermissions = false
+    @State private var showTools = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                PageHeader(title: "系统操作实例", subtitle: "使用 Swift 原生控制当前登录用户的真实桌面。")
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Label(controller.statusText, systemImage: "desktopcomputer")
-                                .font(.headline)
-                            Spacer()
-                            if controller.isActive {
-                                Button("停止控制", role: .destructive) { controller.stop() }
-                                    .buttonStyle(.borderedProminent).tint(.red)
-                            } else {
-                                Button("创建并连接会话") {
-                                    controller.refreshHostPermissions()
-                                    if controller.hostPermissions.isGranted { Task { _ = await controller.enableIfAuthorized() } }
-                                    else { showPermissions = true }
-                                }
-                                    .buttonStyle(.borderedProminent).tint(Brand.orange)
-                            }
+            VStack(alignment: .leading, spacing: 20) {
+                PageHeader(title: "电脑控制", subtitle: "让 AI 操作应用，每一步都看得见。")
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "desktopcomputer").font(.system(size: 26)).foregroundStyle(Brand.orange)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(controller.statusText).font(.headline)
+                            Text(controller.isActive ? (controller.busy ? "正在操作，请留意屏幕提示" : "等待 AI 连接 · 可随时停止") : "开启后复制配置，连接你的 AI 客户端")
+                                .font(.callout).foregroundStyle(.secondary)
                         }
-                        Text("此实例共享本机的应用、屏幕、鼠标与键盘，不提供虚拟机隔离。开启后，持有临时令牌的 Agent 或授权网页可观察和操作桌面；30 分钟后自动结束。")
-                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        if let id = controller.sessionID {
-                            Text("会话 \(id.uuidString)").font(.caption.monospaced()).textSelection(.enabled)
+                        Spacer()
+                        if controller.isActive {
+                            Button("停止控制", role: .destructive) { controller.stop() }
+                                .buttonStyle(.borderedProminent).tint(Brand.orange)
+                        } else {
+                            Button("开启控制") {
+                                controller.refreshHostPermissions()
+                                if controller.hostPermissions.isGranted { Task { _ = await controller.enableIfAuthorized() } }
+                                else { showPermissions = true }
+                            }.buttonStyle(.borderedProminent).tint(Brand.orange)
                         }
-                        if let expiry = controller.expiresAt, controller.isActive {
-                            Text("到期 \(expiry.formatted(date: .omitted, time: .standard)) · 停止即撤销令牌").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if !controller.isActive {
+                        Toggle("允许切换应用与使用鼠标、键盘", isOn: $controller.allowForegroundDraft)
+                            .font(.callout).tint(Brand.orange)
+                    }
+                    Divider()
+                    HStack(spacing: 12) {
+                        Button(copied ? "已复制" : "复制 MCP 配置") {
+                            guard let text = controller.configurationJSON(port: mcp.configuredPort) else { return }
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(text, forType: .string)
+                            copied = true
+                        }.disabled(controller.phase != .running || mcp.phase != .running)
+                        Button("查看 MCP 工具") { showTools = true }
+                        Spacer()
+                        if mcp.phase != .running {
+                            Button("启动接入服务") { mcp.setEnabled(true); mcp.startIfEnabled() }
+                        } else {
+                            Label("本地服务已就绪", systemImage: "checkmark.circle.fill")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                    }.padding(10)
+                    }
                 }
-                GroupBox("接入与授权") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("控制引擎").frame(width: 95, alignment: .leading)
-                            Label("Swift 原生 · Apple AX / ScreenCaptureKit", systemImage: "swift")
-                                .font(.callout)
-                            Spacer()
-                        }
-                        Text("操作时以红色空心发光光标标出 AI 的作用位置。后台使用控件 AX 动作，通用按键和任意坐标点击需要授权前台输入。")
-                            .font(.caption).foregroundStyle(.secondary)
-                        TextField("允许的网页来源（留空仅接入本机 Agent）", text: $controller.allowedOriginDraft)
-                            .textFieldStyle(.roundedBorder).disabled(controller.isActive)
-                        Text("例如 https://example.com 或 http://localhost:3000，必须匹配协议、域名和端口。连接配置只在本机复制。")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Toggle("允许显式前台输入（可能影响当前鼠标和键盘）", isOn: $controller.allowForegroundDraft)
-                            .disabled(controller.isActive)
-                        HStack {
-                            Button("申请系统权限") { controller.requestPermissions() }
-                            Button("检查权限") { inspect("check_permissions") }.disabled(controller.phase != .running || controller.busy)
-                            ApplicationRestartButton()
-                            Button("打开权限设置") {
-                                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                .padding(18).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("正在做什么").font(.headline)
+                    if let activity = controller.activity {
+                        activityRow(activity)
+                    } else {
+                        HStack(spacing: 12) {
+                            Image(systemName: "paperplane").font(.title2).foregroundStyle(Brand.orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("操作时，屏幕边缘会亮起陶土红氛围灯。")
+                                Text("飞镖光标标出位置，顶部显示动作与结果。输入内容只显示字符数。")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
-                        }
-                        Text("权限授予 YTray。修改辅助功能或屏幕录制权限后，请停止并重新连接；系统要求时重新打开 YTray。原生权限和操作结果显示在下方。")
-                            .font(.caption).foregroundStyle(.secondary)
-                        HStack {
-                            Text("本地 MCP · \(mcp.statusText)").font(.caption).foregroundStyle(.secondary)
-                            if mcp.phase != .running {
-                                Button("开启 / 重试 MCP") { mcp.setEnabled(true); mcp.startIfEnabled() }
-                            }
-                            Spacer()
-                            Button(copied ? "已复制" : "复制会话连接配置") {
-                                guard let text = controller.configurationText(port: mcp.configuredPort) else { return }
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(text, forType: .string)
-                                copied = true
-                            }.disabled(controller.phase != .running || mcp.phase != .running)
-                        }
-                    }.padding(10)
-                }
+                        }.padding(.vertical, 5)
+                    }
+                    if controller.recentActivity.count > 1 {
+                        DisclosureGroup("最近操作") {
+                            VStack(spacing: 12) {
+                                ForEach(controller.recentActivity.filter { $0.id != controller.activity?.id }) { activityRow($0) }
+                            }.padding(.top, 12)
+                        }.font(.caption)
+                    }
+                }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 if !controller.lastError.isEmpty { Text(controller.lastError).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
                 if !localError.isEmpty { Text(localError).foregroundStyle(.red).textSelection(.enabled) }
-                GroupBox("观察桌面") {
+                DisclosureGroup("权限与连接设置") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Label(controller.hostPermissions.accessibility ? "辅助功能已授权" : "需要辅助功能", systemImage: controller.hostPermissions.accessibility ? "checkmark.circle" : "exclamationmark.circle")
+                            Label(controller.hostPermissions.screenRecording ? "屏幕录制已授权" : "需要屏幕录制", systemImage: controller.hostPermissions.screenRecording ? "checkmark.circle" : "exclamationmark.circle")
+                        }.font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Button("管理权限") { showPermissions = true }
+                            ApplicationRestartButton()
+                            Button("刷新权限") { controller.refreshHostPermissions() }
+                        }
+                        TextField("允许的网页来源（留空只接入本机 AI）", text: $controller.allowedOriginDraft)
+                            .textFieldStyle(.roundedBorder).disabled(controller.isActive)
+                        Text("网页需填写完整来源，例如 https://example.com。修改接入方式需先停止控制。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if let expiry = controller.expiresAt, controller.isActive {
+                            Text("本次控制到 \(expiry.formatted(date: .omitted, time: .shortened)) 自动结束；停止后配置立即失效。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.padding(.top, 12)
+                }
+                DisclosureGroup("查看 AI 看到的画面与控件") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Button("发现应用") { inspect("list_apps") }
@@ -258,17 +277,41 @@ struct SystemControlPage: View {
                             Text(observation).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
-                            Text("连接后读取真实窗口、权限和截图。Agent 可按元素 token 点击、输入、按键与滚动，再读取窗口状态验证结果。")
+                            Text("连接后读取真实窗口、权限和截图。Agent 按控件编号点击、输入、按键与滚动，动作后会自动返回新状态。")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                     }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                Text("控制当前真实桌面。可读取应用、截图、点击、输入与滚动；前台操作需本机授权。")
+                    .font(.caption).foregroundStyle(.secondary)
             }.padding(24)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear { controller.refreshHostPermissions() }
         .sheet(isPresented: $showPermissions) { ComputerControlPermissionView(controller: controller) }
+        .sheet(isPresented: $showTools) {
+            VStack(alignment: .trailing, spacing: 0) {
+                Button("完成") { showTools = false }.keyboardShortcut(.cancelAction).padding([.top, .trailing], 16)
+                MCPConfigurationView(controller: mcp, computer: controller,
+                    openComputerSettings: { showTools = false }, initialSelection: .computer)
+            }.frame(width: 860, height: 720)
+        }
         .onChange(of: controller.sessionID) { _, _ in copied = false; windows = []; selectedWindow = ""; observation = ""; screenshot = nil }
         .onChange(of: controller.phase) { _, phase in
             if phase == .stopped || phase == .failed { screenshot = nil; observation = ""; windows = [] }
+        }
+    }
+
+    private func activityRow(_ feedback: DesktopOperationFeedback) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: feedback.phase == .completed ? "checkmark.circle.fill" : feedback.phase.isWorking ? "paperplane.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(Brand.orange).font(.system(size: 18)).frame(width: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(feedback.summary).font(.callout.weight(.medium))
+                Text(feedback.note.isEmpty ? feedback.context : feedback.note).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(feedback.phase.label).font(.caption).foregroundStyle(.secondary)
         }
     }
 

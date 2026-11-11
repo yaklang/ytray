@@ -15,9 +15,11 @@ struct MCPToolDescription: Identifiable {
         "evaluate_javascript": ("执行 JavaScript", "在当前浏览器页面执行 JavaScript 并返回结果。"),
         "list_apps": ("发现应用", "发现当前桌面上的应用和进程。"),
         "list_windows": ("发现窗口", "列出应用窗口，用 PID 与窗口 ID 确定操作目标。"),
-        "get_window_state": ("窗口状态", "读取指定窗口的控件树、元素 token 与截图。"),
+        "launch_app": ("打开应用", "按 Bundle ID 打开本机应用，需要本机允许前台控制。"),
+        "activate_window": ("切换窗口", "激活指定窗口并返回新状态，需要本机允许前台控制。"),
+        "get_window_state": ("窗口状态", "读取指定窗口的控件编号与可选截图。"),
         "get_desktop_state": ("桌面截图", "读取当前桌面的画面与实际捕获能力反馈。"),
-        "click": ("点击控件", "通过元素 token 或明确坐标点击目标窗口。"),
+        "click": ("点击控件", "通过控件编号或截图坐标点击，并返回新状态。"),
         "type_text": ("输入文字", "向明确指定的窗口或桌面目标输入文字。"),
         "press_key": ("键盘操作", "向指定目标发送按键与组合键。"),
         "scroll": ("滚动", "在指定窗口或桌面坐标滚动。"),
@@ -37,9 +39,10 @@ struct MCPToolDescription: Identifiable {
     }
 
     @MainActor static var computerCapabilities: [Self] {
-        (SystemControlController.fields.keys.sorted() + ["system_status", "end_session"]).map { name in
-            Self(name: name, title: descriptions[name]?.0 ?? name, summary: descriptions[name]?.1 ?? "", schema: nil)
-        }
+        DesktopNativeTools.definitions.map(DesktopNativeTools.publicTool).compactMap(Self.from) +
+            ["system_status", "end_session"].map { name in
+                Self(name: name, title: descriptions[name]?.0 ?? name, summary: descriptions[name]?.1 ?? "", schema: nil)
+            }
     }
 }
 

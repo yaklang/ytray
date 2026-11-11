@@ -347,6 +347,38 @@ final class NativeAXWorker: @unchecked Sendable {
         if writable(snapshot.window.element, kAXMainAttribute) { try set(snapshot.window.element, kAXMainAttribute, kCFBooleanTrue) }
         try perform(snapshot.window.element, kAXRaiseAction)
     }
+    func activateWindow(_ target: Target) throws {
+        let window = try resolve(target)
+        if writable(window.element, kAXMainAttribute) { try set(window.element, kAXMainAttribute, kCFBooleanTrue) }
+        try perform(window.element, kAXRaiseAction)
+    }
+    func verifyActivatedWindow(_ target: Target, generation: UUID) throws {
+        try verifyFocus(resolve(target), generation: generation)
+    }
+    func activateApplication(_ target: Target) throws {
+        // A background agent's NSRunningApplication activation can be refused.
+        // AX is the explicitly authorized macOS control path. Callers still verify
+        // the exact focused window before sending any keyboard or mouse event.
+        let application = AXUIElementCreateApplication(target.pid)
+        guard writable(application, kAXFrontmostAttribute) else {
+            throw DesktopOperationError("foreground_unavailable", "目标应用不支持辅助功能前台激活")
+        }
+        try set(application, kAXFrontmostAttribute, kCFBooleanTrue)
+    }
+    /// Display labels only, from an already observed snapshot; never performs another AX walk.
+    func feedbackContext(_ args: [String: Any]) -> [String: Any] {
+        let target = args["target"] as? [String: Any]
+        guard let windowID = args["window_id"] as? Int ?? target?["window_id"] as? Int,
+              let snapshot = snapshots.first(where: { Int($0.key.windowID) == windowID })?.value,
+              Date().timeIntervalSince(snapshot.createdAt) <= 60 else { return [:] }
+        if let snapshotID = args["snapshot_id"] as? String, snapshotID != snapshot.id { return [:] }
+        var result: [String: Any] = ["title": snapshot.window.title]
+        let index = (args["element_index"] as? Int) ?? (args["element_token"] as? String).flatMap { token in
+            snapshot.entries.firstIndex { $0.data["element_token"] as? String == token }
+        }
+        if let index, snapshot.entries.indices.contains(index) { result["label"] = snapshot.entries[index].data["label"] }
+        return result
+    }
     private func fresh(_ target: Target) throws -> Snapshot {
         guard let snapshot = snapshots[target], Date().timeIntervalSince(snapshot.createdAt) <= 60 else {
             throw DesktopOperationError("stale_observation", "请先 get_window_state 观察此窗口；观察有效期为 60 秒")

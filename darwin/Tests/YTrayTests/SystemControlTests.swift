@@ -12,6 +12,15 @@ final class SystemControlTests: XCTestCase {
         }
     }
 
+    func testActionErrorSummaryDoesNotSpillObservationIntoMainPage() {
+        let result: [String: Any] = ["isError": true,
+            "content": [["type": "text", "text": "focus_unverified: 窗口未获得焦点\n[1] AXTextField private input\n[2] AXButton"]],
+            "structuredContent": ["error_code": "focus_unverified", "message": "窗口未获得焦点"]]
+        XCTAssertEqual(SystemControlController.errorSummary(result), "focus_unverified: 窗口未获得焦点")
+        XCTAssertFalse(SystemControlController.errorSummary(result).contains("private input"))
+        XCTAssertEqual(SystemControlController.errorSummary(["content": [["type": "text", "text": "Legacy failure\nAX tree"]]]), "Legacy failure")
+    }
+
     func testSessionRequiresNativeStartAndRevokesBearerOnStopAndRestart() async throws {
         let (controller, fake, defaults) = try fixture()
         defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
@@ -89,7 +98,7 @@ final class SystemControlTests: XCTestCase {
         let response = await controller.handleHTTP(request(token: try bearer(controller), tool: "tools/list"), port: 51373)
         let text = String(decoding: response.body, as: UTF8.self)
         XCTAssertFalse(text.contains("screenshot_out_file"))
-        XCTAssertFalse(text.contains("launch_app"))
+        XCTAssertTrue(text.contains("launch_app"))
     }
 
     func testCompactWorkflowOptionsKeepTheNativeForegroundBoundary() async throws {
@@ -245,6 +254,73 @@ final class SystemControlTests: XCTestCase {
         XCTAssertNil(controller.configurationJSON(port: 51373))
     }
 
+    func testFeedbackIsOneRedactedLifecyclePerPublicAction() async throws {
+        let (controller, fake, defaults) = try fixture()
+        defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
+        await controller.start()
+        _ = try await controller.perform("type_text", arguments: ["window_id": 7, "element_index": 2, "text": "private-secret", "replace": true, "submit": true])
+        let updates = fake.feedback.compactMap { $0 }
+        XCTAssertEqual(updates.map(\.phase), [.preparing, .running, .completed])
+        XCTAssertEqual(Set(updates.map(\.id)).count, 1)
+        XCTAssertEqual(controller.recentActivity.count, 1)
+        XCTAssertFalse(updates.contains { $0.summary.contains("private-secret") })
+        XCTAssertTrue(updates.last?.summary.contains("14 个字符") == true)
+        XCTAssertTrue(updates.last?.summary.contains("按回车提交") == true)
+        let resultCount = fake.feedback.count
+        _ = try await controller.perform("list_windows")
+        XCTAssertEqual(fake.feedback.count, resultCount, "Readback must not create another input banner")
+        controller.stop()
+        XCTAssertNil(fake.feedback.last!)
+    }
+
+    func testStopDuringPreparationNeverSendsInputOrResurrectsOverlay() async throws {
+        let (controller, fake, defaults) = try fixture()
+        defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
+        await controller.start()
+        let task = Task { try await controller.perform("click", arguments: ["window_id": 1, "element_index": 0]) }
+        while controller.activity == nil { await Task.yield() }
+        XCTAssertEqual(controller.activity?.phase, .preparing)
+        controller.stop()
+        do { _ = try await task.value; XCTFail("Stopped input returned success") } catch { }
+        XCTAssertFalse(fake.calls.contains { $0.0 == "click" })
+        XCTAssertNil(fake.feedback.last!)
+        XCTAssertEqual(controller.activity?.phase, .failed)
+        XCTAssertFalse(controller.busy)
+    }
+
+    func testStopDuringRunningInputDiscardsItsLateFeedback() async throws {
+        let (controller, fake, defaults) = try fixture()
+        defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
+        await controller.start()
+        fake.delay = 150_000_000
+        let task = Task { try await controller.perform("click", arguments: ["window_id": 1, "element_index": 0]) }
+        while controller.activity?.phase != .running { await Task.yield() }
+        controller.stop()
+        do { _ = try await task.value; XCTFail("Stopped input returned success") } catch { }
+        XCTAssertNil(fake.feedback.last!)
+        XCTAssertEqual(controller.activity?.phase, .uncertain)
+        XCTAssertEqual(controller.recentActivity.count, 1)
+    }
+
+    func testApplicationToolsAndDesktopAliasRequireLocalForegroundGrant() async throws {
+        let (controller, fake, defaults) = try fixture()
+        defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
+        await controller.start()
+        for name in ["launch_app", "activate_window"] {
+            XCTAssertThrowsError(try controller.validatedArguments(name, arguments: name == "launch_app" ? ["app": "com.apple.TextEdit"] : ["window_id": 7]))
+        }
+        controller.stop()
+        controller.allowForegroundDraft = true
+        await controller.start()
+        XCTAssertEqual(try controller.validatedArguments("launch_app", arguments: ["app": "com.apple.TextEdit"])["app"] as? String, "com.apple.TextEdit")
+        XCTAssertThrowsError(try controller.validatedArguments("launch_app", arguments: ["app": "com.apple.TextEdit", "command": "echo unsafe"]))
+        let mapped = try controller.validatedArguments("click", arguments: ["window_id": 0, "x": 10, "y": 20, "delivery_mode": "foreground"])
+        XCTAssertNil(mapped["window_id"])
+        XCTAssertEqual((mapped["target"] as? [String: String])?["kind"], "desktop")
+        XCTAssertThrowsError(try controller.validatedArguments("click", arguments: ["window_id": 0, "pid": 1, "delivery_mode": "foreground"]))
+        XCTAssertThrowsError(try controller.validatedArguments("click", arguments: ["window_id": false, "delivery_mode": "foreground"]))
+    }
+
     private func fixture(ttl: TimeInterval = 1800, readHostPermissions: @escaping () -> ComputerControlPermissions = { .current() }) throws -> (SystemControlController, FakeDesktopBackend, UserDefaults) {
         let suite = "io.yaklang.ytray.system.tests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -275,6 +351,8 @@ private final class FakeDesktopBackend: DesktopControlBackend {
     var starts = 0
     var stops = 0
     var calls: [(String, [String: Any])] = []
+    var feedback: [DesktopOperationFeedback?] = []
+    func updateFeedback(_ value: DesktopOperationFeedback?) { feedback.append(value) }
     var validIdentity = true
     var accessibility = true
     var result: [String: Any] = ["content": [["type": "text", "text": "ok"]]]
@@ -286,7 +364,7 @@ private final class FakeDesktopBackend: DesktopControlBackend {
         if method == "tools/list" {
             return ["tools": SystemControlController.fields.map { name, fields in
                 ["name": name, "inputSchema": ["type": "object", "properties": Dictionary(uniqueKeysWithValues: fields.union(["session", "screenshot_out_file"]).map { ($0, ["type": "string"]) })]] as [String: Any]
-            } + [["name": "launch_app", "inputSchema": ["type": "object", "properties": [:]]]]]
+            }]
         }
         let name = params["name"] as? String ?? ""
         let args = params["arguments"] as? [String: Any] ?? [:]

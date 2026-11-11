@@ -11,6 +11,7 @@ final class SwiftDesktopBackend: DesktopControlBackend {
     var onFailure: ((String) -> Void)?
     private let lease = DesktopSessionLease()
     private let indicator = DesktopActionIndicator()
+    private let feedbackOverlay = DesktopOperationOverlay()
     private lazy var worker = NativeAXWorker(lease: lease, onAction: { [weak self] cue, id in
         DispatchQueue.main.sync {
             guard let self, self.generation == id else { return }
@@ -25,7 +26,17 @@ final class SwiftDesktopBackend: DesktopControlBackend {
         guard Bundle.main.bundleIdentifier == hostBundleID else { throw SystemControlError("原生后端的应用身份不匹配") }
         generation = lease.begin()
     }
-    func stop() { lease.end(); generation = nil; desktopCapture = nil; indicator.hide(); worker.clear() }
+    func stop() { lease.end(); generation = nil; desktopCapture = nil; indicator.hide(); feedbackOverlay.update(nil); worker.clear() }
+    func updateFeedback(_ feedback: DesktopOperationFeedback?) {
+        guard generation != nil || feedback == nil else { return }
+        feedbackOverlay.update(feedback)
+    }
+    func describeOperation(_ name: String, arguments: [String: Any]) async throws -> DesktopOperationFeedback {
+        guard let id = generation else { throw SystemControlError("电脑控制会话已结束") }
+        let context = try await worker.run(id) { $0.feedbackContext(arguments) }
+        return DesktopOperationFeedback.make(name, arguments: arguments,
+            windowTitle: context["title"] as? String, elementLabel: context["label"] as? String)
+    }
 
     func request(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         guard let id = generation else { throw SystemControlError("电脑控制会话已结束") }
@@ -33,6 +44,7 @@ final class SwiftDesktopBackend: DesktopControlBackend {
         if method == "tools/list" { return ["tools": DesktopNativeTools.definitions] }
         guard method == "tools/call", let name = params["name"] as? String else { throw SystemControlError("无效的原生后端调用") }
         let args = params["arguments"] as? [String: Any] ?? [:]
+        var mayHaveExecuted = false
         do {
             if name == "health_report" {
                 return Self.result("YTray Swift native desktop backend", ["checks": [["name": "bundle_identity", "status": "pass", "data": [
@@ -58,15 +70,49 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                     "backend": "swift-native", "source": ["attribution": "host", "host_bundle_id": Bundle.main.bundleIdentifier ?? "", "pid": Int(ProcessInfo.processInfo.processIdentifier)],
                     "capabilities": ["background_element_actions": true, "background_pixel_events": false,
                                      "general_background_keys": false, "foreground_input_requires_authorization": true,
-                                     "capture": "ScreenCaptureKit", "window_matching": "unique_pid_bounds_title", "agent_cursor_overlay": true, "agent_cursor_style": "red_hollow_glow"]
+                                     "capture": "ScreenCaptureKit", "window_matching": "unique_pid_bounds_title", "agent_cursor_overlay": true,
+                                     "agent_cursor_style": "terracotta_dart", "operation_feedback": true, "ambient_screen_edges": true]
                 ])
             case "list_apps":
-                let apps: [[String: Any]] = NSWorkspace.shared.runningApplications.filter { !$0.isTerminated }.map {
+                let query = args["query"] as? String ?? ""
+                let apps: [[String: Any]] = NSWorkspace.shared.runningApplications.filter {
+                    !$0.isTerminated && (query.isEmpty || ($0.localizedName ?? "").localizedCaseInsensitiveContains(query) || ($0.bundleIdentifier ?? "").localizedCaseInsensitiveContains(query))
+                }.map {
                     ["pid": Int($0.processIdentifier), "name": $0.localizedName ?? "", "bundle_id": $0.bundleIdentifier ?? "",
                      "running": true, "active": $0.isActive]
                 }
                 return Self.result("Found \(apps.count) running apps", ["apps": apps])
             case "list_windows": return try await worker.run(id) { try $0.listWindows(args) }
+            case "launch_app":
+                guard let bundleID = args["app"] as? String,
+                      let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+                      Bundle(url: url)?.bundleIdentifier == bundleID else {
+                    throw DesktopOperationError("app_not_found", "请指定已安装应用的准确 Bundle ID，例如 com.apple.TextEdit")
+                }
+                try lease.check(id)
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = true
+                mayHaveExecuted = true
+                let app = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+                try lease.check(id)
+                let listed: [String: Any]
+                do { listed = try await worker.run(id) { try $0.listWindows(["pid": Int(app.processIdentifier)]) } }
+                catch {
+                    try lease.check(id)
+                    listed = DesktopOperationError("observation_unavailable", "应用已打开，暂未取得窗口列表").toolResult
+                }
+                return Self.finishAction(Self.result("Application opened", ["pid": Int(app.processIdentifier), "bundle_id": bundleID, "delivered": true]), observation: listed)
+            case "activate_window":
+                guard AXIsProcessTrusted() else { throw DesktopOperationError("permission_denied", "YTray 尚未获得辅助功能权限") }
+                let target = try NativeAXWorker.windowTarget(args)
+                mayHaveExecuted = true
+                try await worker.run(id) { try $0.activateWindow(target); return [:] }
+                try lease.check(id)
+                try await activateApplication(target, generation: id)
+                try await worker.run(id) { try $0.verifyActivatedWindow(target, generation: id); return [:] }
+                let observed = try await request("tools/call", params: ["name": "get_window_state", "arguments": [
+                    "window_id": Int(target.windowID), "include_screenshot": args["include_screenshot"] as? Bool ?? false]])
+                return Self.finishAction(Self.result("Window activated", ["delivered": true]), observation: observed)
             case "get_window_state":
                 var result = try await worker.run(id) { try $0.observe(args, generation: id) }
                 if try DesktopObservation.wantsScreenshot(args) {
@@ -106,7 +152,8 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
                 try lease.check(id)
                 guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) else { throw DesktopOperationError("display_unavailable", "找不到主显示器") }
-                let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.windowID == indicator.windowID })
+                let overlayIDs = feedbackOverlay.windowIDs.union(indicator.windowID.map { [$0] } ?? [])
+                let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { overlayIDs.contains($0.windowID) })
                 let capture = try await Self.capture(filter: filter, frame: display.frame, maximum: try Self.maximum(args))
                 try lease.check(id)
                 let captureID = UUID().uuidString
@@ -139,11 +186,22 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                 try lease.check(id)
                 return Self.finishAction(result, observation: latest)
             }
-        } catch let error as DesktopOperationError { return error.toolResult }
+        } catch let error as DesktopOperationError { return Self.operationFailure(error, mayHaveExecuted: mayHaveExecuted) }
         catch {
             try lease.check(id)
-            return DesktopOperationError("native_error", "\(type(of: error)): \(error.localizedDescription)").toolResult
+            return Self.operationFailure(DesktopOperationError("native_error", "\(type(of: error)): \(error.localizedDescription)"), mayHaveExecuted: mayHaveExecuted)
         }
+    }
+
+    nonisolated static func operationFailure(_ error: DesktopOperationError, mayHaveExecuted: Bool) -> [String: Any] {
+        var result = error.toolResult
+        if mayHaveExecuted {
+            var state = result["structuredContent"] as? [String: Any] ?? [:]
+            state["execution_state"] = "Unknown"
+            state["automatic_replay_allowed"] = false
+            result["structuredContent"] = state
+        }
+        return result
     }
 
     private func performAction(_ name: String, args: [String: Any], generation id: UUID) async throws -> [String: Any] {
@@ -166,9 +224,7 @@ final class SwiftDesktopBackend: DesktopControlBackend {
         if foreground, let target {
             try await worker.run(id) { try $0.raiseWindow(target, tool: name, args: args); return [:] }
             try lease.check(id)
-            guard let app = NSRunningApplication(processIdentifier: target.pid), app.activate(options: []) else {
-                throw DesktopOperationError("foreground_unavailable", "目标应用无法激活")
-            }
+            try await activateApplication(target, generation: id)
             try lease.check(id)
         }
         let capture = desktopCapture
@@ -180,6 +236,17 @@ final class SwiftDesktopBackend: DesktopControlBackend {
             try lease.check(id)
         }
         return result
+    }
+
+    private func activateApplication(_ target: NativeAXWorker.Target, generation id: UUID) async throws {
+        try lease.check(id)
+        guard let app = NSRunningApplication(processIdentifier: target.pid), !app.isTerminated else {
+            throw DesktopOperationError("foreground_unavailable", "目标应用已退出")
+        }
+        if !app.isActive, !app.activate(options: []) {
+            try await worker.run(id) { try $0.activateApplication(target); return [:] }
+        }
+        try lease.check(id)
     }
 
 

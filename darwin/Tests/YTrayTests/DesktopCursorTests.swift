@@ -26,17 +26,19 @@ final class DesktopCursorTests: XCTestCase {
         XCTAssertTrue(window.ignoresMouseEvents)
         XCTAssertFalse(window.canBecomeKey)
         XCTAssertFalse(window.canBecomeMain)
+        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, frontmost)
         indicator.finish()
         indicator.show(.init(point: CGPoint(x: -9000, y: -9000), kind: .scroll))
         indicator.hide()
-        try await Task.sleep(nanoseconds: 2_100_000_000)
+        try await Task.sleep(nanoseconds: DesktopFeedbackTiming.cursorHold + DesktopFeedbackTiming.fadeWait + 100_000_000)
         XCTAssertFalse(indicator.isVisible)
         XCTAssertTrue(NSApp.keyWindow === keyWindow)
-        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, frontmost)
+        // The user may switch apps during the fade wait. Check activation at show time;
+        // the asynchronous part only tests our own panel's cancellation and visibility.
     }
 
     @MainActor
-    func testCursorArtworkHasTransparentBackgroundAndHollowCenter() throws {
+    func testCursorArtworkMatchesFilledDartWithTransparentBackground() throws {
         let view = DesktopCursorView(frame: CGRect(origin: .zero, size: DesktopCursorGeometry.size))
         let context = try XCTUnwrap(CGContext(data: nil, width: 224, height: 224, bitsPerComponent: 8, bytesPerRow: 224 * 4,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -50,8 +52,8 @@ final class DesktopCursorTests: XCTestCase {
             if Int(pixels[i]) > Int(pixels[i + 1]) * 3 / 2 && pixels[i + 1] > pixels[i + 2] { redPixels += 1 }
         }
         XCTAssertGreaterThan(redPixels, 50)
-        let center = (112 * 224 + 96) * 4
-        XCTAssertLessThan(pixels[center + 3], 20, "The arrow must have a hollow center")
+        let interior = ((224 - 114) * 224 + 112) * 4
+        XCTAssertGreaterThan(pixels[interior + 3], 100, "The Windows-style dart must have a visible filled interior")
         if let path = ProcessInfo.processInfo.environment["YTRAY_CURSOR_PREVIEW_DIR"] {
             let directory = URL(fileURLWithPath: path)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
