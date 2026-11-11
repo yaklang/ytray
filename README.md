@@ -1,7 +1,9 @@
 # YTray
 
 
-**v0.2.0：Windows 与 macOS 均支持 YConnect 同款应用内更新。** 在“设置 → YTray 更新”点击“更新”，按原生更新窗口完成下载、签名校验和安装，完成后自动重新打开。YTray 与内置 Yakit 插件随安装包更新，浏览器配置、实例和已安装运行时保留。后台只检查和提示；可关闭自动检查。[更新与发布说明](docs/UPDATES.md)。
+**v0.3.0：Windows 原生电脑操纵里程碑。** 完整离线安装包约 5 MiB，无需额外安装运行库或控制组件；AI 操作提供陶土红飞镖、曲线缓动、旁侧文字提示与全屏边缘氛围光，支持远控画面显示。[完整更新记录](CHANGELOG.md)。
+
+Windows 与 macOS 均支持应用内更新。在“设置 → YTray 更新”点击“更新”，完成下载、校验和安装后自动重新打开，保留浏览器配置、实例和已安装运行时。[更新与发布说明](docs/UPDATES.md)。
 
 <p align="center">
   <img alt="YTray 应用图标" src="assets/app-icon/YTray.png" width="128"><br>
