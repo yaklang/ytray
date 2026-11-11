@@ -128,6 +128,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Channel installs can flatten the macOS bundle, leaving page targets unresponsive.
+          # Keep testing stable Chrome, but restore its .app path (setup-chrome issue #658).
+          browser_root="${YTRAY_CHROME_PATH%/Contents/MacOS/*}"
+          if [[ "$browser_root" != *.app ]]; then
+            browser_bundle="$RUNNER_TEMP/integration-browser/Google Chrome for Testing.app"
+            mkdir -p "$(dirname "$browser_bundle")"
+            ditto "$browser_root" "$browser_bundle"
+            export YTRAY_CHROME_PATH="$browser_bundle/Contents/MacOS/Google Chrome for Testing"
+            export YTRAY_CFT_PATH="$YTRAY_CHROME_PATH"
+          fi
           export YTRAY_LAUNCHER_PATH="$PWD/dist/darwin-universal/YTray.app/Contents/MacOS/YTray"
           export YTRAY_TEST_EXTENSION_PATH="$RUNNER_TEMP/browser-agent-fixture"
           test -x "$YTRAY_CHROME_PATH"
