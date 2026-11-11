@@ -23,6 +23,8 @@ final class SystemControlController: ObservableObject {
     @Published private(set) var lastError = ""
     @Published private(set) var permissions: [String: Any] = [:]
     @Published private(set) var busy = false
+    @Published private(set) var activity: DesktopOperationFeedback?
+    @Published private(set) var recentActivity: [DesktopOperationFeedback] = []
     @Published private(set) var hostPermissions: ComputerControlPermissions
     @Published var allowedOriginDraft = ""
     @Published var allowForegroundDraft = false
@@ -41,18 +43,20 @@ final class SystemControlController: ObservableObject {
     // The gateway never exposes backend startup, scripts, browser JS, filesystem outputs,
     // settings, or authorization tools. Parameter restrictions apply even to local callers.
     static let fields: [String: Set<String>] = [
-        "list_apps": [],
+        "list_apps": ["query"],
         "list_windows": ["pid", "on_screen_only"],
+        "launch_app": ["app"],
+        "activate_window": ["window_id", "include_screenshot"],
         "check_permissions": [],
         "get_window_state": ["pid", "window_id", "query", "include_accessibility_tree", "include_screenshot",
                              "max_elements", "max_depth", "max_dimension", "max_image_dimension", "timeout_ms", "tree_format", "detail", "region", "max_text_chars"],
         "get_desktop_state": ["max_image_dimension"],
         "click": ["target", "pid", "window_id", "element_token", "x", "y", "capture_id", "delivery_mode", "button", "count", "element_index", "snapshot_id", "include_screenshot", "return_state", "restore_focus"],
-        "type_text": ["target", "pid", "window_id", "element_token", "x", "y", "text", "delivery_mode", "element_index", "snapshot_id", "include_screenshot", "return_state", "restore_focus", "replace", "submit"],
+        "type_text": ["target", "pid", "window_id", "element_token", "capture_id", "x", "y", "text", "delivery_mode", "element_index", "snapshot_id", "include_screenshot", "return_state", "restore_focus", "replace", "submit"],
         "press_key": ["target", "pid", "window_id", "element_token", "key", "modifiers", "delivery_mode", "element_index", "snapshot_id", "include_screenshot", "return_state", "restore_focus"],
-        "scroll": ["target", "pid", "window_id", "element_token", "x", "y", "direction", "by", "amount", "delivery_mode", "element_index", "snapshot_id", "include_screenshot", "return_state", "restore_focus"],
+        "scroll": ["target", "pid", "window_id", "element_token", "capture_id", "x", "y", "direction", "by", "amount", "delivery_mode", "element_index", "snapshot_id", "include_screenshot", "return_state", "restore_focus"],
     ]
-    static let actions: Set<String> = ["click", "type_text", "press_key", "scroll"]
+    static let actions: Set<String> = ["click", "type_text", "press_key", "scroll", "launch_app", "activate_window"]
 
     init(defaults: UserDefaults = .standard, ttl: TimeInterval = 1800,
          readHostPermissions: @escaping () -> ComputerControlPermissions = { .current() },
@@ -110,6 +114,8 @@ final class SystemControlController: ObservableObject {
     func start() async {
         guard !isActive else { return }
         lastError = ""
+        activity = nil
+        recentActivity = []
         let id = UUID()
         sessionID = id
         phase = .starting
@@ -179,9 +185,17 @@ final class SystemControlController: ObservableObject {
         phase = .stopped
         expiration?.cancel(); expiration = nil
         connection?.onFailure = nil
+        connection?.updateFeedback(nil)
         connection?.stop(); connection = nil
         tools = []
         busy = false
+        if let activity, activity.phase.isWorking {
+            var ended = activity
+            ended.phase = activity.phase == .preparing ? .failed : .uncertain
+            ended.note = activity.phase == .preparing ? "已取消，未发送操作。" : "控制已停止；已发送的动作请重新确认。"
+            self.activity = ended
+            record(ended)
+        }
         lastError = reason
     }
 
@@ -230,12 +244,50 @@ final class SystemControlController: ObservableObject {
         let forwarded = try validatedArguments(name, arguments: arguments)
         busy = true
         defer { if sessionID == id { busy = false } }
-        let result = try await connection.request("tools/call", params: ["name": name, "arguments": forwarded])
-        try requireGeneration(id)
-        if name == "check_permissions" { permissions = result["structuredContent"] as? [String: Any] ?? [:] }
-        if result["isError"] as? Bool == true { lastError = Self.text(result) }
-        else { lastError = "" }
-        return result
+        var feedback: DesktopOperationFeedback?
+        do {
+            if Self.actions.contains(name) {
+                feedback = try await connection.describeOperation(name, arguments: forwarded)
+                try requireGeneration(id)
+            }
+            if let preparing = feedback {
+                activity = preparing
+                connection.updateFeedback(preparing)
+                // Let the user see the operation before input is admitted. Stop revokes this wait too.
+                try await Task.sleep(nanoseconds: 300_000_000)
+                try requireGeneration(id)
+                feedback?.phase = .running
+                activity = feedback
+                connection.updateFeedback(feedback)
+            }
+            let result = try await connection.request("tools/call", params: ["name": name, "arguments": forwarded])
+            try requireGeneration(id)
+            if name == "check_permissions" { permissions = result["structuredContent"] as? [String: Any] ?? [:] }
+            if result["isError"] as? Bool == true { lastError = Self.errorSummary(result) }
+            else { lastError = "" }
+            if let completed = feedback?.finished(result) {
+                activity = completed
+                record(completed)
+                connection.updateFeedback(completed)
+            }
+            return result
+        } catch {
+            if sessionID == id, phase == .running, var ended = feedback {
+                ended.phase = ended.phase == .preparing ? .failed : .uncertain
+                ended.note = "操作已中断，请重新观察后再继续。"
+                activity = ended
+                record(ended)
+                connection.updateFeedback(ended)
+                lastError = error.localizedDescription
+            }
+            throw error
+        }
+    }
+
+    private func record(_ feedback: DesktopOperationFeedback) {
+        recentActivity.removeAll { $0.id == feedback.id }
+        recentActivity.insert(feedback, at: 0)
+        recentActivity = Array(recentActivity.prefix(12))
     }
 
     func validatedArguments(_ name: String, arguments: [String: Any]) throws -> [String: Any] {
@@ -244,6 +296,16 @@ final class SystemControlController: ObservableObject {
         }
         guard Set(arguments.keys).isSubset(of: fields) else { throw SystemControlError("工具包含未授权参数") }
         var args = arguments
+        if name == "launch_app" || name == "activate_window" {
+            guard allowForeground else { throw SystemControlError("打开应用或切换窗口需要在本机开启前台输入") }
+            return args
+        }
+        if Self.actions.contains(name), let number = args["window_id"] as? NSNumber,
+           CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue == 0 {
+            guard args["target"] == nil, args["pid"] == nil else { throw SystemControlError("桌面 window_id=0 不能与其他目标混用") }
+            args.removeValue(forKey: "window_id")
+            args["target"] = ["kind": "desktop", "display_id": "primary"]
+        }
         if let target = args["target"] as? [String: Any] {
             let keys = Set(target.keys)
             let window = target["kind"] as? String == "window"
@@ -277,7 +339,7 @@ final class SystemControlController: ObservableObject {
     }
 
     var mcpToolDefinitions: [[String: Any]] {
-        tools + [
+        tools.map(DesktopNativeTools.publicTool) + [
                 ["name": "system_status", "description": "Current desktop session and native macOS permission state", "inputSchema": ["type": "object", "properties": [:], "additionalProperties": false]],
                 ["name": "end_session", "description": "End desktop control and revoke this connection immediately", "inputSchema": ["type": "object", "properties": [:], "additionalProperties": false]]
             ]
@@ -314,6 +376,16 @@ final class SystemControlController: ObservableObject {
 
     static func text(_ result: [String: Any]) -> String {
         (result["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+
+    /// Action responses can include a complete fresh AX tree after the error.
+    /// The main control page shows only the reason; observation stays in diagnostics.
+    static func errorSummary(_ result: [String: Any]) -> String {
+        let state = result["structuredContent"] as? [String: Any] ?? [:]
+        let message = (state["message"] as? String) ?? text(result).components(separatedBy: .newlines).first ?? "操作未完成"
+        let code = state["error_code"] as? String ?? ""
+        let summary = code.isEmpty || message.hasPrefix(code + ":") ? message : code + ": " + message
+        return String(summary.prefix(300))
     }
 
     func handleHTTP(_ request: MCPHTTPRequest, port: Int) async -> MCPHTTPResponse {

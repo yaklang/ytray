@@ -6,7 +6,7 @@ enum ManagerSection: String, CaseIterable, Identifiable {
     case runtimes = "浏览器运行时"
     case settings = "启动设置"
     case instances = "运行与历史"
-    case system = "系统操作实例"
+    case system = "电脑控制"
     case plugins = "插件管理"
     case mcp = "MCP"
     case launchAtLogin = "开机启动"
