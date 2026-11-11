@@ -2,6 +2,19 @@ import XCTest
 @testable import YTray
 
 final class MCPServerTests: XCTestCase {
+    @MainActor
+    func testLegacyServerDoesNotRetainItsStoreAndStoppingDoesNotCreateACycle() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ytray-mcp-lifetime-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var store: InstanceStore? = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
+        weak var released = store
+        let server = MCPServer(store: try XCTUnwrap(store))
+        store?.stopMCPService()
+        store = nil
+        XCTAssertNil(released, "MCP must not keep polling a discarded store through a retain cycle")
+        XCTAssertFalse(server.start(), "A server cannot start after its store is released")
+    }
+
     func testMCPContractExposesBrowserToolsAndRejectsLocalFiles() {
         XCTAssertEqual(MCPServer.toolNames, [
             "list_browser_runtimes",
