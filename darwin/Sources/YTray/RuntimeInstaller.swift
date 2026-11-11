@@ -64,6 +64,10 @@ enum RuntimeInstaller {
         into applicationDirectory: URL,
         progress: @escaping (RuntimeInstallProgress) -> Void = { _ in }
     ) async throws -> BrowserRuntime {
+        try Task.checkCancellation()
+        guard version.version.range(of: #"\A[0-9]+(?:\.[0-9]+){1,3}\z"#, options: .regularExpression) != nil else {
+            throw YTrayError.downloadFailed("浏览器版本号格式无效")
+        }
         guard let artifact = version.artifacts.first(where: {
             $0.os == "macos" && $0.arch == architecture && $0.format == "zip"
         }), let url = URL(string: artifact.url) else {
@@ -100,6 +104,7 @@ enum RuntimeInstaller {
                 ))
             }
             _ = try await delegate.start(request: request)
+            try Task.checkCancellation()
 
             progress(RuntimeInstallProgress(
                 phase: .verifying,
@@ -111,14 +116,13 @@ enum RuntimeInstaller {
             let actualHash = try await Task.detached(priority: .userInitiated) {
                 try sha256(of: temporary)
             }.value
+            try Task.checkCancellation()
             guard actualHash.caseInsensitiveCompare(artifact.sha256) == .orderedSame else {
                 throw YTrayError.downloadFailed("SHA-256 校验失败")
             }
 
             let destination = applicationDirectory
                 .appendingPathComponent("Runtimes/\(version.version)/\(platform)", isDirectory: true)
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
             progress(RuntimeInstallProgress(
                 phase: .extracting,
                 percent: 100,
@@ -126,10 +130,7 @@ enum RuntimeInstaller {
                 totalBytes: artifact.size,
                 message: "校验通过，正在解压浏览器…"
             ))
-            try await extractArchive(temporary, to: destination)
-            guard let executable = locateChrome(in: destination) else {
-                throw YTrayError.downloadFailed("ZIP 内未找到 Google Chrome for Testing 可执行文件")
-            }
+            let executable = try await installArchive(temporary, to: destination)
             progress(RuntimeInstallProgress(
                 phase: .completed,
                 percent: 100,
@@ -147,35 +148,56 @@ enum RuntimeInstaller {
                 browserKind: .chromeForTesting
             )
         } catch {
-            DiagnosticLog.error("runtime.install", error, message: "Chrome for Testing \(version.version) installation failed")
+            if !AsyncCancellation.isExpected(error) {
+                DiagnosticLog.error("runtime.install", error, message: "Chrome for Testing \(version.version) installation failed")
+            }
             throw error
         }
     }
 
-    private static func extractArchive(_ archive: URL, to destination: URL) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let unzip = Process()
-            unzip.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-            unzip.arguments = ["-x", "-k", archive.path, destination.path]
-            let errorPipe = Pipe()
-            unzip.standardError = errorPipe
-            unzip.terminationHandler = { process in
-                let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                guard process.terminationStatus == 0 else {
-                    continuation.resume(throwing: YTrayError.downloadFailed(
-                        String(data: data, encoding: .utf8) ?? "ZIP 解压失败"
-                    ))
-                    return
-                }
-                continuation.resume()
-            }
-            do {
-                try unzip.run()
-            } catch {
-                unzip.terminationHandler = nil
-                continuation.resume(throwing: error)
-            }
+    /// Validate a replacement beside the existing runtime, then promote it. A
+    /// broken download/extraction must never remove the browser the user has.
+    private static func installArchive(_ archive: URL, to destination: URL) async throws -> URL {
+        let files = FileManager.default
+        let parent = destination.deletingLastPathComponent()
+        let staging = parent.appendingPathComponent(".\(destination.lastPathComponent)-install-\(UUID())", isDirectory: true)
+        let backup = parent.appendingPathComponent(".\(destination.lastPathComponent)-backup-\(UUID())", isDirectory: true)
+        try files.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: staging) }
+        try await extractArchive(archive, to: staging)
+        try Task.checkCancellation()
+        guard let stagedExecutable = locateChrome(in: staging) else {
+            throw YTrayError.downloadFailed("ZIP 内未找到 Google Chrome for Testing 可执行文件")
         }
+        // Foundation enumeration can canonicalize /var to /private/var. Compare
+        // canonical paths before deriving the executable's promoted location.
+        let stagingPrefix = staging.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        let executablePath = stagedExecutable.resolvingSymlinksInPath().standardizedFileURL.path
+        guard executablePath.hasPrefix(stagingPrefix) else {
+            throw YTrayError.downloadFailed("ZIP 内的浏览器可执行文件不在安装目录中")
+        }
+        let relativeExecutable = String(executablePath.dropFirst(stagingPrefix.count))
+        let existed = files.fileExists(atPath: destination.path)
+        if existed { try files.moveItem(at: destination, to: backup) }
+        do {
+            try files.moveItem(at: staging, to: destination)
+        } catch {
+            if existed {
+                do { try files.moveItem(at: backup, to: destination) }
+                catch {
+                    // Keep the backup if the filesystem also refuses rollback.
+                    throw YTrayError.downloadFailed("安装和恢复旧版本均失败；原浏览器保留在 \(backup.path)")
+                }
+            }
+            throw error
+        }
+        if existed { try? files.removeItem(at: backup) }
+        return destination.appendingPathComponent(relativeExecutable)
+    }
+
+    private static func extractArchive(_ archive: URL, to destination: URL) async throws {
+        try await RuntimeArchiveExtractor().run(executable: URL(fileURLWithPath: "/usr/bin/ditto"),
+                                               arguments: ["-x", "-k", archive.path, destination.path])
     }
 
     static func formatBytes(_ bytes: Int64) -> String {
@@ -237,7 +259,7 @@ enum RuntimeInstaller {
     }
 }
 
-private final class RuntimeDownloadDelegate: NSObject, URLSessionDownloadDelegate {
+private final class RuntimeDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let destination: URL
     private let expectedSize: Int64?
     private let progress: (Int64, Int64?) -> Void
@@ -245,6 +267,9 @@ private final class RuntimeDownloadDelegate: NSObject, URLSessionDownloadDelegat
     private var downloadedURL: URL?
     private var failure: Error?
     private var session: URLSession?
+    private var task: URLSessionDownloadTask?
+    private let stateLock = NSLock()
+    private var cancelled = false
     private var lastReportedPercent = -1
     private var lastReportedAt = Date.distantPast
 
@@ -255,15 +280,36 @@ private final class RuntimeDownloadDelegate: NSObject, URLSessionDownloadDelegat
     }
 
     func start(request: URLRequest) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 60
-            configuration.timeoutIntervalForResource = 20 * 60
-            let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-            self.session = session
-            session.downloadTask(with: request).resume()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                stateLock.lock()
+                guard !cancelled else {
+                    stateLock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                self.continuation = continuation
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.timeoutIntervalForRequest = 60
+                configuration.timeoutIntervalForResource = 20 * 60
+                let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+                self.session = session
+                let task = session.downloadTask(with: request)
+                self.task = task
+                stateLock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            self.cancel()
         }
+    }
+
+    private func cancel() {
+        stateLock.lock()
+        cancelled = true
+        let task = task
+        stateLock.unlock()
+        task?.cancel()
     }
 
     func urlSession(
@@ -303,12 +349,16 @@ private final class RuntimeDownloadDelegate: NSObject, URLSessionDownloadDelegat
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        defer {
-            continuation = nil
-            self.session?.finishTasksAndInvalidate()
-            self.session = nil
-        }
-        if let error { continuation?.resume(throwing: error) }
+        stateLock.lock()
+        let continuation = self.continuation
+        let wasCancelled = cancelled
+        self.continuation = nil
+        self.task = nil
+        self.session = nil
+        stateLock.unlock()
+        session.finishTasksAndInvalidate()
+        if wasCancelled { continuation?.resume(throwing: CancellationError()) }
+        else if let error { continuation?.resume(throwing: error) }
         else if let failure { continuation?.resume(throwing: failure) }
         else if let downloadedURL { continuation?.resume(returning: downloadedURL) }
         else { continuation?.resume(throwing: YTrayError.downloadFailed("ZIP 下载没有产生文件")) }

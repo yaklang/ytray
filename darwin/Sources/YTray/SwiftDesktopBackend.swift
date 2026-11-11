@@ -19,7 +19,7 @@ final class SwiftDesktopBackend: DesktopControlBackend {
         }
     })
     private var generation: UUID?
-    private var desktopCapture: (id: String, date: Date, scale: CGFloat, frame: CGRect)?
+    private var desktopCapture: DesktopCapture?
 
     func start(hostBundleID: String) async throws {
         stop()
@@ -148,6 +148,8 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                 try lease.check(id)
                 return try DesktopObservation.format(result, arguments: args)
             case "get_desktop_state":
+                // A failed refresh must not leave an older screenshot admitted.
+                desktopCapture = nil
                 guard CGPreflightScreenCaptureAccess() else { throw DesktopOperationError("permission_denied", "YTray 尚未获得屏幕录制权限") }
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
                 try lease.check(id)
@@ -157,12 +159,15 @@ final class SwiftDesktopBackend: DesktopControlBackend {
                 let capture = try await Self.capture(filter: filter, frame: display.frame, maximum: try Self.maximum(args))
                 try lease.check(id)
                 let captureID = UUID().uuidString
-                desktopCapture = (captureID, Date(), capture.scale, display.frame)
+                let observed = DesktopCapture(id: captureID, date: Date(), scale: capture.scale, frame: display.frame, displayID: display.displayID)
+                try observed.validatePrimaryDisplay()
+                let image = try Self.image(capture.image)
+                desktopCapture = observed
                 var result = Self.result("Primary display \(capture.image.width)x\(capture.image.height)", [
                     "display_id": "primary", "capture_id": captureID, "image_width": capture.image.width,
                     "image_height": capture.image.height, "coordinate_scale": capture.scale, "screenshot_frame_valid": true
                 ])
-                result["content"] = [["type": "text", "text": "Primary display capture"], try Self.image(capture.image)]
+                result["content"] = [["type": "text", "text": "Primary display \(capture.image.width)x\(capture.image.height) pixels; capture_id=\(captureID). Coordinates use image pixels."], image]
                 return result
             default:
                 let normalized = try await worker.run(id) { try $0.actionArguments(args) }

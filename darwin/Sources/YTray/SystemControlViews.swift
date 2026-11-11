@@ -141,14 +141,68 @@ struct ComputerControlPermissionView: View {
     }
 }
 
+/// Owns an inspection request separately from the control session. Cancelled reads may
+/// still finish in native APIs; their result must not repopulate a closed diagnostics view.
+@MainActor
+final class DesktopInspectionModel: ObservableObject {
+    @Published private(set) var windows: [[String: Any]] = []
+    @Published private(set) var observation = ""
+    @Published private(set) var screenshot: NSImage?
+    @Published private(set) var error = ""
+    @Published private(set) var isLoading = false
+    private var generation: UInt64 = 0
+    private var operation: Task<Void, Never>?
+
+    @discardableResult
+    func inspect(_ name: String, request: @escaping @MainActor () async throws -> [String: Any]) -> Task<Void, Never> {
+        operation?.cancel()
+        generation &+= 1
+        let current = generation
+        error = ""; observation = ""; screenshot = nil; isLoading = true
+        let task = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.generation == current {
+                    self.isLoading = false
+                    self.operation = nil
+                }
+            }
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await request()
+                guard let self, self.generation == current, !Task.isCancelled else { return }
+                self.observation = SystemControlController.text(result)
+                if let structured = result["structuredContent"] as? [String: Any] {
+                    if name == "list_windows" { self.windows = structured["windows"] as? [[String: Any]] ?? [] }
+                    let data = try JSONSerialization.data(withJSONObject: structured, options: [.prettyPrinted, .sortedKeys])
+                    self.observation = String(decoding: data, as: UTF8.self)
+                }
+                let images = result["content"] as? [[String: Any]] ?? []
+                self.screenshot = images.first(where: { $0["type"] as? String == "image" })
+                    .flatMap { $0["data"] as? String }.flatMap { Data(base64Encoded: $0) }.flatMap(NSImage.init(data:))
+                if result["isError"] as? Bool == true { self.error = SystemControlController.errorSummary(result) }
+            } catch {
+                guard let self, self.generation == current, !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+            }
+        }
+        operation = task
+        return task
+    }
+
+    func reset() {
+        generation &+= 1
+        operation?.cancel(); operation = nil
+        windows = []; observation = ""; screenshot = nil; error = ""; isLoading = false
+    }
+
+    deinit { operation?.cancel() }
+}
+
 struct SystemControlPage: View {
     @ObservedObject var controller: SystemControlController
     @ObservedObject var mcp: YTrayMCPController
-    @State private var windows: [[String: Any]] = []
+    @StateObject private var inspection = DesktopInspectionModel()
     @State private var selectedWindow = ""
-    @State private var observation = ""
-    @State private var screenshot: NSImage?
-    @State private var localError = ""
     @State private var copied = false
     @State private var showPermissions = false
     @State private var showTools = false
@@ -214,7 +268,7 @@ struct SystemControlPage: View {
                             }
                         }.padding(.vertical, 5)
                     }
-                    if controller.recentActivity.count > 1 {
+                    if !controller.recentActivity.filter({ $0.id != controller.activity?.id }).isEmpty {
                         DisclosureGroup("最近操作") {
                             VStack(spacing: 12) {
                                 ForEach(controller.recentActivity.filter { $0.id != controller.activity?.id }) { activityRow($0) }
@@ -224,7 +278,7 @@ struct SystemControlPage: View {
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 if !controller.lastError.isEmpty { Text(controller.lastError).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
-                if !localError.isEmpty { Text(localError).foregroundStyle(.red).textSelection(.enabled) }
+                if !inspection.error.isEmpty { Text(inspection.error).foregroundStyle(.red).textSelection(.enabled) }
                 DisclosureGroup("权限与连接设置") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -252,29 +306,29 @@ struct SystemControlPage: View {
                             Button("发现应用") { inspect("list_apps") }
                             Button("刷新窗口") { inspect("list_windows") }
                             Button("整屏截图") { inspect("get_desktop_state") }
-                            if controller.busy { ProgressView().controlSize(.small) }
-                        }.disabled(controller.phase != .running || controller.busy)
-                        if !windows.isEmpty {
+                            if controller.busy || inspection.isLoading { ProgressView().controlSize(.small) }
+                        }.disabled(controller.phase != .running || controller.busy || inspection.isLoading)
+                        if !inspection.windows.isEmpty {
                             Picker("窗口", selection: $selectedWindow) {
                                 Text("选择窗口").tag("")
-                                ForEach(Array(windows.enumerated()), id: \.offset) { index, window in
+                                ForEach(Array(inspection.windows.enumerated()), id: \.offset) { index, window in
                                     Text("\(window["title"] as? String ?? "无标题") · PID \(window["pid"] ?? "?") · \(window["window_id"] ?? "?")")
                                         .tag(String(index))
                                 }
                             }
                             Button("读取窗口 AX 树与截图") {
-                                guard let index = Int(selectedWindow), windows.indices.contains(index) else { return }
-                                let window = windows[index]
+                                guard let index = Int(selectedWindow), inspection.windows.indices.contains(index) else { return }
+                                let window = inspection.windows[index]
                                 inspect("get_window_state", ["pid": window["pid"] ?? 0, "window_id": window["window_id"] ?? 0,
                                                              "tree_format": "elements", "include_screenshot": true, "include_accessibility_tree": true])
-                            }.disabled(controller.phase != .running || controller.busy || selectedWindow.isEmpty)
+                            }.disabled(controller.phase != .running || controller.busy || inspection.isLoading || selectedWindow.isEmpty)
                         }
-                        if let screenshot {
+                        if let screenshot = inspection.screenshot {
                             Image(nsImage: screenshot).resizable().scaledToFit().frame(maxHeight: 360)
                                 .accessibilityLabel("ScreenCaptureKit 返回的桌面或窗口截图")
                         }
-                        if !observation.isEmpty {
-                            Text(observation).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        if !inspection.observation.isEmpty {
+                            Text(inspection.observation).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
                             Text("连接后读取真实窗口、权限和截图。Agent 按控件编号点击、输入、按键与滚动，动作后会自动返回新状态。")
@@ -296,9 +350,13 @@ struct SystemControlPage: View {
                     openComputerSettings: { showTools = false }, initialSelection: .computer)
             }.frame(width: 860, height: 720)
         }
-        .onChange(of: controller.sessionID) { _, _ in copied = false; windows = []; selectedWindow = ""; observation = ""; screenshot = nil }
+        .onDisappear { inspection.reset() }
+        .onChange(of: controller.sessionID) { _, _ in copied = false; inspection.reset(); selectedWindow = "" }
+        .onChange(of: mcp.configuredPort) { _, _ in copied = false }
+        .onChange(of: mcp.phase) { _, _ in copied = false }
         .onChange(of: controller.phase) { _, phase in
-            if phase == .stopped || phase == .failed { screenshot = nil; observation = ""; windows = [] }
+            copied = false
+            if phase == .stopped || phase == .failed { inspection.reset(); selectedWindow = "" }
         }
     }
 
@@ -316,23 +374,7 @@ struct SystemControlPage: View {
     }
 
     private func inspect(_ name: String, _ args: [String: Any] = [:]) {
-        Task {
-            do {
-                localError = ""
-                let result = try await controller.perform(name, arguments: args)
-                observation = SystemControlController.text(result)
-                if let structured = result["structuredContent"] as? [String: Any] {
-                    if name == "list_windows" {
-                        windows = structured["windows"] as? [[String: Any]] ?? []
-                        selectedWindow = ""
-                    }
-                    let data = try JSONSerialization.data(withJSONObject: structured, options: [.prettyPrinted, .sortedKeys])
-                    observation = String(decoding: data, as: UTF8.self)
-                }
-                let images = result["content"] as? [[String: Any]] ?? []
-                screenshot = images.first(where: { $0["type"] as? String == "image" })
-                    .flatMap { $0["data"] as? String }.flatMap { Data(base64Encoded: $0) }.flatMap(NSImage.init(data:))
-            } catch { localError = error.localizedDescription }
-        }
+        if name == "list_windows" { selectedWindow = "" }
+        inspection.inspect(name) { try await controller.perform(name, arguments: args) }
     }
 }

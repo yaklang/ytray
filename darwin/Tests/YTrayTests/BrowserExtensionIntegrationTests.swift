@@ -7,7 +7,7 @@ import XCTest
 /// belong to a temporary test directory/local server, never the user's browser.
 @MainActor
 final class BrowserExtensionIntegrationTests: XCTestCase {
-    private func makeStore() throws -> InstanceStore {
+    private func makeStore(runtimeKind: BrowserKind = .chrome) throws -> InstanceStore {
         let environment = ProcessInfo.processInfo.environment
         guard let chrome = environment["YTRAY_CHROME_PATH"],
               let launcher = environment["YTRAY_LAUNCHER_PATH"],
@@ -19,7 +19,7 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         let store = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false,
                                   browserProcessLauncher: URL(fileURLWithPath: launcher))
         let runtime = BrowserRuntime(name: "Google Chrome", version: "152.0", architecture: "arm64",
-                                     executablePath: chrome, source: .local, browserKind: .chrome)
+                                     executablePath: chrome, source: .local, browserKind: runtimeKind)
         store.runtimes = [runtime]
         store.settings.defaultRuntimeID = runtime.id
         store.settings.debugPort = BrowserLauncher.nextAvailablePort(startingAt: 19383)
@@ -243,6 +243,22 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         NotificationCenter.default.post(name: exitName, object: try XCTUnwrap(retiredProcess))
         XCTAssertEqual(store.runningInstances.first?.processID, retry.processID)
         XCTAssertTrue(FileManager.default.fileExists(atPath: BrowserProcessIcon.iconURL(instanceID: retry.id, applicationDirectory: store.applicationDirectory).path))
+    }
+
+    func testRealTestingChromeInvalidPluginUsesManagedRecovery() async throws {
+        let store = try makeStore(runtimeKind: .chromeForTesting)
+        _ = try addPlugin(to: store, name: "Broken Plugin", invalid: true)
+        var prompted = false
+        store.confirmLaunchWithoutPlugins = { prompt in
+            prompted = true
+            XCTAssertTrue(prompt.canSkipPlugins)
+            XCTAssertTrue(prompt.message.contains("Broken Plugin"))
+            return false
+        }
+        store.launch(mode: .quick)
+        try await waitForLaunch(store)
+        XCTAssertTrue(prompted)
+        XCTAssertTrue(store.runningInstances.isEmpty)
     }
 
     func testRealProxyAuthenticationAndContentScriptRunBeforeTargetPage() async throws {

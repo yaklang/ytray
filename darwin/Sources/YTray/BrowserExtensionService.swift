@@ -65,8 +65,14 @@ enum BrowserDevTools {
 
 enum BrowserExtensionService {
     static func legacyLoadingExpected(runtimeKind: BrowserKind?, version: String?) -> Bool {
+        let major = version?.split(separator: ".").first.flatMap { Int($0) }
+        // CfT 152 is our verified Extensions CDP baseline. Loading its unpacked
+        // plugins after DevTools starts avoids Chromium's synchronous CLI error
+        // dialog, which otherwise races startup and can block it indefinitely.
+        // Preserve CLI compatibility for older/unknown CfT, Chromium and Edge.
+        if runtimeKind == .chromeForTesting, let major, major >= 152 { return false }
         if let runtimeKind, BrowserLauncher.supportsCommandLineExtensions(runtimeKind: runtimeKind) { return true }
-        guard let major = version?.split(separator: ".").first.flatMap({ Int($0) }) else { return false }
+        guard let major else { return false }
         return major > 0 && major < 137
     }
 
@@ -120,9 +126,12 @@ enum BrowserExtensionService {
                     guard enabled else { throw ExtensionLoadingError(message: "浏览器未确认插件已启用") }
                 }
                 DiagnosticLog.info("extension.load", "CDP loaded extension=\(id)")
-            } catch let error as BrowserDevToolsError where error.isUnavailable && installed == nil && legacyLoadingExpected {
-                DiagnosticLog.info("extension.load", "CDP unavailable; retaining supported legacy command-line loading")
-                return
+            } catch let error as BrowserDevToolsError where error.isUnavailable && installed == nil {
+                if legacyLoadingExpected {
+                    DiagnosticLog.info("extension.load", "CDP unavailable; retaining supported legacy command-line loading")
+                    return
+                }
+                throw ExtensionLoadingError(message: "当前浏览器不支持插件加载验证，请升级浏览器或更换运行时；插件未确认加载，已停止启动。")
             } catch is CancellationError { throw CancellationError() }
             catch {
                 throw ExtensionLoadingError(message: "插件加载失败（\(URL(fileURLWithPath: path).lastPathComponent)）：\(error.localizedDescription)")

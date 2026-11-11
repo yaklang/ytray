@@ -87,7 +87,10 @@ final class BrowserExtensionServiceTests: XCTestCase {
                     throw self.unavailable
                 }
                 XCTFail("Modern Chrome must not silently accept missing extensions")
-            } catch { XCTAssertTrue(error is ExtensionLoadingError) }
+            } catch {
+                XCTAssertTrue(error is ExtensionLoadingError)
+                if !inventoryAvailable { XCTAssertTrue(error.localizedDescription.contains("不支持插件加载验证")) }
+            }
         }
     }
 
@@ -171,8 +174,20 @@ final class BrowserExtensionServiceTests: XCTestCase {
                 XCTAssertEqual(args.contains(where: { $0.hasPrefix("--disable-extensions-except=") }), expected)
             }
         }
-        for kind in [BrowserKind.chromeForTesting, .chromium, .edge] {
+        for kind in [BrowserKind.chromium, .edge] {
             XCTAssertTrue(BrowserExtensionService.legacyLoadingExpected(runtimeKind: kind, version: "152.0"))
+        }
+        for version in ["151.0", "152.0", "153.0", "", "invalid"] {
+            let legacy = !["152.0", "153.0"].contains(version)
+            XCTAssertEqual(BrowserExtensionService.legacyLoadingExpected(runtimeKind: .chromeForTesting, version: version), legacy)
+            let args = try BrowserLauncher.buildArguments(
+                mode: .quick, settings: LaunchSettings(), profilePath: "/tmp/profile", debugPort: 9222,
+                plugins: [], runtimeKind: .chromeForTesting, internalExtensionPaths: [path], runtimeVersion: version,
+                deferExtensionStartup: true
+            )
+            XCTAssertEqual(args.contains(where: { $0.hasPrefix("--load-extension=") }), legacy)
+            XCTAssertEqual(args.contains(where: { $0.hasPrefix("--disable-extensions-except=") }), legacy)
+            XCTAssertEqual(args.last, "about:blank")
         }
     }
 

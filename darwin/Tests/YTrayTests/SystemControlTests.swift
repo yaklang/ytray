@@ -199,6 +199,31 @@ final class SystemControlTests: XCTestCase {
         XCTAssertEqual(controller.phase, .running, controller.lastError)
     }
 
+    func testMCPEndSessionRevokesPreparingAndRunningActionsImmediately() async throws {
+        for duringExecution in [false, true] {
+            let (controller, fake, defaults) = try fixture()
+            defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
+            await controller.start()
+            let token = try bearer(controller)
+            fake.delay = 250_000_000
+            let action = Task { try await controller.perform("click", arguments: ["window_id": 1, "element_index": 0]) }
+            let targetPhase: DesktopOperationFeedback.Phase = duringExecution ? .running : .preparing
+            let deadline = Date().addingTimeInterval(3)
+            while controller.activity?.phase != targetPhase && Date() < deadline { await Task.yield() }
+            XCTAssertEqual(controller.activity?.phase, targetPhase)
+            let response = await controller.handleHTTP(request(token: token, tool: "end_session"), port: 51373)
+            XCTAssertEqual(response.status, 200)
+            XCTAssertEqual(controller.phase, .stopped, "end_session must work while another request is busy")
+            XCTAssertTrue(String(decoding: response.body, as: UTF8.self).contains("\"ended\":true"))
+            XCTAssertFalse(fake.calls.contains { $0.0 == "end_session" }, "Revocation must not wait for a backend round trip")
+            let revoked = await controller.handleHTTP(request(token: token), port: 51373)
+            XCTAssertEqual(revoked.status, 401)
+            do { _ = try await action.value; XCTFail("Stopped operation returned a late success") } catch { }
+            if !duringExecution { XCTAssertFalse(fake.calls.contains { $0.0 == "click" }) }
+            XCTAssertNil(fake.feedback.last!)
+        }
+    }
+
     func testRealHTTPGatewayHandlesBrowserPreflightWithoutContentLength() async throws {
         let (controller, fake, defaults) = try fixture()
         defer { controller.stop(); defaults.removePersistentDomain(forName: fake.suite) }
