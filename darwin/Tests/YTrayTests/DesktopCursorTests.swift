@@ -38,6 +38,19 @@ final class DesktopCursorTests: XCTestCase {
     }
 
     @MainActor
+    func testReleasingCursorClosesItsWindow() throws {
+        _ = NSApplication.shared
+        var indicator: DesktopActionIndicator? = DesktopActionIndicator()
+        indicator?.show(.init(point: CGPoint(x: -10000, y: -10000), kind: .click))
+        let window = try XCTUnwrap(NSApp.windows.first { $0.windowNumber == indicator?.windowID.map(Int.init) })
+        XCTAssertTrue(window.isVisible)
+        weak var released = indicator
+        indicator = nil
+        XCTAssertNil(released)
+        XCTAssertFalse(window.isVisible, "Dropping the owner must not leave an orphan cursor on screen")
+    }
+
+    @MainActor
     func testCursorArtworkMatchesFilledDartWithTransparentBackground() throws {
         let view = DesktopCursorView(frame: CGRect(origin: .zero, size: DesktopCursorGeometry.size))
         let context = try XCTUnwrap(CGContext(data: nil, width: 224, height: 224, bitsPerComponent: 8, bytesPerRow: 224 * 4,

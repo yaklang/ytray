@@ -130,6 +130,9 @@ final class MCPHTTPServer: @unchecked Sendable {
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout.size(ofValue: noPipe)))
         var timeout = timeval(tv_sec: 10, tv_usec: 0)
         setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
+        // A client that abandons a large screenshot response must not pin an
+        // executor thread indefinitely once its socket send buffer fills.
+        setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
 
         let request: MCPHTTPRequest
         do {
@@ -209,6 +212,8 @@ final class MCPHTTPServer: @unchecked Sendable {
         case 404: reason = "Not Found"
         case 405: reason = "Method Not Allowed"
         case 415: reason = "Unsupported Media Type"
+        case 500: reason = "Internal Server Error"
+        case 503: reason = "Service Unavailable"
         default: reason = "Error"
         }
         var text = "HTTP/1.1 \(response.status) \(reason)\r\n"
