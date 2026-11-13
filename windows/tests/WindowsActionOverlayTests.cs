@@ -17,6 +17,19 @@ namespace YTray.Tests
     [TestClass]
     public class WindowsActionOverlayTests
     {
+        [TestMethod, TestCategory("ControlProtocol")]
+        [DataRow(-1800, -1100, 1800, 1052, 1.5f)]
+        [DataRow(2560, 48, 720, 1232, 2.5f)]
+        [DataRow(-300, 120, 300, 140, 2f)]
+        public void BannerFitsTheTargetMonitorWorkingArea(int x, int y, int width, int height, float scale)
+        {
+            var work = new Rectangle(x, y, width, height);
+            var layout = WindowsActionOverlay.BannerLayout(work, scale);
+            Assert.IsTrue(work.Contains(layout.Bounds));
+            Assert.AreEqual(work.Left + (work.Width - layout.Bounds.Width) / 2, layout.Bounds.Left);
+            Assert.IsTrue(layout.Bounds.Top > work.Top && layout.Bounds.Bottom < work.Bottom);
+        }
+
         [TestMethod, TestCategory("ControlDesktop")]
         public async Task IndicatorIsVisibleInNormalCaptureAndHiddenOnlyForOwnScreenshots()
         {
@@ -27,19 +40,41 @@ namespace YTray.Tests
             using var engine = new WindowsControlEngine();
             using var indicator = new WindowsActionOverlay();
             try {
-                await Wait(() => File.Exists(stateFile));
-                fixture!.Refresh(); var target = WindowsControlTarget.Resolve(fixture.MainWindowHandle);
+                await Wait(() => {
+                    fixture!.Refresh();
+                    return File.Exists(stateFile) && fixture.MainWindowHandle != IntPtr.Zero;
+                });
+                var target = WindowsControlTarget.Resolve(fixture!.MainWindowHandle);
                 await WindowsApplicationControl.ActivateAsync(target);
                 var state = engine.Call("get_window_state", new JObject { ["window_id"] = target.Handle.ToInt64(), ["include_screenshot"] = false });
                 var button = ((JArray)state["structuredContent"]!["elements"]!).OfType<JObject>().Single(row => (string?)row["automation_id"] == "Increment");
                 var frame = button["frame"]!;
                 var point = new Point((int)(frame.Value<double>("x") + frame.Value<double>("w") / 2), (int)(frame.Value<double>("y") + frame.Value<double>("h") / 2));
-                var foreground = GetForegroundWindow();
-                Assert.IsTrue(indicator.Operation(41, "prepare", target.Handle, "点击「Increment」", "YTray 桌面操作反馈测试"));
+                Assert.IsTrue(indicator.Operation(41, "running", target.Handle, "点击「Increment」", "YTray 桌面操作反馈测试"));
+                var expectedEdges = System.Windows.Forms.Screen.AllScreens.Length * 4;
+                await Wait(() => FindSurfaces().Count(window => WindowsActionOverlay.WindowKind(window) == 3) == expectedEdges
+                    && FindSurfaces().Any(window => WindowsActionOverlay.WindowKind(window) == 2 && IsWindowVisible(window)));
                 var surfaces = FindSurfaces();
-                Assert.AreEqual(System.Windows.Forms.Screen.AllScreens.Length * 4, surfaces.Count(window => WindowsActionOverlay.WindowKind(window) == 3), "Every monitor needs four narrow edge surfaces");
+                Assert.IsFalse(surfaces.Contains(GetForegroundWindow()), "Showing operation feedback activated a feedback surface");
+                var banner = surfaces.Single(window => WindowsActionOverlay.WindowKind(window) == 2);
+                var screen = System.Windows.Forms.Screen.FromHandle(target.Handle);
+                await Wait(() => BannerWithin(banner, screen.WorkingArea));
+                Assert.IsTrue(GetWindowRect(banner, out var card));
+                using (WindowsActionOverlay.HideForCapture(new Rectangle(card.Right + 1, card.Top, 4, 4))) {
+                    await Task.Delay(65);
+                    Assert.IsTrue(IsWindowVisible(banner), "Copying pixels outside the card must leave it visible");
+                }
+                var second = System.Windows.Forms.Screen.AllScreens.FirstOrDefault(item => item.DeviceName != screen.DeviceName);
+                if (second != null) {
+                    Assert.IsTrue(SetWindowPos(target.Handle, IntPtr.Zero, second.WorkingArea.Left + 32, second.WorkingArea.Top + 32, 0, 0, 0x0015));
+                    await Wait(() => BannerWithin(banner, second.WorkingArea));
+                    Assert.IsTrue(SetWindowPos(target.Handle, IntPtr.Zero, target.Bounds.Left, target.Bounds.Top, 0, 0, 0x0015));
+                    await Wait(() => BannerWithin(banner, screen.WorkingArea));
+                    Assert.IsFalse(surfaces.Contains(GetForegroundWindow()), "Moving the banner activated a feedback surface");
+                    await WindowsApplicationControl.ActivateAsync(target);
+                }
+                Assert.AreEqual(expectedEdges, surfaces.Count(window => WindowsActionOverlay.WindowKind(window) == 3), "Every monitor needs four narrow edge surfaces");
                 Assert.AreEqual(1, surfaces.Count(window => WindowsActionOverlay.WindowKind(window) == 2), "Only one operation banner should be shown");
-                Assert.AreEqual(foreground, GetForegroundWindow(), "Global operation feedback stole focus");
                 foreach (var surface in surfaces) Assert.AreEqual(0x080800a8, GetWindowLong(surface, -20) & 0x080800a8);
                 foreach (var surface in surfaces) {
                     Assert.IsTrue(GetWindowDisplayAffinity(surface, out var affinity));
@@ -47,14 +82,18 @@ namespace YTray.Tests
                 }
                 Assert.IsTrue(indicator.Operation(41, "running", target.Handle, "", ""));
                 using (var feedback = indicator.Begin(target.Handle, point, "点击")) {
-                    var overlay = FindOverlay(); Assert.AreNotEqual(IntPtr.Zero, overlay, "The visual renderer did not create its window");
-                    await Wait(() => IsWindowVisible(overlay));
+                    await Wait(() => IsWindowVisible(FindOverlay()));
+                    var overlay = FindOverlay();
                     Assert.AreEqual(0x080800a8, GetWindowLong(overlay, -20) & 0x080800a8);
-                    Assert.AreEqual(foreground, GetForegroundWindow(), "Showing feedback stole focus");
+                    Assert.AreNotEqual(overlay, GetForegroundWindow(), "Showing the cursor activated it");
                     Assert.IsFalse(target.IsObscured(IntPtr.Zero), "Feedback was treated as an application covering the fixture");
                     Assert.IsFalse(WindowsControlTarget.Enumerate().Any(window => window.Handle == overlay), "Feedback leaked into window discovery");
                     await WindowsApplicationControl.ActivateAsync(target);
+                    Assert.IsTrue(GetCursorPos(out var mouse));
                     WindowsNativeInput.Click(target.Handle, point.X, point.Y, "left", 1, true);
+                    Assert.IsTrue(GetCursorPos(out var restored));
+                    Assert.IsTrue(Math.Abs(mouse.X - restored.X) <= 1 && Math.Abs(mouse.Y - restored.Y) <= 1,
+                        "The click displaced the user's mouse from its original point");
                     await Wait(() => JObject.Parse(File.ReadAllText(stateFile)).Value<int>("count") == 1);
                     feedback.Complete();
                 }
@@ -70,6 +109,9 @@ namespace YTray.Tests
                 if (!string.IsNullOrEmpty(output)) shown.Save(Path.Combine(output, "indicator-visible.png"), ImageFormat.Png);
                 Assert.IsTrue(TerracottaPixels(shown) > 60, "The translucent dart was not painted at the input coordinates");
                 using (WindowsActionOverlay.HideForCapture()) {
+                    var enqueue = Stopwatch.StartNew();
+                    using (var hiddenFeedback = indicator.Begin(target.Handle, point, "点击")) hiddenFeedback.Complete();
+                    Assert.IsTrue(enqueue.ElapsedMilliseconds < 1000, "Input feedback waited for a frame while capture suppressed rendering");
                     await Task.Delay(70); // Cross several render ticks: it must remain hidden.
                     using var hidden = Capture(rectangle);
                     if (!string.IsNullOrEmpty(output)) hidden.Save(Path.Combine(output, "indicator-hidden.png"), ImageFormat.Png);
@@ -79,7 +121,7 @@ namespace YTray.Tests
                 }
                 await Wait(() => IsWindowVisible(handle));
                 var monitor = System.Windows.Forms.Screen.FromHandle(target.Handle).Bounds;
-                var captured = WindowsNativeCapture.Read(IntPtr.Zero, monitor, monitor.Width, false);
+                var captured = WindowsNativeCapture.Read(null, monitor, monitor.Width, false, null, _ => { });
                 using (var data = new MemoryStream(Convert.FromBase64String((string)captured["image"]!["data"]!)))
                 using (var ownScreenshot = new Bitmap(data))
                 using (var cursorArea = ownScreenshot.Clone(new Rectangle(rectangle.X - monitor.X, rectangle.Y - monitor.Y, rectangle.Width, rectangle.Height), PixelFormat.Format32bppArgb))
@@ -99,7 +141,7 @@ namespace YTray.Tests
                     Assert.IsTrue(IsWindowVisible(handle), "The cursor blinked off while moving to the next action");
                     feedback.Complete();
                 }
-                Assert.IsTrue(timer.ElapsedMilliseconds < 15000, "Readable motion must still have a bounded action delay");
+                Assert.IsTrue(timer.ElapsedMilliseconds < 1000, "Queuing input feedback waited for the cursor animation");
                 await Wait(() => !IsWindowVisible(handle), 14000);
                 Assert.IsTrue(GetGuiResources(Process.GetCurrentProcess().Handle, 0) <= resources + 8, "Repeated frames leaked GDI resources");
                 Assert.AreEqual(1, JObject.Parse(File.ReadAllText(stateFile)).Value<int>("count"), "Feedback generated duplicate input");
@@ -110,7 +152,13 @@ namespace YTray.Tests
                 if (File.Exists(stateFile)) File.Delete(stateFile);
             }
         }
-        private static Bitmap Capture(Rectangle rectangle)
+        private static bool BannerWithin(IntPtr banner, Rectangle work)
+        {
+            if (!GetWindowRect(banner, out var rect)) return false;
+            var bounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+            return bounds.Width > 0 && bounds.Height > 0 && work.Contains(bounds);
+        }
+        internal static Bitmap Capture(Rectangle rectangle)
         {
             var image = new Bitmap(rectangle.Width, rectangle.Height, PixelFormat.Format32bppArgb);
             using var graphics = Graphics.FromImage(image);
@@ -125,7 +173,7 @@ namespace YTray.Tests
             for (var y = 0; y < image.Height; y++) for (var x = 0; x < image.Width; x++) { var color = image.GetPixel(x, y); if (color.R > 100 && color.R - color.G > 20 && color.R - color.B > 20) count++; }
             return count;
         }
-        private static int DifferentPixels(Bitmap first, Bitmap second)
+        internal static int DifferentPixels(Bitmap first, Bitmap second)
         {
             var count = 0;
             for (var y = 0; y < first.Height; y++) for (var x = 0; x < first.Width; x++) {
@@ -158,6 +206,9 @@ namespace YTray.Tests
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out WindowsControlTarget.Rect bounds);
+        [DllImport("user32.dll")] private static extern bool GetCursorPos(out WindowsAutomation.NativePoint point);
         [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr window, int index);
         [DllImport("user32.dll")] private static extern bool GetWindowDisplayAffinity(IntPtr window, out uint affinity);
         [DllImport("user32.dll")] private static extern int GetGuiResources(IntPtr process, uint flags);

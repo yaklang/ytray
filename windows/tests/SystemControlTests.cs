@@ -83,7 +83,7 @@ namespace YTray.Tests
             Assert.IsTrue(File.Exists(executable), "Build the independent ControlFixture first");
             var root = Path.Combine(Path.GetTempPath(), "ytray-control-desktop-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
             var stateFile = Path.Combine(root, "fixture.json");
-            using var fixture = Process.Start(new ProcessStartInfo(executable, "\"" + stateFile + "\"") { UseShellExecute = false, CreateNoWindow = true });
+            using var fixture = Process.Start(new ProcessStartInfo(executable, "\"" + stateFile + "\" --capture-window-text") { UseShellExecute = false, CreateNoWindow = true });
             Process? blocker = null;
             using var controller = new SystemControlController(root);
             try {
@@ -96,15 +96,16 @@ namespace YTray.Tests
                 Assert.IsTrue(controller.IsRunning, controller.LastError);
                 var config = JObject.Parse(controller.ConfigurationJSON!); var bearer = (string)config["mcpServers"]!["ytray-system"]!["headers"]!["Authorization"]!;
                 Assert.IsTrue(controller.Authorized(bearer, null)); Assert.IsFalse(controller.Authorized(bearer, "https://evil.example"));
-                using var gateway = new ControlGateway(controller); gateway.Start();
+                using var gateway = new ControlGateway(controller); gateway.Start(0);
+                var endpoint = "http://127.0.0.1:" + gateway.BoundPort + "/system/mcp";
                 using var http = new HttpClient(new HttpClientHandler { UseProxy = false });
-                var unauthorized = await http.PostAsync(controller.Endpoint, new StringContent("{}", Encoding.UTF8, "application/json"));
+                using var unauthorized = await http.PostAsync(endpoint, new StringContent("{}", Encoding.UTF8, "application/json"));
                 Assert.AreEqual(System.Net.HttpStatusCode.Unauthorized, unauthorized.StatusCode);
                 http.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", bearer);
                 var rpcId = 0;
                 async Task<JObject> Call(string name, JObject arguments) {
                     var rpc = new JObject { ["jsonrpc"] = "2.0", ["id"] = ++rpcId, ["method"] = "tools/call", ["params"] = new JObject { ["name"] = name, ["arguments"] = arguments } };
-                    using var response = await http.PostAsync(controller.Endpoint, new StringContent(rpc.ToString(), Encoding.UTF8, "application/json"));
+                    using var response = await http.PostAsync(endpoint, new StringContent(rpc.ToString(), Encoding.UTF8, "application/json"));
                     Assert.AreEqual(System.Net.HttpStatusCode.OK, response.StatusCode);
                     var result = JObject.Parse(await response.Content.ReadAsStringAsync()); Assert.IsNull(result["error"], result.ToString()); return (JObject)result["result"]!;
                 }
@@ -119,9 +120,14 @@ namespace YTray.Tests
                 var evidence = Environment.GetEnvironmentVariable("YTRAY_CONTROL_TEST_OUTPUT");
                 if (!string.IsNullOrEmpty(evidence)) { Directory.CreateDirectory(evidence); File.WriteAllText(Path.Combine(evidence, "fixture-observation.json"), structured.ToString()); }
                 Assert.IsFalse(observation["isError"]?.Value<bool>() == true, observation.ToString());
-                Assert.IsTrue(structured.Value<bool>("capture_blocked_by_occlusion"), "A covered window must return its UIA tree without an unproven screenshot");
-                Assert.IsFalse(((JArray)observation["content"]!).OfType<JObject>().Any(c => (string?)c["type"] == "image"));
-                Assert.AreEqual(0, structured.Value<int>("image_width"));
+                Assert.AreEqual("window_render", (string?)structured["screenshot_source"], "A covered window must use its own HWND render");
+                var coveredPicture = ((JArray)observation["content"]!).OfType<JObject>().Single(c => (string?)c["type"] == "image");
+                using (var png = new MemoryStream(Convert.FromBase64String((string)coveredPicture["data"]!)))
+                using (var bitmap = new System.Drawing.Bitmap(png)) {
+                    var color = bitmap.GetPixel(25, bitmap.Height - 25);
+                    Assert.IsTrue(Math.Abs(color.R - 240) < 5 && Math.Abs(color.G - 248) < 5 && Math.Abs(color.B - 255) < 5,
+                        "A scoped capture must contain the authorized fixture, even when a magenta window covers it: " + color);
+                }
                 var elements = (JArray)structured["elements"]!;
                 var button = elements.OfType<JObject>().First(e => e.ToString().Contains("Increment"));
                 var requestId = Guid.NewGuid().ToString();
@@ -143,6 +149,12 @@ namespace YTray.Tests
                     ["text"] = "你好 Windows 🚀", ["request_id"] = Guid.NewGuid().ToString(), ["deadline"] = DateTimeOffset.UtcNow.AddSeconds(25).ToString("O") });
                 Assert.IsFalse(typed["isError"]?.Value<bool>() == true, typed.ToString());
                 await Wait(() => JObject.Parse(File.ReadAllText(stateFile)).Value<string>("text") == "你好 Windows 🚀");
+                observation = await Observe();
+                const string windowText = "我是 codex，正在测试 ytray computer use 🚀";
+                var posted = await Call("type_text", new JObject { ["target_ref"] = reference, ["observation_id"] = observation["structuredContent"]!["observation_id"],
+                    ["text"] = windowText, ["request_id"] = Guid.NewGuid().ToString(), ["deadline"] = DateTimeOffset.UtcNow.AddSeconds(25).ToString("O") });
+                Assert.IsFalse(posted["isError"]?.Value<bool>() == true, posted.ToString());
+                await Wait(() => JObject.Parse(File.ReadAllText(stateFile)).Value<string>("windowText") == windowText);
                 observation = await Observe(); structured = (JObject)observation["structuredContent"]!;
                 var scroll = ((JArray)structured["elements"]!).OfType<JObject>().First(e => (string?)e["label"] == "FixtureScroll");
                 var scrolled = await Call("scroll", new JObject { ["target_ref"] = reference, ["observation_id"] = structured["observation_id"], ["element_token"] = scroll["element_token"],
