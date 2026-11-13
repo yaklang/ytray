@@ -14,15 +14,22 @@ namespace YTray.Core.SystemControl
     internal sealed class ControlAccessStore
     {
         private readonly string _directory;
-        internal string Path => System.IO.Path.Combine(_directory, "access.bin");
-        internal ControlAccessStore(string applicationDirectory) { _directory = System.IO.Path.Combine(applicationDirectory, "ComputerControl"); }
+        private readonly string _corruptMessage;
+        internal string Path { get; }
+        internal ControlAccessStore(string applicationDirectory, string directory = "ComputerControl", string file = "access.bin",
+            string corruptMessage = "电脑控制配置已损坏，请关闭后重新开启。")
+        {
+            _directory = System.IO.Path.Combine(applicationDirectory, directory);
+            Path = System.IO.Path.Combine(_directory, file);
+            _corruptMessage = corruptMessage;
+        }
         internal string Open(bool restore)
         {
             PrivateDirectory(_directory);
             if (restore && File.Exists(Path)) {
                 var bytes = ProtectedData.Unprotect(File.ReadAllBytes(Path), null, DataProtectionScope.CurrentUser);
                 var token = Encoding.UTF8.GetString(bytes);
-                if (Convert.FromBase64String(token).Length != 32) throw new IOException("电脑控制配置已损坏，请关闭后重新开启。");
+                if (Convert.FromBase64String(token).Length != 32) throw new IOException(_corruptMessage);
                 return token;
             }
             var secret = ControlJson.Secret();

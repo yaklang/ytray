@@ -4,14 +4,15 @@ Windows 原生实现（C# / WPF / .NET Framework 4.7.2），与 macOS 版本（`
 
 系统基线为 Windows 10 1809（build 17763）及以上、Windows 11。Win8 / 8.1、Win7 和 XP 不支持。电脑控制与主程序一同编译为 x64 / x86，直接使用 Windows 原生 API。当前完整桌面链路已在 Win11 验证，旧 Win10/LTSC 仍需实机验收。
 
-## 两个 MCP
+## MCP 服务
 
 小组件底部的“MCP 配置”和管理器的“MCP”页面是统一入口：
 
 - **YTray MCP**（`ytray`，`http://127.0.0.1:19222/mcp`）：管理浏览器运行时与实例。
 - **电脑控制 MCP**（`ytray-system`，`http://127.0.0.1:51373/system/mcp`）：观察窗口、截图、点击与输入。
+- **浏览器控制 MCP**（`ytray-browser`，`http://127.0.0.1:51374/browser/mcp`）可按实例开页，并读取和操作已接入的网页。
 
-两个服务可分别启停和复制配置；电脑控制开启后，“复制两个 MCP 配置”可生成一个含两个条目的 `mcpServers` JSON。小组件电脑控制卡片的复制按钮仅复制电脑控制配置。复制操作不会替用户开启电脑控制。
+各服务可分别启停和复制配置。“复制两个 MCP 配置”合并管理和电脑控制的连接配置。浏览器控制使用独立配置。
 
 [Windows 统一浏览器与系统控制实施任务书](docs/system-control-implementation-plan.md) 保留早期设计记录；当前实现已改用 Windows 原生 API，不再依赖 Cua Driver，实际架构和验收方式以本文为准。
 
@@ -35,6 +36,15 @@ Windows 原生实现（C# / WPF / .NET Framework 4.7.2），与 macOS 版本（`
 - 启动设置（调试端口/启动地址/WebRTC/通知/证书/附加参数）
 - `state.json` 持久化 + ACL 权限限制为当前用户（对应 macOS 0600）
 - 原生电脑控制：应用/窗口发现、UIA 控件树、窗口/主屏截图、后台点击/输入/滚动、前台输入、常驻 MCP 总开关与 UAC 权限修复
+
+## 浏览器控制与 MCP
+
+1. 首次在「MCP → 浏览器控制 MCP」开启服务，复制并导入完整配置，保留 `Authorization` 请求头。保持开启时，YTray 下次启动会恢复服务和同一配置。
+2. 从新版 YTray 启动或恢复带内置插件 0.2.11 的浏览器实例。普通 HTTP(S) 标签页首次成为活动页时自动接入。直接在任务中说「用 A 实例的百度搜索 yaklang」，Agent 可按实例角标、标题或网址找到页面。外部浏览器可以从插件选择「共享此页」。
+3. `browser_list_instances` 可以查实例角标和插件就绪状态，`browser_list_runtimes` 可以查可启动的浏览器。`browser_open` 传入 `instance_id` 在该实例新开标签页，传入 `runtime_id` 则启动新 Profile。两种调用都等待插件接入目标标签页，然后返回 `page_id`。新实例可用 `use_proxy` 选择 YTray 的预设代理。客户端可为新开实例预留 70 秒的工具超时。
+4. `browser_focus` 可显示已接入的标签页。节点操作在可见目标页显示短时红框，`browser_observe` 的 `feedback` 会返回可见红框的颜色和位置。同一标签页刷新或同源跳转后，继续使用原页面 ID，先用 `browser_observe` 取得新快照。跨源跳转或页面操作打开新标签页时，可在插件里接入新页面。插件的「停止共享」可暂停当前标签页的控制。
+
+YTray 通过已注册的 Native Messaging Host 与扩展连接。工具按浏览器实例和标签页路由，节点引用绑定到当前主文档和快照。当前活动标签页的节点操作会显示短时红框。关闭浏览器控制开关会结束共享并撤销 MCP 配置。
 
 ## 电脑控制与 MCP
 

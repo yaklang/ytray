@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using Newtonsoft.Json.Linq;
+using YTray.Core.SystemControl;
 using YTray.Models;
 using YTray.Native;
 
@@ -56,6 +57,9 @@ namespace YTray.Core
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _persistenceTimer;
         private readonly McpServer _mcpServer;
+        private BrowserUse.BrowserUseServer? _browserUse;
+        private readonly BrowserUse.BrowserUseEnrollment _browserUseEnrollment;
+        private readonly ControlAccessStore _browserUseAccess;
         private readonly Dictionary<Guid, BrowserLauncher.LaunchResult> _launches =
             new Dictionary<Guid, BrowserLauncher.LaunchResult>();
         private readonly Dictionary<Guid, BrowserWindowTaskbarController> _taskbarControllers =
@@ -129,6 +133,50 @@ namespace YTray.Core
         public bool StartMcpService() => _mcpServer.Start();
 
         public void StopMcpService() => _mcpServer.Stop();
+
+        internal string? BrowserUseConfiguration => _browserUse?.ConfigurationJSON;
+        internal string BrowserUseEndpoint => "http://127.0.0.1:" + BrowserUse.BrowserUseServer.Port + "/browser/mcp";
+
+        internal void SetBrowserUseEnabled(bool enabled)
+        {
+            if (enabled)
+            {
+                StartBrowserUse(restore: Settings.BrowserUseEnabled);
+                Settings.BrowserUseEnabled = true;
+            }
+            else
+            {
+                _browserUse?.Dispose();
+                _browserUse = null;
+                Settings.BrowserUseEnabled = false;
+            }
+            SaveSettings();
+            OnPropertyChanged(nameof(BrowserUseConfiguration));
+            if (!enabled) _browserUseAccess.Clear();
+        }
+
+        internal void RestoreBrowserUse()
+        {
+            if (!Settings.BrowserUseEnabled) return;
+            try { StartBrowserUse(restore: true); }
+            catch (Exception error) { DiagnosticLog.Error("browser-use.restore", error); }
+            OnPropertyChanged(nameof(BrowserUseConfiguration));
+        }
+
+        private void StartBrowserUse(bool restore)
+        {
+            if (_browserUse != null) return;
+            using var process = Process.GetCurrentProcess();
+            var executable = process.MainModule?.FileName ?? throw new InvalidOperationException("无法定位 YTray 程序");
+            _browserUse = new BrowserUse.BrowserUseServer(Path.Combine(ApplicationDirectory, "BrowserUse"), executable,
+                accessToken: _browserUseAccess.Open(restore), enrollment: _browserUseEnrollment, store: this);
+        }
+
+        private string? IssueBrowserUseEnrollment(Guid instanceId)
+        {
+            try { return _browserUseEnrollment.Issue(instanceId); }
+            catch (Exception error) { DiagnosticLog.Error("browser-use.enrollment", error); return null; }
+        }
 
         public void SetMcpAutoStart(bool enabled)
         {
@@ -214,6 +262,9 @@ namespace YTray.Core
             var usesDefaultApplicationDirectory = applicationDirectory == null;
             ApplicationDirectory = applicationDirectory ?? StatePersistence.DefaultApplicationDirectory;
             _mcpServer = new McpServer(this);
+            _browserUseEnrollment = new BrowserUse.BrowserUseEnrollment(ApplicationDirectory);
+            _browserUseAccess = new ControlAccessStore(ApplicationDirectory, "BrowserUse",
+                corruptMessage: "浏览器控制配置已损坏，请关闭后重新开启。");
             // Best-effort migration from the private pre-rebrand persistence directory to YTray.
             if (usesDefaultApplicationDirectory) MigrateLegacyDirectoryIfNeeded();
             try { Directory.CreateDirectory(ApplicationDirectory); } catch { }
@@ -682,6 +733,13 @@ namespace YTray.Core
             catch { }
         }
 
+        internal IntPtr ResolveBrowserUseWindow(Guid instanceId)
+        {
+            var instance = RunningInstances.FirstOrDefault(item => item.Id == instanceId && !item.IsStopping);
+            return instance != null && IsExpectedInstanceProcess(instance)
+                ? WindowEnum.FindSingleVisibleBrowserWindow(instance.ProcessID) : IntPtr.Zero;
+        }
+
         public void SaveSettings() => Save();
 
         public string DefaultProfileRoot => Path.GetFullPath(Path.Combine(ApplicationDirectory, "Profiles"));
@@ -739,6 +797,10 @@ namespace YTray.Core
 
         public bool Launch(LaunchMode mode, LaunchSettings? customSettings = null, List<Guid>? customPluginIDs = null,
             BrowserInstance? restoring = null, bool? launchUsesProxy = null, bool chooseEngine = false)
+            => LaunchCore(mode, customSettings, customPluginIDs, restoring, launchUsesProxy, chooseEngine, browserUse: false);
+
+        private bool LaunchCore(LaunchMode mode, LaunchSettings? customSettings, List<Guid>? customPluginIDs,
+            BrowserInstance? restoring, bool? launchUsesProxy, bool chooseEngine, bool browserUse)
         {
             if (IsLaunching) return false;
             LaunchWasCancelled = false;
@@ -784,7 +846,7 @@ namespace YTray.Core
 
             try
             {
-                if (!Settings.AutoConnectYakit)
+                if (browserUse || !Settings.AutoConnectYakit)
                     configuration.EngineTarget = new BrowserEngineTarget { Mode = "none" };
                 else
                 {
@@ -816,7 +878,8 @@ namespace YTray.Core
 
                 var result = BrowserLauncher.Launch(runtime, mode, configuration, selectedPlugins,
                     ApplicationDirectory, Instances.Count + 1, badge, restoring,
-                    configuredPlugins: Plugins.ToList(), profileRoot: ResolveProfileRoot(configuration));
+                    configuredPlugins: Plugins.ToList(), profileRoot: ResolveProfileRoot(configuration),
+                    browserUseEnrollment: IssueBrowserUseEnrollment);
                 if (_launches.TryGetValue(result.Instance.Id, out var previousLaunch))
                 {
                     _launches.Remove(result.Instance.Id);
@@ -843,7 +906,7 @@ namespace YTray.Core
                     if (old != null) Instances.Remove(old);
                 }
                 Instances.Insert(0, result.Instance);
-                RememberYakitLaunch(result.Instance.Id);
+                if (!browserUse) RememberYakitLaunch(result.Instance.Id);
                 Save();
                 LaunchingInstanceID = result.Instance.Id;
                 LaunchMessage = $"正在启动 {runtime.DisplayTitle}…";
@@ -851,7 +914,7 @@ namespace YTray.Core
                 DiagnosticLog.Info("instance.launch",
                     $"process created; instance={result.Instance.Id}; pid={result.Instance.ProcessID}; debugPort={result.Instance.DebugPort}");
 
-                CrashGuard.Observe(WaitForBrowserAsync(result, token, runtime, configuration, selectedPlugins, restoring), "wait-for-browser");
+                CrashGuard.Observe(WaitForBrowserAsync(result, token, runtime, configuration, selectedPlugins, restoring, browserUse), "wait-for-browser");
                 return true;
             }
             catch (Exception ex)
@@ -859,6 +922,36 @@ namespace YTray.Core
                 FinishLaunchFailure(ex, token);
                 return false;
             }
+        }
+
+        internal BrowserInstance LaunchForBrowserUse(Guid runtimeId, Uri url, bool useProxy)
+        {
+            if (IsLaunching)
+                throw new BrowserUse.BrowserUseException("instance_busy", "YTray is already starting a browser instance.");
+            if (!Runtimes.Any(runtime => runtime.Id == runtimeId))
+                throw new BrowserUse.BrowserUseException("runtime_not_found", "Choose a runtime from browser_list_runtimes.");
+            var plugin = ManagedExtension;
+            if (plugin?.Enabled != true
+                || "chrome-extension://" + ExtensionInstaller.ChromiumExtensionId(plugin) + "/" != BrowserUse.BrowserUseNativeHost.AllowedOrigin)
+                throw new BrowserUse.BrowserUseException("extension_unavailable", "Enable the bundled YTray browser extension before starting a Browser Use instance.");
+
+            var configuration = QuickLaunchConfiguration(useProxy);
+            if (configuration == null)
+                throw new BrowserUse.BrowserUseException("invalid_proxy", ErrorMessage ?? "The configured proxy is invalid.");
+            configuration.DefaultRuntimeID = runtimeId;
+            configuration.HomeURL = "chrome://newtab/";
+            configuration.DockBadge = "";
+            if (!configuration.DefaultPluginIDs.Contains(plugin.Id)) configuration.DefaultPluginIDs.Add(plugin.Id);
+            if (!LaunchCore(LaunchMode.Quick, configuration, null, null, useProxy, chooseEngine: false, browserUse: true)
+                || LaunchingInstanceID is not Guid instanceId)
+                throw new BrowserUse.BrowserUseException("launch_failed", ErrorMessage ?? "YTray could not start the browser instance.");
+            var instance = Instances.First(item => item.Id == instanceId);
+            // History should record the requested start page, even though the profile first opens
+            // the extension bootstrap and receives the real URL on its authenticated connection.
+            instance.StartURL = url.AbsoluteUri;
+            if (instance.SettingsSnapshot != null) instance.SettingsSnapshot.HomeURL = instance.StartURL;
+            Save();
+            return instance;
         }
 
         public bool LaunchConfigured(bool usePresetProxy)
@@ -921,7 +1014,7 @@ namespace YTray.Core
         }
 
         private async Task WaitForBrowserAsync(BrowserLauncher.LaunchResult launch, Guid token,
-            BrowserRuntime runtime, LaunchSettings configuration, List<BrowserPlugin> plugins, BrowserInstance? restoring)
+            BrowserRuntime runtime, LaunchSettings configuration, List<BrowserPlugin> plugins, BrowserInstance? restoring, bool browserUse)
         {
             var instance = launch.Instance;
             var ready = await ScreenshotService.WaitUntilReadyAsync(instance.DebugPort);
@@ -946,7 +1039,7 @@ namespace YTray.Core
                 catch (OperationCanceledException) { return; }
                 catch (ExtensionLoadingException ex)
                 {
-                    await RecoverExtensionLaunchAsync(launch, token, runtime, configuration, plugins, restoring, ex);
+                    await RecoverExtensionLaunchAsync(launch, token, runtime, configuration, plugins, restoring, ex, browserUse);
                     return;
                 }
                 if (LaunchToken != token) return;
@@ -991,12 +1084,29 @@ namespace YTray.Core
                 ? (!string.IsNullOrEmpty(restoreURL) ? restoreURL : instance.StartURL)
                 : (usesProxyAuth ? instance.StartURL : null));
 
+            if (LaunchToken != token) return;
             if (!string.IsNullOrEmpty(navigationTarget))
             {
                 try
                 {
                     if (usesProxyAuth) await Task.Delay(900);
-                    await ScreenshotService.NavigateAsync(instance.DebugPort, navigationTarget!);
+                    if (LaunchToken != token) return;
+                    if (browserUse)
+                    {
+                        // The launch tab can be replaced during Chromium's first run. Give the
+                        // extension bootstrap its own target and wait for its native connection.
+                        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        using var browser = new BrowserDevTools();
+                        var owner = TcpListenerProcess.FindOwnerProcessId(instance.DebugPort);
+                        if (!IsExpectedInstanceProcess(instance) || (owner != instance.ProcessID && !TryAdoptDebugPortProcess(instance)))
+                            throw new YTrayException(YTrayError.LaunchFailed, "浏览器调试端口与启动实例不匹配");
+                        await browser.ConnectAsync(instance.DebugPort, timeout.Token);
+                        if (LaunchToken != token) return;
+                        var result = await browser.SendAsync("Target.createTarget", new JObject { ["url"] = navigationTarget }, timeout.Token);
+                        if (string.IsNullOrEmpty((string?)result["targetId"]))
+                            throw new YTrayException(YTrayError.LaunchFailed, "浏览器未创建插件启动页");
+                    }
+                    else await ScreenshotService.NavigateAsync(instance.DebugPort, navigationTarget!);
                 }
                 catch (Exception ex)
                 {
@@ -1008,6 +1118,7 @@ namespace YTray.Core
             // Populate the compact widget immediately; the periodic poll keeps it current later.
             await RefreshPageTitleAsync(instance);
 
+            if (LaunchToken != token) return;
             LaunchMessage = $"{instance.RuntimeName} 已启动";
             LaunchPhase = BrowserLaunchPhase.Succeeded;
             DiagnosticLog.Info("instance.ready",
@@ -1028,7 +1139,7 @@ namespace YTray.Core
 
         private async Task RecoverExtensionLaunchAsync(BrowserLauncher.LaunchResult launch, Guid token,
             BrowserRuntime runtime, LaunchSettings configuration, List<BrowserPlugin> plugins,
-            BrowserInstance? restoring, ExtensionLoadingException failure)
+            BrowserInstance? restoring, ExtensionLoadingException failure, bool browserUse)
         {
             if (LaunchToken != token) return;
             DiagnosticLog.Error("extension.load", failure);
@@ -1062,6 +1173,11 @@ namespace YTray.Core
                 }
             }
             Save();
+            if (browserUse)
+            {
+                FinishLaunchFailure(failure, token);
+                return;
+            }
             var prompt = new ExtensionLaunchPrompt(runtime, configuration, plugins.Count, failure.Message);
             bool proceed = false;
             try
@@ -1576,7 +1692,8 @@ namespace YTray.Core
                     var i = Instances.FirstOrDefault(x => x.Id == result.Id);
                     if (i == null) continue;
                     if (!string.IsNullOrEmpty(state.Title) && i.LastPageTitle != state.Title) { i.LastPageTitle = state.Title; changed = true; }
-                    if (!string.IsNullOrEmpty(state.URL) && i.LastPageURL != state.URL) { i.LastPageURL = state.URL; changed = true; }
+                    var url = ScreenshotService.PageUrlForHistory(state.URL);
+                    if (!string.IsNullOrEmpty(url) && i.LastPageURL != url) { i.LastPageURL = url; changed = true; }
                 }
                 if (changed) SaveDeferred();
             }
@@ -1595,7 +1712,8 @@ namespace YTray.Core
             var i = Instances.FirstOrDefault(x => x.Id == instance.Id);
             if (i == null) return;
             if (!string.IsNullOrEmpty(s.Title)) i.LastPageTitle = s.Title;
-            if (!string.IsNullOrEmpty(s.URL)) i.LastPageURL = s.URL;
+            var url = ScreenshotService.PageUrlForHistory(s.URL);
+            if (!string.IsNullOrEmpty(url)) i.LastPageURL = url;
             SaveDeferred();
         }
 
@@ -1760,6 +1878,7 @@ namespace YTray.Core
                 instance.RuntimeName = instance.RuntimeName ?? "浏览器";
                 instance.ProfilePath = instance.ProfilePath ?? "";
                 instance.StartURL = instance.StartURL ?? "chrome://newtab";
+                instance.LastPageURL = ScreenshotService.PageUrlForHistory(instance.LastPageURL);
                 instance.PluginIDs = instance.PluginIDs ?? new List<Guid>();
                 if (instance.Status == InstanceStatus.Running && !IsExpectedInstanceProcess(instance))
                     instance.Status = InstanceStatus.Stopped;
@@ -1798,6 +1917,7 @@ namespace YTray.Core
             _systemControl?.Dispose();
             _controlGateway?.Dispose();
             _mcpServer.Dispose();
+            _browserUse?.Dispose();
             _timer?.Stop();
             _persistenceTimer?.Stop();
             PersistPendingState();

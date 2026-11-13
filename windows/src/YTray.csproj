@@ -20,6 +20,7 @@
     <PlatformTarget Condition="'$(PlatformTarget)' == ''">x64</PlatformTarget>
     <WinSparkleArchitecture Condition="'$(PlatformTarget)' == 'x86'">Win32</WinSparkleArchitecture>
     <WinSparkleArchitecture Condition="'$(WinSparkleArchitecture)' == ''">x64</WinSparkleArchitecture>
+    <YTrayBundledExtensionDirectory Condition="'$(YTrayBundledExtensionDirectory)' == ''">Assets\BundledExtension</YTrayBundledExtensionDirectory>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="HandyControl" Version="3.5.1" />
@@ -35,8 +36,8 @@
     <Reference Include="UIAutomationClient" />
     <Reference Include="UIAutomationTypes" />
     <Resource Include="Assets\Icons\*.ico" />
-    <EmbeddedResource Include="Assets\BundledExtension\yakit-browser-agent.zip" Condition="Exists('Assets\BundledExtension\yakit-browser-agent.zip')" />
-    <EmbeddedResource Include="Assets\BundledExtension\bundled-extension.json" Condition="Exists('Assets\BundledExtension\bundled-extension.json')" />
+    <EmbeddedResource Include="$(YTrayBundledExtensionDirectory)\yakit-browser-agent.zip" Condition="Exists('$(YTrayBundledExtensionDirectory)\yakit-browser-agent.zip')" LogicalName="YTray.Assets.BundledExtension.yakit-browser-agent.zip" />
+    <EmbeddedResource Include="$(YTrayBundledExtensionDirectory)\bundled-extension.json" Condition="Exists('$(YTrayBundledExtensionDirectory)\bundled-extension.json')" LogicalName="YTray.Assets.BundledExtension.bundled-extension.json" />
     <EmbeddedResource Include="..\.dependencies\WinSparkle-0.9.4\$(WinSparkleArchitecture)\Release\WinSparkle.dll" LogicalName="YTray.WinSparkle" />
     <EmbeddedResource Include="..\.dependencies\WinSparkle-0.9.4\COPYING" LogicalName="YTray.WinSparkleLicense" />
     <EmbeddedResource Include="..\.dependencies\WinSparkle-0.9.4\COPYING.expat" LogicalName="YTray.ExpatLicense" />
