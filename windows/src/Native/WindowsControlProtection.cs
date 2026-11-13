@@ -10,12 +10,14 @@ namespace YTray.Native
     internal static class WindowsControlProtection
     {
         // Screen input may never land on the host's authorization/configuration UI.
-        internal static void RequireSafeInput(JObject args, int width, int height)
+        internal static void RequireSafeInput(JObject args, int width, int height, bool screenCenter = false)
         {
             var window = GetForegroundWindow();
-            if (args["x"] != null && args["y"] != null) {
+            if (screenCenter || args["x"] != null && args["y"] != null) {
                 var screen = (System.Windows.Forms.Screen.PrimaryScreen ?? throw new ControlException("DesktopUnavailable", "当前没有可用的桌面显示器")).Bounds;
-                window = WindowFromPoint(new Point { X = screen.Left + (int)(args["x"]!.Value<double>() * screen.Width / width), Y = screen.Top + (int)(args["y"]!.Value<double>() * screen.Height / height) });
+                var x = screenCenter ? screen.Width / 2 : (int)(args["x"]!.Value<double>() * screen.Width / width);
+                var y = screenCenter ? screen.Height / 2 : (int)(args["y"]!.Value<double>() * screen.Height / height);
+                window = WindowFromPoint(new Point { X = screen.Left + x, Y = screen.Top + y });
             }
             GetWindowThreadProcessId(window, out var pid);
             if (pid == Process.GetCurrentProcess().Id) throw new ControlException("ScopeDenied", "电脑控制不能操作 YTray 的授权或配置界面");

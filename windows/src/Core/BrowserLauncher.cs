@@ -211,7 +211,7 @@ namespace YTray.Core
 
         internal static string ManagedBrowserBootstrapURL(string extensionId, Guid instanceId, string badge, string target,
             bool restore, string? proxyServer = null, BrowserKind? browserKind = null, string? browserVersion = null,
-            BrowserEngineTarget? engineTarget = null)
+            BrowserEngineTarget? engineTarget = null, string? browserUseTicket = null)
         {
             var browserIdentity = browserKind.HasValue
                 ? $"&browserName={Uri.EscapeDataString(browserKind.Value.Title())}"
@@ -223,7 +223,8 @@ namespace YTray.Core
                 $"&badge={Uri.EscapeDataString(DockBadgeLabel.Normalize(badge))}" +
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
                 $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
-                browserIdentity + "&engineTarget=" + Uri.EscapeDataString(Newtonsoft.Json.JsonConvert.SerializeObject(
+                browserIdentity + (browserUseTicket == null ? "" : "&browserUseTicket=" + Uri.EscapeDataString(browserUseTicket)) +
+                "&engineTarget=" + Uri.EscapeDataString(Newtonsoft.Json.JsonConvert.SerializeObject(
                     engineTarget ?? new BrowserEngineTarget { Mode = "legacy" },
                     new Newtonsoft.Json.JsonSerializerSettings { ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver() }));
         }
@@ -302,7 +303,8 @@ namespace YTray.Core
         public static LaunchResult Launch(BrowserRuntime runtime, LaunchMode mode, LaunchSettings settings,
             List<BrowserPlugin> plugins, string applicationDirectory, int ordinal, string dockBadge,
             BrowserInstance? restoring = null, Func<int, Task>? onWindowReady = null,
-            IEnumerable<BrowserPlugin>? configuredPlugins = null, string? profileRoot = null)
+            IEnumerable<BrowserPlugin>? configuredPlugins = null, string? profileRoot = null,
+            Func<Guid, string?>? browserUseEnrollment = null)
         {
             if (runtime == null) throw new ArgumentNullException(nameof(runtime));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
@@ -479,13 +481,16 @@ namespace YTray.Core
             if (string.IsNullOrWhiteSpace(startupURL)) startupURL = settings.HomeURL;
             var managedPlugin = plugins.FirstOrDefault(p => p.Enabled && p.Name == ExtensionInstaller.ExtensionName);
             var managedID = managedPlugin == null ? null : ExtensionInstaller.ChromiumExtensionId(managedPlugin);
+            var browserUseTicket = mode != LaunchMode.Isolated
+                && "chrome-extension://" + managedID + "/" == BrowserUse.BrowserUseNativeHost.AllowedOrigin
+                ? browserUseEnrollment?.Invoke(id) : null;
             return new LaunchResult(runningProcess, instance, taskbarController, logStream)
             {
                 ExtensionPaths = extensionPaths,
                 LegacyExtensionLoadingExpected = BrowserExtensionService.LegacyLoadingExpected(runtime),
                 DeferredStartupURL = extensionPaths.Count == 0 ? null : managedID == null ? startupURL
                     : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null,
-                        settings.ProxyServer, runtime.Kind, runtime.Version, settings.EngineTarget),
+                        settings.ProxyServer, runtime.Kind, runtime.Version, settings.EngineTarget, browserUseTicket),
             };
         }
 

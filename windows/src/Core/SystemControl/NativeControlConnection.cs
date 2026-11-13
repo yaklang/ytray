@@ -29,6 +29,7 @@ namespace YTray.Core.SystemControl
         private readonly StringBuilder _stderr = new StringBuilder();
         internal string DiagnosticTail { get { lock (_stderr) return _stderr.ToString(); } }
         internal Action? OnExit { get; set; }
+        internal Action<string, JObject>? OnNotification { get; set; }
         internal int? ProcessId => _process?.Process.Id;
         internal JObject ServerInfo { get; private set; } = new JObject();
         public async Task<JArray> StartAsync(string executable, IDictionary<string, string> environment, CancellationToken cancellation)
@@ -53,6 +54,9 @@ namespace YTray.Core.SystemControl
             }
             throw new ControlException("ProtocolViolation", "Driver 工具分页超限");
         }
+        internal Task NotifyAsync(string method, JObject parameters, CancellationToken cancellation) =>
+            WriteAsync(new JObject { ["jsonrpc"] = "2.0", ["method"] = method, ["params"] = parameters }, cancellation);
+
         public async Task<JObject> RequestAsync(string method, JObject parameters, CancellationToken cancellation, int timeoutMs = 10000)
         {
             if (Volatile.Read(ref _stopped) != 0) throw new ControlException("DriverUnavailable", "Driver 已停止");
@@ -96,7 +100,12 @@ namespace YTray.Core.SystemControl
                 foreach (var frame in Frames(stream)) {
                     var message = JObject.Parse(frame);
                     if ((string?)message["jsonrpc"] != "2.0") throw new InvalidDataException("Invalid JSON-RPC");
-                    if (message["id"] == null) continue;
+                    if (message["id"] == null) {
+                        if ((string?)message["method"] is string method && message["params"] is JObject parameters) {
+                            try { OnNotification?.Invoke(method, parameters); } catch { }
+                        }
+                        continue;
+                    }
                     if (message["id"]!.Type != JTokenType.Integer) throw new InvalidDataException("Invalid response id");
                     var id = message["id"]!.Value<long>();
                     if (!_pending.TryRemove(id, out var pending)) continue;

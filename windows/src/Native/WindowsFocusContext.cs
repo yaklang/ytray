@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using Newtonsoft.Json.Linq;
+using static YTray.Native.WindowsAutomation;
 
 namespace YTray.Native
 {
@@ -33,36 +34,47 @@ namespace YTray.Native
         {
             var result = new JObject { ["status"] = "unavailable" };
             try {
-                if (!IsForeground(window)) result["status"] = "other_window";
-                else {
-                    var element = AutomationElement.FocusedElement;
-                    if (element != null && BelongsTo(element, window)) {
-                        var current = element.Current;
-                        result["status"] = "focused";
-                        result["role"] = current.ControlType.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal);
-                        result["label"] = current.Name;
-                        result["frame"] = Frame(current.BoundingRectangle);
-                        result["selection_state"] = "unavailable";
-                        if (!current.IsPassword && element.TryGetCurrentPattern(TextPattern.Pattern, out var value) && value is TextPattern pattern
-                            && pattern.SupportedTextSelection != SupportedTextSelection.None) {
-                            var ranges = pattern.GetSelection();
-                            if (ranges != null && ranges.Length > 0) {
-                                var text = string.Join(" | ", ranges.Take(2).Select(r => r.GetText(161)));
-                                result["selection_state"] = text.Length == 0 ? "none" : "selected";
-                                if (text.Length != 0) { result["selected_text"] = Clip(text, 160); result["selection_truncated"] = text.Length > 160 || ranges.Length > 2; }
-                            }
-                        }
-                    }
-                }
-                // Do not publish focus from before a user/application focus switch.
-                if (!IsForeground(window)) result = new JObject { ["status"] = "other_window" };
+                if (IsForeground(window)) ReadFocus(window, result);
             } catch { /* Missing/stale provider data never fails the operation. */ }
+            // Do not publish focus from before a user/application focus switch.
+            if (!IsForeground(window)) result = new JObject { ["status"] = "other_window" };
             if (region != null) try {
                 result["region_covered_controls"] = CoveredControls(window, region.Value, controls);
                 result["region_text"] = ReadRegion(window, region.Value, out var truncated);
                 if (truncated) result["region_text_truncated"] = true;
             } catch { result["region_text_unavailable"] = true; }
             return result;
+        }
+        private static void ReadFocus(IntPtr window, JObject result)
+        {
+            var automation = Create();
+            var cache = automation.CreateCacheRequest();
+            foreach (var property in new[] { 30001, 30003, 30005, 30019, 30020 }) cache.AddProperty(property);
+            var element = automation.GetFocusedElementBuildCache(cache);
+            if (element == null || !BelongsTo(automation, element, window)) return;
+
+            result["status"] = "focused";
+            var type = ControlType.LookupById(Convert.ToInt32(element.Cached(30003)));
+            result["role"] = type?.ProgrammaticName.Replace("ControlType.", "", StringComparison.Ordinal) ?? "Custom";
+            result["label"] = element.Cached(30005) as string ?? "";
+            if (element.Cached(30001) is double[] frame && frame.Length == 4)
+                result["frame"] = Frame(new Rect(frame[0], frame[1], Math.Max(0, frame[2]), Math.Max(0, frame[3])));
+            result["selection_state"] = "unavailable";
+            // The managed TextPatternRange bridge can fault in UIAutomationCore
+            // when reading WPF selections. Use the native UIA client for the range.
+            if (element.Cached(30019) is not false || element.Pattern(10014) is not ITextPattern pattern || pattern.SupportedTextSelection() == 0)
+                return;
+            var ranges = pattern.GetSelection();
+            var count = ranges?.Length() ?? 0;
+            if (ranges == null || count == 0) return;
+            var text = string.Join(" | ", Enumerable.Range(0, Math.Min(count, 2))
+                .Select(i => ranges.GetElement(i)?.GetText(161))
+                .Where(value => !string.IsNullOrEmpty(value)));
+            result["selection_state"] = text.Length == 0 ? "none" : "selected";
+            if (text.Length != 0) {
+                result["selected_text"] = Clip(text, 160);
+                result["selection_truncated"] = text.Length > 160 || count > 2;
+            }
         }
         private static JArray CoveredControls(IntPtr window, Rect region, JObject[] controls)
         {
@@ -110,13 +122,15 @@ namespace YTray.Native
             }
             return covered;
         }
-        private static bool BelongsTo(AutomationElement focused, IntPtr window)
+        private static bool BelongsTo(IAutomation automation, IElement focused, IntPtr window)
         {
-            var element = focused;
+            var root = GetAncestor(window, 2);
+            var walker = automation.RawViewWalker();
+            IElement? element = focused;
             for (var depth = 0; element != null && depth < 32; depth++) {
-                var handle = element.Current.NativeWindowHandle;
-                if (handle != 0) return GetAncestor(new IntPtr(handle), 2) == GetAncestor(window, 2);
-                element = TreeWalker.RawViewWalker.GetParent(element);
+                var handle = depth == 0 ? element.Cached(30020) : element.Current(30020);
+                if (handle is int hwnd && hwnd != 0) return GetAncestor(new IntPtr(hwnd), 2) == root;
+                element = walker.Parent(element);
             }
             return false;
         }

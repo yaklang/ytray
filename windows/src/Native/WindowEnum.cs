@@ -54,6 +54,40 @@ namespace YTray.Native
             return found;
         }
 
+        internal static IntPtr FindSingleVisibleBrowserWindow(int processId)
+        {
+            var match = IntPtr.Zero;
+            EnumWindows((window, _) =>
+            {
+                Win32.GetWindowThreadProcessId(window, out var pid);
+                if (pid != processId || !Win32.IsWindowVisible(window)) return true;
+                var className = new StringBuilder(64);
+                Win32.GetClassName(window, className, className.Capacity);
+                if (className.ToString() != ChromeWindowClass || Win32.GetWindowTextLength(window) == 0) return true;
+                if (match != IntPtr.Zero)
+                {
+                    match = IntPtr.Zero;
+                    return false;
+                }
+                match = window;
+                return true;
+            }, IntPtr.Zero);
+            return match;
+        }
+
+        internal static void RaiseBrowserWindow(IntPtr window)
+        {
+            // Show the selected profile above overlapping ordinary windows even if Windows
+            // keeps keyboard focus in the caller. Do not make the window topmost.
+            const uint NoMoveOrResize = 0x0001 | 0x0002;
+            const uint NoActivate = 0x0010;
+            const uint Async = 0x4000;
+            SetWindowPos(window, IntPtr.Zero, 0, 0, 0, 0, NoMoveOrResize | NoActivate | Async);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+
         public static bool EnumWindows(Win32.EnumWindowsProc callback, IntPtr lParam)
         {
             return Win32.EnumWindows(callback, lParam);

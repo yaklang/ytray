@@ -24,6 +24,7 @@ namespace YTray.Core.SystemControl
         public event PropertyChangedEventHandler? PropertyChanged;
         private readonly Dispatcher _dispatcher;
         private readonly ControlAccessStore _access;
+        internal ControlTrace Trace { get; }
         private readonly SemaphoreSlim _operation = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _starting = new SemaphoreSlim(1, 1);
         private readonly object _sync = new object();
@@ -58,6 +59,7 @@ namespace YTray.Core.SystemControl
         {
             _dispatcher = Dispatcher.CurrentDispatcher;
             _access = new ControlAccessStore(applicationDirectory);
+            Trace = new ControlTrace(applicationDirectory);
             SystemEvents.SessionSwitch += SessionChanged;
             SystemEvents.DisplaySettingsChanged += DisplayChanged;
         }
@@ -131,6 +133,7 @@ namespace YTray.Core.SystemControl
                 var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (DictionaryEntry pair in Environment.GetEnvironmentVariables()) environment[(string)pair.Key] = pair.Value as string ?? "";
                 var connection = new NativeControlConnection(); _connection = connection;
+                connection.OnNotification = (method, parameters) => OnWorkerNotification(connection, method, parameters);
                 connection.OnExit = () => { lock (_sync) if (_generation == id && IsEnabled) StopRuntime("控制组件已断开，正在自动重连。", "Reconnecting"); };
                 var tools = await connection.StartAsync(typeof(App).Assembly.Location, environment, lifetime.Token).ConfigureAwait(false);
                 RequireGeneration(id);
@@ -152,6 +155,7 @@ namespace YTray.Core.SystemControl
             _reconnect?.Dispose(); _reconnect = null;
             StopRuntime();
             lock (_sync) { _requests.Clear(); _tools.Clear(); }
+            lock (_tasks) _tasks.Clear();
             _grant = null;
             try { _access.Clear(); } catch (Exception error) { LastError = error.Message; }
             Changed();
@@ -189,16 +193,21 @@ namespace YTray.Core.SystemControl
             return NativeControlSchema.Catalog();
         }
         internal JArray ReferenceTools() => PublicTools();
-        internal Task<JObject> CallAsync(string name, JObject arguments, string? expectedGeneration = null)
+        internal Task<JObject> CallAsync(string name, JObject arguments, string? expectedGeneration = null, CancellationToken cancellation = default,
+            ControlTraceCall? trace = null)
         {
             // Existing clients may finish an in-flight v1 operation. New discovery exposes
             // only the compact API; driver session bookkeeping stays behind this boundary.
             return arguments["target_ref"] != null || arguments["request_id"] != null || arguments["observation_id"] != null
                 || name == "check_permissions" || name == "end_session" || name.StartsWith("ytray_", StringComparison.Ordinal)
-                ? CallLegacyAsync(name, arguments, expectedGeneration) : CallSimpleAsync(name, arguments);
+                ? CallLegacyAsync(name, arguments, expectedGeneration, cancellation: cancellation)
+                : CallSimpleAsync(name, arguments, expectedGeneration ?? _generation, cancellation, trace);
         }
-        private async Task<JObject> CallLegacyAsync(string name, JObject arguments, string? expectedGeneration = null, bool waitForOperation = false)
+        private async Task<JObject> CallLegacyAsync(string name, JObject arguments, string? expectedGeneration = null, bool waitForOperation = false,
+            JObject? compact = null, ControlTiming? timing = null, bool textOnlyDesktop = false, CancellationToken cancellation = default, bool inspection = false,
+            WindowCaptureMode capture = WindowCaptureMode.Requested)
         {
+            ControlCancellation.Check(cancellation);
             if (expectedGeneration != null && expectedGeneration != _generation) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察");
             if (!IsEnabled || _grant == null) throw new ControlException("ControlDisabled", "电脑控制已关闭，请在本机开启");
             var generation = _generation;
@@ -226,12 +235,18 @@ namespace YTray.Core.SystemControl
                 }
                 if (previous != null) return await previous.ConfigureAwait(false);
             }
-            if (!IsRunning || _lifetime == null) throw new ControlException("DesktopUnavailable", Phase == "Paused" ? "桌面已锁定，解锁后自动恢复。" : "控制组件正在连接，请稍后重试，无需重新授权。");
+            var lifetime = _lifetime;
+            if (!IsRunning || lifetime == null) throw new ControlException("DesktopUnavailable", Phase == "Paused" ? "桌面已锁定，解锁后自动恢复。" : "控制组件正在连接，请稍后重试，无需重新授权。");
             if (waitForOperation) {
-                try { await _operation.WaitAsync(_lifetime.Token).ConfigureAwait(false); }
-                catch (OperationCanceledException) { throw new ControlException("DriverUnavailable", "正在恢复控制连接"); }
+                using var pending = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, cancellation);
+                try { await _operation.WaitAsync(pending.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) {
+                    ControlCancellation.Check(cancellation);
+                    throw new ControlException("DriverUnavailable", "正在恢复控制连接");
+                }
             } else if (!await _operation.WaitAsync(0).ConfigureAwait(false)) throw new ControlException("QueueFull", "已有操作执行中，请等待结果；停止始终可用");
             try {
+                ControlCancellation.Check(cancellation);
                 RequireGeneration(generation); WindowsControlTarget.RequireDesktop();
                 if (name == "list_apps" || name == "list_windows") {
                     if (arguments.Count != 0) throw new ControlException("InvalidArguments", "请使用返回的精确 target_ref 选择目标");
@@ -248,7 +263,8 @@ namespace YTray.Core.SystemControl
                 if ((string?)arguments["session_id"] is string session && session != _session || (string?)arguments["runtime_generation"] is string gen && gen != generation)
                     throw new ControlException("RuntimeGenerationMismatch", "会话代次不匹配");
                 var action = NativeControlSchema.Actions.Contains(name);
-                if (!action) return await ExecuteAsync(name, arguments, generation).ConfigureAwait(false);
+                if (!action) return await ExecuteAsync(name, arguments, generation, timing: timing, textOnlyDesktop: textOnlyDesktop,
+                    cancellation: cancellation, inspection: inspection, capture: capture).ConfigureAwait(false);
                 if (_grant!.ReadOnly) throw new ControlException("ScopeDenied", "只读会话不能输入");
                 if (!Guid.TryParse((string?)arguments["request_id"], out _)) throw new ControlException("InvalidArguments", "动作需要 UUID request_id，以便查询结果并防止重复投递");
                 if (!DateTimeOffset.TryParse((string?)arguments["deadline"], out var deadline) || deadline <= DateTimeOffset.UtcNow || deadline > DateTimeOffset.UtcNow.AddSeconds(30)) throw new ControlException("DeadlineExceeded", "动作 deadline 必须在未来 30 秒内");
@@ -259,14 +275,17 @@ namespace YTray.Core.SystemControl
                     } else {
                         if (_requests.Count >= 512) foreach (var expired in _requests.Where(p => p.Value.Task.IsCompleted && Stopwatch.GetTimestamp() - p.Value.Created > Stopwatch.Frequency * 30L).Select(p => p.Key).ToArray()) _requests.Remove(expired);
                         if (_requests.Count >= 512) throw new ControlException("QueueFull", "操作过于频繁，请稍后重试");
-                        result = ExecuteAsync(name, arguments, generation); _requests.Add(requestId, (hash, result, Stopwatch.GetTimestamp()));
+                        result = ExecuteAsync(name, arguments, generation, compact, timing, cancellation: cancellation); _requests.Add(requestId, (hash, result, Stopwatch.GetTimestamp()));
                     }
                 }
                 return await result.ConfigureAwait(false);
             } finally { _operation.Release(); }
         }
-        private async Task<JObject> ExecuteAsync(string name, JObject original, string generation)
+        private async Task<JObject> ExecuteAsync(string name, JObject original, string generation, JObject? compact = null,
+            ControlTiming? timing = null, bool textOnlyDesktop = false, CancellationToken cancellation = default, bool inspection = false,
+            WindowCaptureMode capture = WindowCaptureMode.Requested)
         {
+            ControlCancellation.Check(cancellation);
             var arguments = (JObject)original.DeepClone(); var action = NativeControlSchema.Actions.Contains(name);
             var desktop = name == "get_desktop_state" || (string?)arguments["target_ref"] == "desktop_primary";
             WindowsControlTarget? target = null;
@@ -279,17 +298,17 @@ namespace YTray.Core.SystemControl
                 target.Revalidate();
                 if (arguments["pid"] != null && (int)arguments["pid"]! != target.Pid || arguments["window_id"] != null && (long)arguments["window_id"]! != target.Handle.ToInt64()) throw new ControlException("TargetChanged", "目标参数冲突");
                 arguments["pid"] = target.Pid; arguments["window_id"] = target.Handle.ToInt64();
+                if (target.IsOwned) arguments["_owner_window_id"] = target.Owner.ToInt64();
             }
             if (desktop && _grant?.AllowDesktop != true) throw new ControlException("ScopeDenied", "本会话未授权主屏范围");
-            var requestedWindowImage = name == "get_window_state" && original["include_screenshot"]?.Value<bool>() != false;
             var scopedCapture = _grant?.AllowDesktop != true;
-            var blockedWindowImage = requestedWindowImage && scopedCapture && target!.IsObscured(IntPtr.Zero);
-            // The pinned driver's generic window path drops its BitBlt occlusion flag.
-            // Until that provenance is available, never return an obscured region as
-            // another application's window image. UIA background control still works.
-            if (blockedWindowImage) {
-                if (arguments["include_accessibility_tree"]?.Value<bool>() == false) throw new ControlException("CaptureOccluded", "窗口被遮挡，无法确认截图归属；请显示窗口后重新观察");
+            var verifyCapture = !desktop && name == "click" && compact?.Value<bool>("verify_capture") == true;
+            if (capture == WindowCaptureMode.NativeFirst && original["include_screenshot"] == null) {
                 arguments["include_screenshot"] = false;
+                arguments["_capture_if_no_layout"] = true;
+            } else if (capture == WindowCaptureMode.ForegroundRetry) {
+                arguments["include_screenshot"] = true;
+                arguments["_prefer_screen_capture"] = true;
             }
             Observation? observation = null;
             if (action) {
@@ -299,25 +318,37 @@ namespace YTray.Core.SystemControl
                 arguments["delivery_mode"] = mode;
                 var key = desktop ? "desktop_primary" : target!.Reference;
                 lock (_sync) _observations.TryGetValue(key, out observation);
-                if (observation == null || observation.Generation != generation || Stopwatch.GetTimestamp() - observation.Ticks > Stopwatch.Frequency * 30
+                if (observation == null || observation.Generation != generation || !verifyCapture && Stopwatch.GetTimestamp() - observation.Ticks > Stopwatch.Frequency * 30
                     || (string?)arguments["observation_id"] != observation.Id) throw new ControlException("StaleObservation", "请先重新观察，并传回 observation_id");
                 if (target != null) { observation.Target!.Revalidate(true); }
                 if (arguments["element_token"] != null && !observation.Tokens.Contains((string)arguments["element_token"]!)) throw new ControlException("StaleObservation", "元素不属于此目标的最新观察");
                 if (arguments["x"] != null || arguments["y"] != null) {
-                    if (arguments["x"] == null || arguments["y"] == null || observation.Width <= 0 || Stopwatch.GetTimestamp() - observation.Ticks > Stopwatch.Frequency * 10
+                    if (arguments["x"] == null || arguments["y"] == null || observation.Width <= 0 || !verifyCapture && Stopwatch.GetTimestamp() - observation.Ticks > Stopwatch.Frequency * 10
                         || arguments["x"]!.Value<double>() < 0 || arguments["y"]!.Value<double>() < 0 || arguments["x"]!.Value<double>() >= observation.Width || arguments["y"]!.Value<double>() >= observation.Height)
                         throw new ControlException("CaptureExpired", "坐标需要 10 秒内的有效截图，且必须位于返回图片范围内");
                     if (!desktop && scopedCapture && mode == "background" && target!.IsObscured(IntPtr.Zero)) throw new ControlException("CaptureOccluded", "窗口已被遮挡，请使用新观察中的控件，或显式授权前台输入");
                 }
+                if (verifyCapture) arguments["_verify_capture_id"] = observation.VisualCaptureId
+                    ?? throw new ControlException("CaptureVerificationUnavailable", "当前截图无法复核，请使用返回的新画面重新选点。");
                 if (arguments["capture_id"] != null && (string?)arguments["capture_id"] != observation.Id) throw new ControlException("CaptureExpired", "截图不属于最新观察");
-                if (desktop) WindowsControlProtection.RequireSafeInput(arguments, observation.Width, observation.Height);
-                if (!desktop && arguments["element_token"] == null && arguments["x"] == null && name != "press_key" && name != "type_text") throw new ControlException("InvalidArguments", "窗口动作需要明确元素或截图坐标");
+                var centeredScroll = name == "scroll" && compact?["center_scroll"]?.Value<bool>() == true;
+                if (desktop) WindowsControlProtection.RequireSafeInput(arguments, observation.Width, observation.Height, centeredScroll);
+                if (!desktop && arguments["element_token"] == null && arguments["x"] == null && !centeredScroll && name != "press_key" && name != "type_text") throw new ControlException("InvalidArguments", "窗口动作需要明确元素或截图坐标");
             }
             foreach (var key in new[] { "target_ref", "observation_id", "runtime_generation", "session_id", "request_id", "deadline", "capture_id" }) arguments.Remove(key);
             if (observation != null && observation.Width > 0) arguments["_image_size"] = new JObject { ["width"] = observation.Width, ["height"] = observation.Height };
+            if (arguments["x"] != null && observation?.View["window_bounds"] is JObject captureBounds) {
+                arguments["_observed_bounds"] = new JObject {
+                    ["x"] = captureBounds["x"], ["y"] = captureBounds["y"], ["w"] = captureBounds["width"], ["h"] = captureBounds["height"]
+                };
+            }
+            if (compact != null) arguments["_compact_action"] = compact;
+            if (!action && timing != null) arguments["_compact_observation"] = true;
+            if (inspection) arguments["_inspection"] = true;
+            if (name == "get_desktop_state" && textOnlyDesktop) arguments["include_screenshot"] = false;
             if (desktop && action) arguments["target"] = new JObject { ["kind"] = "desktop", ["display_id"] = "primary" };
             if (name == "get_window_state") { arguments["tree_format"] ??= "both"; arguments["max_elements"] ??= 500; arguments["timeout_ms"] ??= 2000; }
-            var cancellation = _lifetime?.Token ?? new CancellationToken(true);
+            var lifetime = _lifetime?.Token ?? new CancellationToken(true);
             var timeout = 10000;
             if (action) {
                 timeout = (int)Math.Min(10000, (DateTimeOffset.Parse((string)original["deadline"]!) - DateTimeOffset.UtcNow).TotalMilliseconds);
@@ -325,35 +356,75 @@ namespace YTray.Core.SystemControl
             }
             RequireGeneration(generation); WindowsControlTarget.RequireDesktop();
             if (action && target != null) target.Revalidate();
-            if (action && target != null && (string?)arguments["delivery_mode"] == "foreground") {
-                await WindowsApplicationControl.ActivateAsync(target).ConfigureAwait(false);
-                // WPF accepts plain window-addressed keys while foreground. This avoids
-                // reattaching/resetting its input queue for an unmodified key; chords and
-                // other toolkits retain the native foreground input path.
-                if (name == "press_key" && (arguments["modifiers"] as JArray)?.Count is null or 0
-                    && WindowsApplicationControl.UsesWpfKeyboardMessages(target.Handle)) {
-                    arguments["delivery_mode"] = "background"; arguments["_focus_before_key"] = true;
-                }
+            async Task ActivateForInputAsync(WindowsControlTarget window) {
+                if ((name is "press_key" or "type_text") && window.IsNonActivating
+                    && !WindowsApplicationControl.IsForeground(window.Handle))
+                    throw new ControlException("KeyboardTargetUnavailable", "目标窗口设置为不自动激活。请观察当前焦点，选择接收键盘输入的窗口。");
+                var activateAt = timing?.Clock.ElapsedMilliseconds ?? 0;
+                EnterOperation(timing, "activate");
+                await WindowsApplicationControl.ActivateAsync(window, cancellation).ConfigureAwait(false);
+                if (timing != null) timing.Activate += timing.Clock.ElapsedMilliseconds - activateAt;
             }
+            var tryNative = action && target != null && (string?)arguments["delivery_mode"] == "foreground"
+                && compact?.Value<bool>("prefer_native_control") == true;
+            if (tryNative) arguments["delivery_mode"] = "background";
+            else if (action && target != null && (string?)arguments["delivery_mode"] == "foreground" && !(verifyCapture && target.IsOwned))
+                await ActivateForInputAsync(target).ConfigureAwait(false);
             var dispatched = false;
             try {
+                ControlCancellation.Check(cancellation);
+                RequireGeneration(generation);
                 dispatched = action;
-                var result = await CallNativeAsync(name, arguments, cancellation, timeout).ConfigureAwait(false); RequireGeneration(generation);
+                var operationId = action || capture != WindowCaptureMode.Requested ? timing?.Operation?.Id ?? 0 : 0;
+                var result = await CallNativeAsync(name, arguments, lifetime, timeout, cancellation, operationId).ConfigureAwait(false);
+                if (tryNative && (string?)result["structuredContent"]?["error"]?["code"] == "ForegroundRequired"
+                    && (string?)result["structuredContent"]?["error"]?["execution_state"] == "NotStarted") {
+                    // The worker has confirmed that there was no usable pattern and no input was sent.
+                    dispatched = false;
+                    ControlCancellation.Check(cancellation);
+                    RequireGeneration(generation);
+                    observation!.Target!.Revalidate(true);
+                    arguments["delivery_mode"] = "foreground";
+                    await ActivateForInputAsync(target!).ConfigureAwait(false);
+                    dispatched = true;
+                    result = await CallNativeAsync(name, arguments, lifetime, timeout, cancellation, operationId).ConfigureAwait(false);
+                }
+                RequireGeneration(generation);
+                if (!action) ControlCancellation.Check(cancellation);
+                if (!action && capture != WindowCaptureMode.Requested && result["isError"]?.Value<bool>() != true)
+                    EnterOperation(timing, "format_state");
                 var structured = result["structuredContent"] as JObject ?? new JObject();
+                if (timing != null) {
+                    if (result["_capture_ms"] != null) {
+                        timing.Capture += result.Value<long>("_capture_ms");
+                        timing.Captures++;
+                    }
+                    timing.ChangeWait += (long?)structured["_change_wait_ms"] ?? 0;
+                    timing.ChangeObserved |= structured["_ui_change_observed"]?.Value<bool>() == true;
+                }
+                result.Remove("_capture_ms");
+                var visualCaptureId = (string?)result["_visual_capture_id"];
+                result.Remove("_visual_capture_id");
                 // The driver's window title can lag behind a navigated document.
                 // Read the live HWND caption after capture so polling and the public
                 // response describe the destination rather than the previous page.
-                if (!action && name == "get_window_state" && target != null)
+                if (!action && name == "get_window_state" && target != null && result["isError"]?.Value<bool>() != true) {
+                    target.RequireVisibleOwned();
                     structured["window_title"] = WindowsControlTarget.Resolve(target.Handle).Title;
-                if (requestedWindowImage && scopedCapture && (blockedWindowImage || target!.IsObscured(IntPtr.Zero))) {
+                }
+                // A render tied to the target HWND is safe to return through a scoped grant.
+                // A screen crop needs the target to remain unobscured through delivery.
+                if (name == "get_window_state" && scopedCapture && target != null && (string?)structured["screenshot_source"] != "window_render"
+                    && (structured["screenshot_source"] != null || structured["screenshot_error"] != null) && target.IsObscured(IntPtr.Zero)) {
                     result["content"] = new JArray((result["content"] as JArray ?? new JArray()).Where(c => (string?)c["type"] != "image").Select(c => c.DeepClone()));
-                    foreach (var field in new[] { "screenshot_width", "screenshot_height", "screenshot_mime_type", "capture_id" }) structured.Remove(field);
+                    foreach (var field in new[] { "screenshot_source", "screenshot_mime_type", "capture_id" }) structured.Remove(field);
+                    structured["screenshot_frame_valid"] = false;
                     structured["capture_blocked_by_occlusion"] = true; structured["degraded"] = true;
                     structured["screenshot_error"] = "窗口被遮挡，截图已省略以避免返回覆盖窗口的内容；可继续使用控件信息。";
                 }
                 structured["session_id"] = _session; structured["runtime_generation"] = generation;
                 if (target != null) structured["target_ref"] = target.Reference;
-                if (!action && (name == "get_window_state" || desktop) && result["isError"]?.Value<bool>() != true) {
+                if (!action && !inspection && (name == "get_window_state" || desktop) && result["isError"]?.Value<bool>() != true) {
                     var fresh = new Observation { Id = Guid.NewGuid().ToString("N"), Generation = generation, Ticks = Stopwatch.GetTimestamp(), Target = target };
                     fresh.View = (JObject)structured.DeepClone();
                     foreach (var element in (structured["elements"] as JArray ?? new JArray()).OfType<JObject>()) if ((string?)element["element_token"] is string token) {
@@ -362,10 +433,20 @@ namespace YTray.Core.SystemControl
                     }
                     var image = (result["content"] as JArray)?.OfType<JObject>().FirstOrDefault(c => (string?)c["type"] == "image");
                     if (image != null && structured["screenshot_frame_valid"]?.Value<bool>() != false) {
-                        using var stream = new MemoryStream(Convert.FromBase64String((string)image["data"]!)); using var bitmap = System.Drawing.Image.FromStream(stream);
-                        fresh.Width = bitmap.Width; fresh.Height = bitmap.Height;
+                        fresh.VisualCaptureId = visualCaptureId;
+                        fresh.Width = structured.Value<int>("screenshot_width");
+                        fresh.Height = structured.Value<int>("screenshot_height");
+                        if (fresh.Width <= 0 || fresh.Height <= 0) {
+                            using var stream = new MemoryStream(Convert.FromBase64String((string)image["data"]!));
+                            using var bitmap = System.Drawing.Image.FromStream(stream);
+                            fresh.Width = bitmap.Width; fresh.Height = bitmap.Height;
+                        }
                     }
-                    lock (_sync) _observations[desktop ? "desktop_primary" : target!.Reference] = fresh;
+                    lock (_sync) {
+                        ControlCancellation.Check(cancellation);
+                        RequireGeneration(generation);
+                        _observations[desktop ? "desktop_primary" : target!.Reference] = fresh;
+                    }
                     structured["observation_id"] = fresh.Id; structured["capture_id"] = fresh.Id;
                     structured["image_width"] = fresh.Width; structured["image_height"] = fresh.Height;
                     structured["coordinate_space"] = desktop ? "primary_display_pixels" : "window_capture_pixels";
@@ -373,16 +454,18 @@ namespace YTray.Core.SystemControl
                 }
                 if (action) {
                     structured["request_id"] = original["request_id"];
-                    structured["execution_state"] = result["isError"]?.Value<bool>() == true ? "Unknown" : "Completed";
+                    structured["execution_state"] = result["isError"]?.Value<bool>() == true ? (string?)structured["error"]?["execution_state"] ?? "Unknown" : "Completed";
                     structured["verification_state"] = "unverified"; structured["next_observation_required"] = true;
                 }
                 Activity = DateTime.Now.ToString("HH:mm:ss") + " · " + name + " · " + (result["isError"]?.Value<bool>() == true ? "需重新观察" : action ? "已投递，等待读回确认" : "已观察"); Changed();
                 result["structuredContent"] = structured;
-                DescribePublicContext(result, structured, desktop ? "desktop_primary" : target?.Reference);
+                if (timing == null) DescribePublicContext(result, structured, desktop ? "desktop_primary" : target?.Reference);
                 return result;
             } catch (Exception error) {
                 var failure = error as ControlException ?? new ControlException("DriverFailure", "Driver 调用失败", dispatched ? "Unknown" : "NotStarted");
-                if (dispatched && failure.ExecutionState == "NotStarted" && failure.Code != "ViewChanged") failure = new ControlException(failure.Code, failure.Message, "Unknown");
+                if (dispatched && failure.ExecutionState == "NotStarted" && failure.Code != "ViewChanged" && failure.Code != "Cancelled"
+                    && failure.Code != "PopupChanged")
+                    failure = new ControlException(failure.Code, failure.Message, "Unknown", failure.Verification);
                 var result = failure.Result(); ((JObject)result["structuredContent"]!)["request_id"] = original["request_id"];
                 return result;
             } finally { if (action) lock (_sync) _observations.Remove(desktop ? "desktop_primary" : target!.Reference); }
@@ -406,13 +489,29 @@ namespace YTray.Core.SystemControl
             if (!(result["content"] is JArray content)) result["content"] = content = new JArray();
             content.Add(new JObject { ["type"] = "text", ["text"] = context.ToString(Formatting.None) });
         }
-        private bool Allowed(WindowsControlTarget target) => target.Pid != Process.GetCurrentProcess().Id && target.Pid != WorkerProcessId
-            && (_grant?.AllowDesktop == true || _grant?.Executables.Contains(target.Executable, StringComparer.OrdinalIgnoreCase) == true);
+        private bool AllowedApp(string executable) => _grant?.AllowDesktop == true || _grant?.Executables.Contains(executable, StringComparer.OrdinalIgnoreCase) == true;
+        private bool Allowed(WindowsControlTarget target) => target.Pid != Process.GetCurrentProcess().Id && target.Pid != WorkerProcessId && AllowedApp(target.Executable);
         private void RequireGeneration(string generation) { if (!IsEnabled || _generation != generation || _lifetime?.IsCancellationRequested != false) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察，旧请求不会重放。"); }
-        internal async Task<JObject> CallNativeAsync(string name, JObject args, CancellationToken cancellation, int timeout = 10000)
+        internal Task<JObject> CallNativeAsync(string name, JObject args, CancellationToken lifetime, int timeout = 10000,
+            CancellationToken cancellation = default, long operationId = 0)
         {
             var connection = _connection ?? throw new ControlException("DriverUnavailable", "原生控制进程已停止");
-            return await connection.RequestAsync("tools/call", new JObject { ["name"] = name, ["arguments"] = args }, cancellation, timeout).ConfigureAwait(false);
+            var parameters = new JObject { ["name"] = name, ["arguments"] = args };
+            if (operationId != 0) parameters["_operation_id"] = operationId;
+            return RequestNativeAsync(connection, "tools/call", parameters, lifetime, cancellation, timeout);
+        }
+        private static async Task<JObject> RequestNativeAsync(NativeControlConnection connection, string method, JObject parameters,
+            CancellationToken lifetime, CancellationToken cancellation, int timeout)
+        {
+            ControlCancellation.Check(cancellation);
+            if (!cancellation.CanBeCanceled)
+                return await connection.RequestAsync(method, parameters, lifetime, timeout).ConfigureAwait(false);
+
+            // The worker processes stdin serially. Signal in parallel while its current call unwinds.
+            using var signal = ControlCancellation.Create(out var id);
+            using var registration = cancellation.Register(() => signal.Set());
+            parameters["_cancel_id"] = id;
+            return await connection.RequestAsync(method, parameters, lifetime, timeout).ConfigureAwait(false);
         }
         private static bool NativeSessionEnded(JObject result) => (string?)result["structuredContent"]?["refusal"]?["code"] is string code
             && (code == "session_ended" || code == "session_not_found" || code == "session_expired");
@@ -420,10 +519,12 @@ namespace YTray.Core.SystemControl
         private static JToken Canonical(JToken value) => value is JObject obj ? new JObject(obj.Properties().OrderBy(p => p.Name, StringComparer.Ordinal).Select(p => new JProperty(p.Name, Canonical(p.Value)))) : value is JArray array ? new JArray(array.Select(Canonical)) : value.DeepClone();
         public void Dispose() {
             _disposed = true; _reconnect?.Dispose(); _reconnect = null;
+            _previewOverlay?.Dispose(); _previewOverlay = null;
             SystemEvents.SessionSwitch -= SessionChanged; SystemEvents.DisplaySettingsChanged -= DisplayChanged;
             StopRuntime(); IsEnabled = false; _token = null; _grant = null;
+            Trace.Dispose();
             // The saved switch and DPAPI credential survive normal application exit.
         }
-        private sealed class Observation { internal string Id = "", Generation = ""; internal long Ticks; internal WindowsControlTarget? Target; internal int Width, Height; internal JObject View = new JObject(); internal HashSet<string> Tokens = new HashSet<string>(); internal Dictionary<string, System.Windows.Point> Points = new Dictionary<string, System.Windows.Point>(); }
+        private sealed class Observation { internal string Id = "", Generation = ""; internal long Ticks; internal WindowsControlTarget? Target; internal int Width, Height; internal string? VisualCaptureId; internal JObject View = new JObject(); internal HashSet<string> Tokens = new HashSet<string>(); internal Dictionary<string, System.Windows.Point> Points = new Dictionary<string, System.Windows.Point>(); }
     }
 }
