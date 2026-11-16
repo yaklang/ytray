@@ -29,6 +29,10 @@ macOS 构建号固定为 `major × 1,000,000 + minor × 1,000 + patch`，每一�
 4. 将通过检查的代码合入 main，推送匹配 `VERSION` 的 `vX.Y.Z` 标签。标签发布流程上传不可变文件并从 CDN 核对哈希，然后发布四个更新源，最后更新版本索引与 GitHub Release。
 5. 核对公开的四个平台包、`manifest.json`、`SHA256SUMS`、四个 `appcast-*.xml`、`latest.json` 和 `releases.json`。清单包含提交 SHA；不能覆盖不同字节的历史版本，也不能降低 latest。中断后应复用已验收的 `prepared-release` 恢复上传。
 
+桌面 Release 从当前提交的 `browser-extension/` 生成一份企业版插件 ZIP，供四个安装包共用。发布准备阶段核对四份描述文件的版本、SHA-256 和源码提交。
+
+独立插件由本仓库的 **Browser extension release** 手动发布，版本取自 `browser-extension/package.json`，标签为 `extension-vX.Y.Z`。工作流通过 `OSS_KEY_ID` 和 `OSS_KEY_SECRET` 发布到现有 `chrome-extension/` 路径。切换发布仓库时，确认 YTray 的凭据能够写入该路径，再从 YTray 发布并验证存量插件升级。发布入口切换后，从 YTray 维护该清单。[插件发布说明](../browser-extension/README.md#发布与下载)
+
 更新源为 `appcast-macos-arm64.xml`、`appcast-macos-amd64.xml`、`appcast-windows-amd64.xml`、`appcast-windows-386.xml`，根目录与不可变版本目录均保留副本。
 
 ## 验收命令
