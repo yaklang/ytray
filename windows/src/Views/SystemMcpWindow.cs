@@ -20,6 +20,7 @@ namespace YTray.Views
         private string _catalog = "";
         private static readonly Dictionary<string, (string Title, string Summary)> Descriptions = new Dictionary<string, (string, string)> {
             ["launch_app"] = ("打开应用", "按应用名称或 EXE 路径打开，自动切到前台并返回最新界面。"),
+            ["open_folder"] = ("打开文件夹", "将绝对目录交给资源管理器，返回 Windows 受理状态。"),
             ["activate_window"] = ("激活窗口", "恢复最小化窗口、切到前台并返回最新界面。"),
             ["list_apps"] = ("发现应用", "列出当前用户的应用。"),
             ["list_windows"] = ("发现窗口", "发现允许访问的窗口，获取后续观察和操作所需的目标引用。"),
@@ -80,12 +81,12 @@ namespace YTray.Views
             CopyConfigButton.IsEnabled = _controller.ConfigurationJSON != null;
             ToolListTitle.Text = _controller.IsRunning ? "可用工具" : "能力预览";
             StateDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, _controller.IsRunning ? "SuccessBrush" : "TextTertiaryBrush");
-            ConnectionHint.Text = _controller.IsEnabled ? "配置持续有效；重启和解锁后可继续连接，主动关闭总开关后失效。" : "开启电脑控制后，复制配置到 MCP 客户端即可。";
+            ConnectionHint.Text = _controller.IsEnabled ? "连接时需保留配置中的 Authorization 请求头。关闭电脑控制后配置失效。" : "开启电脑控制后，复制配置到 MCP 客户端即可。";
             var catalog = _controller.IsRunning ? _controller.Generation : "stopped";
             if (_catalog == catalog) return; _catalog = catalog;
             var selected = (ToolList.SelectedItem as Tool)?.Name;
             var definitions = (_controller.IsRunning ? _controller.Tools() : _controller.ReferenceTools()).OfType<JObject>().ToArray();
-            var order = new[] { "list_apps", "list_windows", "get_window_state", "get_desktop_state", "click", "type_text", "press_key", "scroll", "check_permissions", "system_status", "end_session", "ytray_request_get", "ytray_request_cancel" };
+            var order = new[] { "list_apps", "list_windows", "launch_app", "open_folder", "get_window_state", "get_desktop_state", "click", "type_text", "press_key", "scroll", "check_permissions", "system_status", "end_session", "ytray_request_get", "ytray_request_cancel" };
             var tools = definitions.OrderBy(t => { var index = Array.IndexOf(order, (string)t["name"]!); return index < 0 ? 100 : index; }).Select(t => Make((string)t["name"]!, t["inputSchema"]?.ToString())).ToArray();
             ToolCountText.Text = tools.Length + " 项"; ToolList.ItemsSource = tools;
             ToolList.SelectedItem = tools.FirstOrDefault(t => t.Name == selected) ?? tools.FirstOrDefault();
@@ -99,9 +100,10 @@ namespace YTray.Views
             SchemaTextBox.Text = tool.Schema ?? "开启电脑控制后显示实际参数定义。";
             SchemaTextBox.ScrollToHome();
         }
-        private void CopyConfig_Click(object sender, RoutedEventArgs e)
+        private async void CopyConfig_Click(object sender, RoutedEventArgs e)
         {
-            if (_controller.ConfigurationJSON is string configuration) { try { Clipboard.SetText(configuration); ConnectionHint.Text = "配置已复制，请粘贴到可信 MCP 客户端。"; } catch { ConnectionHint.Text = "复制失败，请重试。"; } }
+            if (await McpClipboard.TryCopyAsync(this, () => _controller.ConfigurationJSON) is bool copied)
+                ConnectionHint.Text = copied ? "配置已复制，导入时请保留 Authorization 请求头。" : McpClipboard.FailureMessage;
         }
         private void Settings_Click(object sender, RoutedEventArgs e) { if (_openSettings != null) _openSettings(); else Owner?.Activate(); Close(); }
         private sealed class Tool { public string Name { get; set; } = ""; public string Title { get; set; } = ""; public string Summary { get; set; } = ""; public string? Schema { get; set; } }

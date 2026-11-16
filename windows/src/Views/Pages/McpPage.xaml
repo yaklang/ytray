@@ -40,7 +40,7 @@
         <StackPanel Margin="24,20">
             <Grid Margin="0,0,0,18">
                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel><TextBlock Text="MCP" Style="{StaticResource PageTitle}"/><TextBlock Text="两个独立服务：管理 YTray，或操作整台电脑。" Margin="0,5,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/></StackPanel>
+                <StackPanel><TextBlock Text="MCP" Style="{StaticResource PageTitle}"/><TextBlock Text="管理浏览器实例、操作已共享网页或控制电脑。" Margin="0,5,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/></StackPanel>
                 <Button x:Name="CopyBothButton" Grid.Column="1" Content="复制两个 MCP 配置" Click="CopyBoth_Click" Style="{StaticResource McpButton}" VerticalAlignment="Center" Margin="12,0,0,0"/>
             </Grid>
             <Border Style="{StaticResource SurfaceBorder}" Padding="20" Margin="0,0,0,14">
@@ -63,7 +63,7 @@
                     </Expander>
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource SurfaceBorder}" Padding="20">
+            <Border Style="{StaticResource SurfaceBorder}" Padding="20" Margin="0,0,0,14">
                 <StackPanel>
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel><TextBlock Text="电脑控制 MCP" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="发现应用和窗口、截图、点击、输入、按键与滚动。" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/></StackPanel>
@@ -76,6 +76,17 @@
                         <Button Content="工具与参数" Click="ComputerTools_Click" Style="{StaticResource McpButton}"/>
                         <Button Content="高级" Click="ComputerSettings_Click" Style="{StaticResource McpButton}"/>
                     </WrapPanel>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource SurfaceBorder}" Padding="20">
+                <StackPanel>
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="浏览器控制 MCP" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="读取、点击、输入和滚动用户已共享的标签页。" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/></StackPanel>
+                        <ToggleButton x:Name="BrowserToggle" Grid.Column="1" Style="{StaticResource McpSwitch}" Click="BrowserToggle_Click" VerticalAlignment="Top" Margin="16,0,0,0" AutomationProperties.Name="浏览器控制 MCP 开关"/>
+                    </Grid>
+                    <TextBlock x:Name="BrowserStatusText" Margin="0,12,0,0" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="BrowserEndpointText" FontFamily="Consolas" FontSize="12" Margin="0,8,0,14" TextWrapping="Wrap"/>
+                    <Button x:Name="CopyBrowserButton" HorizontalAlignment="Left" Content="复制浏览器控制配置" Click="CopyBrowser_Click" Style="{StaticResource McpButton}"/>
                 </StackPanel>
             </Border>
             <TextBlock x:Name="ConnectionHint" Margin="0,14,0,0" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>

@@ -1,0 +1,332 @@
+<Window x:Class="YTray.Views.ControlTraceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="YTray · 电脑控制 Trace" Width="1080" Height="740" MinWidth="730" MinHeight="500"
+        WindowStartupLocation="CenterScreen" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource TextPrimaryBrush}">
+    <Window.Resources>
+        <Style x:Key="TracePanel" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SurfaceRaisedBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="14"/>
+        </Style>
+        <Style x:Key="TraceNavButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
+            <Setter Property="Width" Value="27"/>
+            <Setter Property="Height" Value="27"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style x:Key="TraceTabButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="15,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style x:Key="TraceTimeSegment" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="TimeBar" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TimeBar" Property="Opacity" Value=".65"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <DataTemplate x:Key="TraceFieldRow">
+            <Grid Margin="0,0,0,7">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="68"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Label}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" FontSize="13"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="TraceStageRow">
+            <Grid Margin="0,0,0,4" MinHeight="26" ToolTip="{Binding Tooltip}">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/><ColumnDefinition Width="62"/></Grid.ColumnDefinitions>
+                <DockPanel Margin="0,0,10,0">
+                    <Ellipse x:Name="StageDot" DockPanel.Dock="Left" Width="6" Height="6" Margin="2,0,9,0"
+                             Fill="{DynamicResource SuccessBrush}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="StageName" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" FontSize="13"/>
+                </DockPanel>
+                <Grid Grid.Column="1" Height="5" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="{Binding Before}"/><ColumnDefinition Width="{Binding Span}"/><ColumnDefinition Width="{Binding After}"/></Grid.ColumnDefinitions>
+                    <Border Grid.ColumnSpan="3" CornerRadius="3" Background="{DynamicResource SurfaceMutedBrush}"/>
+                    <Border x:Name="StageBar" Grid.Column="1" CornerRadius="3" Background="{DynamicResource SuccessBrush}"/>
+                </Grid>
+                <TextBlock x:Name="StageTime" Grid.Column="2" Text="{Binding Time}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Unavailable}" Value="True">
+                    <Setter TargetName="StageDot" Property="Fill" Value="{DynamicResource TextTertiaryBrush}"/>
+                    <Setter TargetName="StageBar" Property="Background" Value="{DynamicResource TextTertiaryBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Running}" Value="True">
+                    <Setter TargetName="StageDot" Property="Fill" Value="{DynamicResource BrandOrangeBrush}"/>
+                    <Setter TargetName="StageBar" Property="Background" Value="{DynamicResource BrandOrangeBrush}"/>
+                    <Setter TargetName="StageTime" Property="Text" Value="进行中"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Failed}" Value="True">
+                    <Setter TargetName="StageDot" Property="Fill" Value="{DynamicResource DangerBrush}"/>
+                    <Setter TargetName="StageBar" Property="Background" Value="{DynamicResource DangerBrush}"/>
+                    <Setter TargetName="StageName" Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+        <Style x:Key="TraceRunItem" TargetType="ListBoxItem">
+            <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Tile" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="Transparent"
+                                BorderThickness="1" CornerRadius="10" Padding="10,9">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Tile" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Tile" Property="Background" Value="{DynamicResource BrandPaleBrush}"/>
+                                <Setter TargetName="Tile" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <DataTemplate x:Key="TraceRunRow">
+            <Grid ToolTip="{Binding Name}">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Border Width="28" Height="28" HorizontalAlignment="Left" CornerRadius="8" Background="{DynamicResource SurfaceRaisedBrush}">
+                    <Path Data="M 2,2 H 11 M 2,6 H 11 M 2,10 H 8" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.4"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="6,0,6,0">
+                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding Detail}" Margin="0,4,0,0" FontSize="10.5" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </StackPanel>
+                <Ellipse Grid.Column="2" Width="6" Height="6" VerticalAlignment="Top" Margin="0,5,0,0">
+                    <Ellipse.Style>
+                        <Style TargetType="Ellipse">
+                            <Setter Property="Fill" Value="{DynamicResource TextTertiaryBrush}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Completed}" Value="True"><Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding Failed}" Value="True"><Setter Property="Fill" Value="{DynamicResource DangerBrush}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding Running}" Value="True"><Setter Property="Fill" Value="{DynamicResource BrandOrangeBrush}"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Ellipse.Style>
+                </Ellipse>
+            </Grid>
+        </DataTemplate>
+        <Style x:Key="TimelineItem" TargetType="ListBoxItem">
+            <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><ContentPresenter/></ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <LinearGradientBrush x:Key="TraceSummaryBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="{DynamicResource BrandPaleColor}" Offset="0"/>
+            <GradientStop Color="{DynamicResource SurfaceRaisedColor}" Offset=".84"/>
+        </LinearGradientBrush>
+    </Window.Resources>
+    <Grid Margin="22,18,22,20">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+            <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource BrandPaleBrush}" Margin="0,0,11,0">
+                <Path Data="M 1,4 H 15 M 15,4 L 11,0 M 15,4 L 11,8 M 1,12 H 10"
+                      Stroke="{DynamicResource BrandOrangeBrush}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <TextBlock Text="电脑控制 Trace" FontSize="25" FontWeight="SemiBold" VerticalAlignment="Center"/>
+        </StackPanel>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="234"/><ColumnDefinition Width="13"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Style="{StaticResource TracePanel}" Padding="11,12">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="2,0,2,12">
+                        <Border DockPanel.Dock="Right" Background="{DynamicResource SurfaceMutedBrush}" Padding="7,2" CornerRadius="7">
+                            <TextBlock x:Name="RunCountText" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </Border>
+                        <TextBlock Text="任务与会话" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <ListBox x:Name="RunList" SelectionChanged="Run_Selected" ItemTemplate="{StaticResource TraceRunRow}"
+                             ItemContainerStyle="{StaticResource TraceRunItem}" Background="Transparent" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="False"/>
+                </DockPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource TracePanel}" Padding="14">
+                <Grid>
+                    <TextBlock x:Name="EmptyText" Text="等待 MCP 调用" VerticalAlignment="Center" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    <Grid x:Name="CallDetails" Visibility="Collapsed">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Border Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1"
+                                CornerRadius="11" Padding="10,8,10,10" Margin="0,0,0,11" ClipToBounds="True">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <DockPanel Margin="1,0,0,7">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                        <Border CornerRadius="8" Background="{DynamicResource SurfaceRaisedBrush}" Padding="2" Margin="0,0,8,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button x:Name="StepModeButton" Content="步骤" Style="{StaticResource TraceTabButton}" Click="StepMode_Click" Height="24" Padding="9,0"/>
+                                                <Button x:Name="TimeModeButton" Content="时长" Style="{StaticResource TraceTabButton}" Click="TimeMode_Click" Height="24" Padding="9,0"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <StackPanel x:Name="StepNavigation" Orientation="Horizontal">
+                                        <Button x:Name="EarlierStepsButton" Style="{StaticResource TraceNavButton}" Click="EarlierSteps_Click"
+                                                ToolTip="查看较早步骤" AutomationProperties.Name="查看较早步骤" IsEnabled="False" Margin="0,0,5,0">
+                                            <Path Data="M 7,0 L 2,5 L 7,10" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5" StrokeLineJoin="Round"/>
+                                        </Button>
+                                        <Button x:Name="LaterStepsButton" Style="{StaticResource TraceNavButton}" Click="LaterSteps_Click"
+                                                ToolTip="查看较新步骤" AutomationProperties.Name="查看较新步骤" IsEnabled="False">
+                                            <Path Data="M 2,0 L 7,5 L 2,10" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5" StrokeLineJoin="Round"/>
+                                        </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <TextBlock Text="任务流水线" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </DockPanel>
+                                <ListBox x:Name="CallList" Grid.Row="1" SelectionChanged="Call_Selected" PreviewMouseWheel="Timeline_MouseWheel"
+                                         ScrollViewer.ScrollChanged="Timeline_ScrollChanged" AutomationProperties.Name="任务流水线" BorderThickness="0"
+                                         Background="Transparent" ItemContainerStyle="{StaticResource TimelineItem}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                         ScrollViewer.CanContentScroll="False">
+                                    <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListBox.ItemsPanel>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border x:Name="StepCard" MinWidth="108" MaxWidth="205" CornerRadius="9" Padding="8,6"
+                                                        Background="{DynamicResource SurfaceRaisedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1"
+                                                        ToolTip="{Binding Name}">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <Border x:Name="StepNumber" Background="{DynamicResource SurfaceMutedBrush}" CornerRadius="6" MinWidth="23"
+                                                                Height="23" Padding="4,0" Margin="0,0,7,0">
+                                                            <TextBlock x:Name="StepIndex" Text="{Binding Position}" FontSize="11" FontWeight="SemiBold"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="Medium" VerticalAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis" MaxWidth="148"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Path x:Name="Connector" Data="M 0,4 H 12 M 12,4 L 8,0 M 12,4 L 8,8"
+                                                      Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.2" StrokeLineJoin="Round"
+                                                      Margin="8,0" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding HasNext}" Value="False"><Setter TargetName="Connector" Property="Visibility" Value="Collapsed"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Completed}" Value="True">
+                                                    <Setter TargetName="StepNumber" Property="Background" Value="{DynamicResource SuccessPaleBrush}"/>
+                                                    <Setter TargetName="StepIndex" Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Failed}" Value="True">
+                                                    <Setter TargetName="StepNumber" Property="Background" Value="{DynamicResource DangerPaleBrush}"/>
+                                                    <Setter TargetName="StepIndex" Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Running}" Value="True"><Setter TargetName="StepIndex" Property="Foreground" Value="{DynamicResource BrandOrangeBrush}"/></DataTrigger>
+                                                <Trigger SourceName="StepCard" Property="IsMouseOver" Value="True"><Setter TargetName="StepCard" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                                                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                    <Setter TargetName="StepCard" Property="Background" Value="{DynamicResource BrandPaleBrush}"/>
+                                                    <Setter TargetName="StepCard" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <StackPanel x:Name="TimePanel" Grid.Row="1" Visibility="Collapsed">
+                                    <Border CornerRadius="6" Background="{DynamicResource SurfaceRaisedBrush}" Padding="0,3">
+                                        <Canvas x:Name="TimeTrack" Height="17" SizeChanged="TimeTrack_SizeChanged" ClipToBounds="True"
+                                                AutomationProperties.Name="调用时长概览"/>
+                                    </Border>
+                                    <DockPanel Margin="1,4,1,0">
+                                        <TextBlock x:Name="TimeSpanText" DockPanel.Dock="Right" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                        <TextBlock Text="开始" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Row="1" Background="{DynamicResource TraceSummaryBrush}" BorderBrush="{DynamicResource HairlineBrush}"
+                                BorderThickness="1" CornerRadius="11" Padding="14,11" Margin="0,0,0,11">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,5">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+                                        <TextBlock x:Name="CallDurationText" FontSize="12" FontFamily="Consolas" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,9,0"/>
+                                        <Border x:Name="CallStatusBadge" Background="{DynamicResource SurfaceMutedBrush}" Padding="9,4" CornerRadius="8">
+                                            <TextBlock x:Name="CallStatusText" FontSize="11.5" FontWeight="SemiBold"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock x:Name="CallPositionText" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                        <TextBlock x:Name="ActionTitleText" FontSize="21" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                    </StackPanel>
+                                </DockPanel>
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Background="{DynamicResource SurfaceRaisedBrush}" Padding="6,2" CornerRadius="4" Margin="0,0,9,0">
+                                        <TextBlock x:Name="ToolNameText" FontFamily="Consolas" FontSize="12" FontWeight="SemiBold"/>
+                                    </Border>
+                                    <TextBlock x:Name="CallMetadataText" FontSize="11.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                </DockPanel>
+                                <Border x:Name="CallErrorPanel" Background="{DynamicResource DangerPaleBrush}" CornerRadius="7" Padding="8,5" Margin="0,8,0,0">
+                                    <TextBlock x:Name="CallErrorText" MaxHeight="62" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"/>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Row="2" CornerRadius="11" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1"
+                                Background="{DynamicResource SurfaceRaisedBrush}" ClipToBounds="True">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <Border BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1"
+                                        Background="{DynamicResource SurfaceRaisedBrush}" Padding="10,7">
+                                    <Border HorizontalAlignment="Left" Background="{DynamicResource SurfaceMutedBrush}" CornerRadius="8" Padding="3">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button x:Name="DetailsButton" Content="详情" Click="Details_Click" Style="{StaticResource TraceTabButton}" Margin="0,0,3,0"/>
+                                            <Button x:Name="RequestButton" Content="原始请求" Click="Request_Click" Style="{StaticResource TraceTabButton}" Margin="0,0,3,0"/>
+                                            <Button x:Name="ResponseButton" Content="原始响应" Click="Response_Click" Style="{StaticResource TraceTabButton}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Border>
+                                <ScrollViewer x:Name="ReadableDetails" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel Margin="14,12,14,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                            <Border Background="{DynamicResource SurfaceMutedBrush}" CornerRadius="9" Padding="11,9,11,3">
+                                                <StackPanel>
+                                                    <TextBlock Text="调用参数" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,9"/>
+                                                    <ItemsControl x:Name="InputFields" ItemTemplate="{StaticResource TraceFieldRow}"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Grid.Column="2" Background="{DynamicResource SurfaceMutedBrush}" CornerRadius="9" Padding="11,9,11,3">
+                                                <StackPanel>
+                                                    <TextBlock Text="执行结果" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,9"/>
+                                                    <ItemsControl x:Name="ResultFields" ItemTemplate="{StaticResource TraceFieldRow}"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
+                                        <StackPanel x:Name="StagePanel" Margin="0,14,0,0">
+                                            <TextBlock Text="执行过程" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                            <ItemsControl x:Name="StageList" ItemTemplate="{StaticResource TraceStageRow}"/>
+                                        </StackPanel>
+                                        <Expander x:Name="ReturnedTextPanel" Header="返回的文字" Margin="0,7,0,5" Foreground="{DynamicResource TextSecondaryBrush}">
+                                            <TextBox x:Name="ReturnedText" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Padding="10,8"
+                                                     FontSize="12" Background="{DynamicResource SurfaceMutedBrush}" Margin="0,7,0,0"/>
+                                        </Expander>
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <TextBox x:Name="PayloadText" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Visibility="Collapsed"
+                                         Padding="13,10" BorderThickness="0" Background="Transparent" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

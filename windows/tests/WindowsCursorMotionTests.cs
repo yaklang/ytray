@@ -37,7 +37,7 @@ namespace YTray.Tests
             var far = new WindowsCursorMotion(from, new PointF(1900, 100), desktop, 1);
             var highDpi = new WindowsCursorMotion(new PointF(200, 200), new PointF(480, 200), desktop, 2);
             Assert.AreEqual(near.DurationMilliseconds, highDpi.DurationMilliseconds);
-            Assert.IsTrue(near.DurationMilliseconds >= 400 && far.DurationMilliseconds > near.DurationMilliseconds && far.DurationMilliseconds <= 1100);
+            Assert.IsTrue(near.DurationMilliseconds >= 45 && far.DurationMilliseconds > near.DurationMilliseconds && far.DurationMilliseconds <= 150);
             Assert.AreEqual(0, new WindowsCursorMotion(from, from, desktop, 1).DurationMilliseconds);
         }
     }

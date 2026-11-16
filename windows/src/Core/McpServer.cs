@@ -267,7 +267,7 @@ namespace YTray.Core
                         Only(arguments);
                         return ToolResult(OnUI(() => new JObject
                         {
-                            ["runtimes"] = new JArray(_store.Runtimes.Select(RuntimeJson))
+                            ["runtimes"] = new JArray(_store.Runtimes.Select(runtime => RuntimeJson(runtime, _store.DefaultRuntime?.Id)))
                         }));
                     case "list_browser_instances":
                         Only(arguments, "include_history");
@@ -379,14 +379,14 @@ namespace YTray.Core
             return dispatcher == null || dispatcher.CheckAccess() ? action() : dispatcher.Invoke(action);
         }
 
-        private JObject RuntimeJson(BrowserRuntime runtime) => new JObject
+        internal static JObject RuntimeJson(BrowserRuntime runtime, Guid? defaultRuntimeId) => new JObject
         {
             ["id"] = runtime.Id.ToString(),
             ["name"] = runtime.DisplayTitle,
             ["version"] = runtime.VersionLabel,
             ["kind"] = runtime.Kind.ToString(),
             ["source"] = runtime.Source.ToString(),
-            ["default"] = runtime.Id == _store.DefaultRuntime?.Id
+            ["default"] = runtime.Id == defaultRuntimeId
         };
 
         private static JObject InstanceJson(BrowserInstance instance) => new JObject

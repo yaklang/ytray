@@ -33,16 +33,17 @@ namespace YTray.Native
         [ComImport, Guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         internal interface IAutomation
         {
-            void CompareElements(); void CompareRuntimeIds();
+            [return: MarshalAs(UnmanagedType.Bool)] bool CompareElements(IElement first, IElement second);
+            void CompareRuntimeIds();
             IElement GetRootElement();
             IElement ElementFromHandle(IntPtr window);
             IElement ElementFromPoint(NativePoint point);
             IElement GetFocusedElement();
             IElement GetRootElementBuildCache(ICache cache);
             IElement ElementFromHandleBuildCache(IntPtr window, ICache cache);
-            void ElementFromPointBuildCache(); void GetFocusedElementBuildCache(); void CreateTreeWalker();
+            void ElementFromPointBuildCache(); IElement? GetFocusedElementBuildCache(ICache cache); void CreateTreeWalker();
             IWalker ControlViewWalker();
-            void ContentViewWalker(); void RawViewWalker(); void RawViewCondition(); void ControlViewCondition(); void ContentViewCondition();
+            void ContentViewWalker(); IWalker RawViewWalker(); void RawViewCondition(); void ControlViewCondition(); void ContentViewCondition();
             ICache CreateCacheRequest();
         }
         [ComImport, Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -78,6 +79,27 @@ namespace YTray.Native
         internal interface ISelectionItem { void Select(); }
         [ComImport, Guid("88f4d42a-e881-459d-a77c-73bbbb7e02dc"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         internal interface IScroll { void Scroll(int horizontal, int vertical); }
+        [ComImport, Guid("32eba289-3583-42c9-9c59-3b6d9a1e9b6a"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        internal interface ITextPattern
+        {
+            void RangeFromPoint(); void RangeFromChild();
+            ITextRangeArray? GetSelection();
+            void GetVisibleRanges(); void DocumentRange();
+            int SupportedTextSelection();
+        }
+        [ComImport, Guid("ce4ae76a-e717-4c98-81ea-47371d028eb6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        internal interface ITextRangeArray
+        {
+            int Length();
+            ITextRange? GetElement(int index);
+        }
+        [ComImport, Guid("a543cc6a-f4ae-494b-8239-c814481187a8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        internal interface ITextRange
+        {
+            void Clone(); void Compare(); void CompareEndpoints(); void ExpandToEnclosingUnit();
+            void FindAttribute(); void FindText(); void GetAttributeValue(); void GetBoundingRectangles(); void GetEnclosingElement();
+            [return: MarshalAs(UnmanagedType.BStr)] string? GetText(int maxLength);
+        }
         [ComImport, Guid("b488300f-d015-4f19-9c29-bb595e3645ef"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         internal interface IScrollItem { void ScrollIntoView(); }
         [ComImport, Guid("828055ad-355b-4435-86d5-3b51c14a9b1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

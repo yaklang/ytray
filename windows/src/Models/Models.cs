@@ -320,6 +320,7 @@ namespace YTray.Models
         public bool LaunchAtLoginSetupCompleted { get; set; }
         public bool McpAutoStart { get; set; } = true;
         public bool ComputerControlEnabled { get; set; }
+        public bool BrowserUseEnabled { get; set; }
 
         public static readonly string[] BlockedCustomPrefixes =
         {
@@ -386,6 +387,7 @@ namespace YTray.Models
                 LaunchAtLoginSetupCompleted = LaunchAtLoginSetupCompleted,
                 McpAutoStart = McpAutoStart,
                 ComputerControlEnabled = ComputerControlEnabled,
+                BrowserUseEnabled = BrowserUseEnabled,
                 CheckForAppUpdates = CheckForAppUpdates,
             };
         }

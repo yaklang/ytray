@@ -12,13 +12,21 @@ namespace YTray.Models
     {
         internal string Code { get; }
         internal string ExecutionState { get; }
-        internal ControlException(string code, string message, string executionState = "NotStarted") : base(message)
-        { Code = code; ExecutionState = executionState; }
-        internal JObject Result() => new JObject {
-            ["isError"] = true, ["content"] = new JArray(new JObject { ["type"] = "text", ["text"] = Message }),
-            ["structuredContent"] = new JObject { ["error"] = new JObject {
+        internal JObject? Verification { get; }
+        internal ControlException(string code, string message, string executionState = "NotStarted", JObject? verification = null) : base(message)
+        { Code = code; ExecutionState = executionState; Verification = verification; }
+        internal JObject Result()
+        {
+            var error = new JObject {
                 ["code"] = Code, ["execution_state"] = ExecutionState, ["message"] = Message,
-                ["recovery"] = ExecutionState == "Unknown" ? "reobserve_do_not_replay" : "review_request" } } };
+                ["recovery"] = ExecutionState == "Unknown" ? "reobserve_do_not_replay" : "review_request"
+            };
+            if (Verification != null) error["verification"] = Verification.DeepClone();
+            return new JObject {
+                ["isError"] = true, ["content"] = new JArray(new JObject { ["type"] = "text", ["text"] = Message }),
+                ["structuredContent"] = new JObject { ["error"] = error }
+            };
+        }
     }
 
     public sealed class ControlSessionOptions

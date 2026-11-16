@@ -33,6 +33,14 @@ namespace YTray.Core
             public string URL;
         }
 
+        internal static string? PageUrlForHistory(string? url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "chrome-extension"
+                || uri.AbsolutePath != "/ytray-bootstrap.html") return url;
+            // Bootstrap query parameters are internal to the managed launch and can carry a ticket.
+            return null;
+        }
+
         #pragma warning disable 0649
         private class CdpTarget
         {

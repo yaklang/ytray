@@ -17,7 +17,7 @@ namespace YTray.Native
             var dx = to.X - from.X; var dy = to.Y - from.Y;
             var distance = Math.Sqrt(dx * dx + dy * dy);
             var logical = distance / Math.Max(1, scale);
-            DurationMilliseconds = logical <= 8 ? 0 : logical < 24 ? 260 : (int)Math.Min(1050, 340 + 18 * Math.Sqrt(logical));
+            DurationMilliseconds = logical <= 8 ? 0 : (int)Math.Min(150, 45 + 2.8 * Math.Sqrt(logical));
             if (distance < 1) { _first = from; _second = to; return; }
             var normal = new PointF((float)(-dy / distance), (float)(dx / distance));
             var midpoint = new PointF((from.X + to.X) / 2, (from.Y + to.Y) / 2);

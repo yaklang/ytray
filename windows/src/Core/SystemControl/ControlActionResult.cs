@@ -25,9 +25,8 @@ namespace YTray.Core.SystemControl
             if (state == null) result["structuredContent"] = state = new JObject();
             var failed = action["isError"]?.Value<bool>() == true;
             var observed = observation["isError"]?.Value<bool>() != true;
-            var source = action["structuredContent"] as JObject ?? new JObject();
-            var failure = source["error"] ?? source["refusal"] ?? source;
-            var execution = failed ? (string?)failure["execution_state"] ?? (string?)source["execution_state"] ?? "Unknown" : "Completed";
+            var error = failed ? ActionError(action, step) : null;
+            var execution = (string?)error?["execution_state"] ?? "Completed";
             state["execution_state"] = execution;
             state["automatic_replay_allowed"] = false;
             state["observation_available"] = observed;
@@ -36,17 +35,9 @@ namespace YTray.Core.SystemControl
                 state.Remove("error");
             }
             result["isError"] = failed;
-            if (failed) {
-                // Private worker/session fields must not leak back into the compact
-                // response when a backend omits the nested error object.
-                var error = new JObject { ["code"] = failure["code"] ?? "ActionIncomplete" };
-                error["message"] = Message(action);
-                error["step"] = step;
-                error["execution_state"] = execution;
-                error["recovery"] = execution == "NotStarted" ? "review_request" : "reobserve_do_not_replay";
-                if (step == "submit") error["text_sent"] = true;
+            if (error != null) {
                 state["error"] = error;
-                Append(result, "Error at " + step + ": " + error["message"]);
+                Append(result, (string)error["message"]!);
             } else if (!observed) {
                 state["message"] = "动作已投递，但暂未取得最新界面；请重新观察，不要重复执行。";
                 // The unavailable observation's text is not the outcome of the input.
@@ -54,6 +45,22 @@ namespace YTray.Core.SystemControl
             }
             if (!observed && failed) Append(result, "最新界面暂不可用；请重新观察后再继续，不要重复执行未知结果的动作。");
             return result;
+        }
+
+        internal static JObject ActionError(JObject action, string step)
+        {
+            var state = action["structuredContent"] as JObject ?? new JObject();
+            var failure = state["error"] ?? state["refusal"] ?? state;
+            var execution = (string?)failure["execution_state"] ?? (string?)state["execution_state"] ?? "Unknown";
+            var error = new JObject {
+                ["code"] = failure["code"] ?? "ActionIncomplete", ["message"] = Message(action),
+                ["step"] = failure["step"] ?? new JValue(step), ["execution_state"] = execution,
+                ["recovery"] = execution == "NotStarted" ? "review_request" : "reobserve_do_not_replay"
+            };
+            foreach (var field in new[] { "selection_sent", "text_sent", "verification" })
+                if (failure[field] is JToken value) error[field] = value.DeepClone();
+            if ((string?)error["step"] == "submit") error["text_sent"] ??= true;
+            return error;
         }
 
         private static void Append(JObject result, string message)

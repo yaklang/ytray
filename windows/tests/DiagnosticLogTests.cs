@@ -1,8 +1,14 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using YTray.Core;
+using YTray.Core.SystemControl;
+using YTray.Native;
+using YTray.Views;
 
 namespace YTray.Tests
 {
@@ -62,6 +68,59 @@ namespace YTray.Tests
             Assert.IsFalse(errors.Contains("private"));
             Assert.IsFalse(errors.Contains("private-bearer"));
             Assert.IsFalse(errors.Contains("private-json"));
+        }
+
+        [TestMethod]
+        public async Task McpCopyRetriesWithCurrentConfigurationWhenClipboardIsBusy()
+        {
+            var configuration = "old fixture";
+            string? copiedText = null;
+            var attempts = 0;
+            var result = await McpClipboard.TryCopyAsync(() => configuration, text =>
+            {
+                if (++attempts == 1)
+                {
+                    configuration = "current fixture";
+                    throw new WindowsClipboard.OpenException(WindowsClipboard.AccessDenied);
+                }
+                copiedText = text;
+            });
+
+            Assert.AreEqual((bool?)true, result);
+            Assert.AreEqual(2, attempts);
+            Assert.AreEqual("current fixture", copiedText);
+        }
+
+        [TestMethod]
+        public async Task McpCopyFailureAndAuthorizationRejectionsAreLoggedWithoutCredentials()
+        {
+            DiagnosticLog.Initialize(_applicationDirectory);
+            const string fixtureCredential = "fixture-credential";
+            var attempts = 0;
+            var result = await McpClipboard.TryCopyAsync(() => fixtureCredential, _ =>
+            {
+                attempts++;
+                throw new Win32Exception(WindowsClipboard.AccessDenied, "SetClipboardData failed");
+            });
+            Assert.AreEqual((bool?)false, result);
+            Assert.AreEqual(1, attempts);
+            var errors = File.ReadAllText(DiagnosticLog.ErrorLogPath);
+            StringAssert.Contains(errors, "[mcp.clipboard]");
+            StringAssert.Contains(errors, "SetClipboardData failed");
+
+            using var controller = new SystemControlController(_applicationDirectory);
+            using var gateway = new ControlGateway(controller);
+            var request = new ControlGateway.HttpRequest("POST", "/system/mcp",
+                new Dictionary<string, string> { ["host"] = "127.0.0.1:51373" }, "");
+            Assert.AreEqual(401, (await gateway.HandleRequestAsync(request)).Status);
+            request.Headers["authorization"] = "Bearer " + fixtureCredential;
+            Assert.AreEqual(401, (await gateway.HandleRequestAsync(request)).Status);
+
+            var log = File.ReadAllText(DiagnosticLog.MainLogPath);
+            StringAssert.Contains(log, "[control.mcp]");
+            StringAssert.Contains(log, "HTTP 401 Authorization header missing");
+            StringAssert.Contains(log, "HTTP 401 Authorization header rejected");
+            Assert.IsFalse(log.Contains(fixtureCredential));
         }
 
         [TestMethod]

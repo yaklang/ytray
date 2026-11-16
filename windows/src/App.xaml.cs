@@ -23,6 +23,8 @@ namespace YTray
             // touches user state. The same small EXE also hosts the private worker.
             if (initializeServices && Array.IndexOf(Environment.GetCommandLineArgs(), "--native-control-worker") >= 0)
                 Environment.Exit(Core.SystemControl.NativeControlWorker.Run());
+            if (initializeServices && Environment.GetCommandLineArgs().Skip(1).FirstOrDefault() == Core.BrowserUse.BrowserUseNativeHost.AllowedOrigin)
+                Environment.Exit(Core.BrowserUse.BrowserUseNativeHost.Run());
         }
         private InstanceStore? _store;
         private TrayApp? _tray;
@@ -176,6 +178,7 @@ namespace YTray
             if (openWidget && !repairControl) _tray.ShowWidget();
             else if (!startupLaunch || repairControl) _tray.ShowManager(repairControl || openSystemControl ? "system" : openMcp ? "mcp" : null);
             CrashGuard.Observe(repairControl ? RepairControlAndRestoreAsync() : _store.RestoreComputerControlAsync(), "computer-control-startup");
+            _store.RestoreBrowserUse();
             if (_store.Settings.McpAutoStart) _store.StartMcpService();
             else _store.SetMcpStatus(false, "自动启动已关闭，可在 MCP 页面手动启动");
         }

@@ -16,6 +16,6 @@ namespace YTray.Core.SystemControl
                 throw Failure(new ControlException("GrantRevoked", "电脑控制授权已更新；旧请求已取消，请重新观察。"));
         }
         internal ControlException Failure(ControlException error) => InputMayHaveExecuted && error.ExecutionState == "NotStarted"
-            ? new ControlException(error.Code, error.Message, "Unknown") : error;
+            ? new ControlException(error.Code, error.Message, "Unknown", error.Verification) : error;
     }
 }

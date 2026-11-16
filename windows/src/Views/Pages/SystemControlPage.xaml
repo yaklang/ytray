@@ -35,6 +35,31 @@
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
                 <Border Style="{StaticResource ControlCard}" Margin="0,0,0,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,14,0">
+                            <TextBlock Text="本机应用" FontSize="14" FontWeight="SemiBold"/>
+                            <TextBlock Text="查看窗口的原生控件布局和最近失败的步骤。" FontSize="12" Margin="0,8,0,0"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="分析应用" Style="{StaticResource ControlButton}" Click="InspectApps_Click" VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+                <Border Style="{StaticResource ControlCard}" Margin="0,0,0,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,14,0">
+                            <TextBlock Text="执行流水线" FontSize="14" FontWeight="SemiBold"/>
+                            <TextBlock Text="查看顶部状态卡片和实际 MCP 调用记录。" FontSize="12" Margin="0,8,0,0"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="PreviewPipelineButton" Content="预览顶部卡片" Style="{StaticResource ControlButton}" Click="PreviewPipeline_Click" Margin="0,0,7,0"/>
+                            <Button Content="查看 Trace" Style="{StaticResource ControlButton}" Click="Trace_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Border Style="{StaticResource ControlCard}" Margin="0,0,0,12">
                     <StackPanel>
                         <TextBlock Text="已允许的能力" FontSize="14" FontWeight="SemiBold"/>
                         <TextBlock Text="全部应用 · 截图与控件读取 · 点击 · 输入 · 按键 · 滚动" FontSize="13" Margin="0,11,0,0" TextWrapping="Wrap"/>

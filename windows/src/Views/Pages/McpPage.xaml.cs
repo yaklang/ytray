@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using YTray.Core;
@@ -16,6 +17,7 @@ namespace YTray.Views.Pages
             InitializeComponent(); _store = store;
             EndpointText.Text = McpServer.Endpoint;
             ComputerEndpointText.Text = store.SystemControl.Endpoint;
+            BrowserEndpointText.Text = store.BrowserUseEndpoint;
             ConfigTextBox.Text = McpConfiguration.YTray;
             Loaded += (_, __) => { _store.PropertyChanged += Changed; _store.SystemControl.PropertyChanged += Changed; Refresh(); };
             Unloaded += (_, __) => { _store.PropertyChanged -= Changed; _store.SystemControl.PropertyChanged -= Changed; };
@@ -31,11 +33,16 @@ namespace YTray.Views.Pages
             ServiceToggle.IsChecked = _store.IsMcpAvailable;
             AutoStartToggle.IsChecked = _store.IsMcpAutoStartEnabled;
             ComputerToggle.IsChecked = _store.SystemControl.IsEnabled;
+            BrowserToggle.IsChecked = _store.BrowserUseConfiguration != null;
             _refreshing = false;
             ServiceStatusDetail.Text = _store.IsMcpAvailable ? "已开启 · " + _store.McpStatusMessage : _store.McpStatusMessage;
             ComputerStatusText.Text = _store.SystemControl.StatusText + (_store.SystemControl.IsEnabled ? " · 保持开启即可随时使用" : " · 开启后可复制连接配置");
             CopyComputerButton.IsEnabled = CopyBothButton.IsEnabled = _store.SystemControl.ConfigurationJSON != null;
-            ConnectionHint.Text = _store.SystemControl.IsEnabled ? "两个配置分别对应 ytray 和 ytray-system。电脑控制配置在总开关关闭后失效。" : "电脑控制尚未开启。可先复制 YTray 配置；开启电脑控制后，可复制包含两个服务的完整 JSON。";
+            CopyBrowserButton.IsEnabled = _store.BrowserUseConfiguration != null;
+            BrowserStatusText.Text = CopyBrowserButton.IsEnabled
+                ? "已开启 · YTray 托管实例自动接入"
+                : "首次开启后复制配置，后续随 YTray 启动";
+            ConnectionHint.Text = "导入电脑控制或浏览器控制配置时，请保留 Authorization 请求头。";
         }
         private void ServiceToggle_Changed(object sender, RoutedEventArgs e)
         {
@@ -51,16 +58,23 @@ namespace YTray.Views.Pages
             catch (Exception error) { CopyFeedback.Text = error.Message; }
             finally { ComputerToggle.IsEnabled = true; Refresh(); }
         }
-        private void Copy(string? configuration, string message)
+        private async Task CopyAsync(Func<string?> readConfiguration, string message)
         {
-            if (configuration == null) return;
-            try { Clipboard.SetText(configuration); CopyFeedback.Text = message; }
-            catch { CopyFeedback.Text = "复制失败，请重试。"; }
+            if (await McpClipboard.TryCopyAsync(this, readConfiguration) is bool copied)
+                CopyFeedback.Text = copied ? message : McpClipboard.FailureMessage;
         }
-        private void CopyConfig_Click(object sender, RoutedEventArgs e) => Copy(McpConfiguration.YTray, "YTray MCP 配置已复制。");
-        private void CopyEndpoint_Click(object sender, RoutedEventArgs e) => Copy(McpServer.Endpoint, "YTray MCP 地址已复制。");
-        private void CopyComputer_Click(object sender, RoutedEventArgs e) => Copy(_store.SystemControl.ConfigurationJSON, "电脑控制 MCP 配置已复制。");
-        private void CopyBoth_Click(object sender, RoutedEventArgs e) => Copy(McpConfiguration.Both(_store.SystemControl.ConfigurationJSON), "两个 MCP 的配置已复制，粘贴一次即可添加两个服务。");
+        private async void CopyConfig_Click(object sender, RoutedEventArgs e) => await CopyAsync(() => McpConfiguration.YTray, "YTray MCP 配置已复制。");
+        private async void CopyEndpoint_Click(object sender, RoutedEventArgs e) => await CopyAsync(() => McpServer.Endpoint, "YTray MCP 地址已复制。");
+        private async void CopyComputer_Click(object sender, RoutedEventArgs e) => await CopyAsync(() => _store.SystemControl.ConfigurationJSON, "电脑控制 MCP 配置已复制。");
+        private async void CopyBrowser_Click(object sender, RoutedEventArgs e) => await CopyAsync(() => _store.BrowserUseConfiguration, "浏览器控制 MCP 配置已复制。");
+        private void BrowserToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (_refreshing) return;
+            try { _store.SetBrowserUseEnabled(BrowserToggle.IsChecked == true); }
+            catch (Exception error) { CopyFeedback.Text = error.Message; }
+            finally { Refresh(); }
+        }
+        private async void CopyBoth_Click(object sender, RoutedEventArgs e) => await CopyAsync(() => McpConfiguration.Both(_store.SystemControl.ConfigurationJSON), "两个 MCP 的配置已复制，粘贴一次即可添加两个服务。");
         private void ComputerTools_Click(object sender, RoutedEventArgs e) => new SystemMcpWindow(_store.SystemControl) { Owner = Window.GetWindow(this) }.Show();
         private void ComputerSettings_Click(object sender, RoutedEventArgs e)
         {

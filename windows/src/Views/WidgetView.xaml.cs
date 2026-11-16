@@ -69,13 +69,11 @@ namespace YTray.Views
         }
         private async void ComputerMcp_Click(object sender, RoutedEventArgs e)
         {
-            if (_store.SystemControl.ConfigurationJSON is string configuration) {
-                var generation = ++_computerCopyFeedbackGeneration;
-                try { Clipboard.SetText(configuration); ComputerCopyLabel.Text = "已复制"; }
-                catch { ComputerCopyLabel.Text = "复制失败"; }
-                await System.Threading.Tasks.Task.Delay(2200);
-                if (generation == _computerCopyFeedbackGeneration && IsLoaded) ComputerCopyLabel.Text = "复制电脑控制配置";
-            }
+            if (await McpClipboard.TryCopyAsync(this, () => _store.SystemControl.ConfigurationJSON) is not bool copied || !IsLoaded) return;
+            var generation = ++_computerCopyFeedbackGeneration;
+            ComputerCopyLabel.Text = copied ? "已复制" : "复制失败";
+            await System.Threading.Tasks.Task.Delay(2200);
+            if (generation == _computerCopyFeedbackGeneration && IsLoaded) ComputerCopyLabel.Text = "复制电脑控制配置";
         }
         private void ComputerAdvanced_Click(object sender, RoutedEventArgs e)
         {

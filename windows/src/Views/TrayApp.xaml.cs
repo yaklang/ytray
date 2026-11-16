@@ -37,6 +37,7 @@ namespace YTray
             _launchAtLogin = launchAtLogin;
             _store.PropertyChanged += OnStorePropertyChanged;
             _store.SystemControl.PropertyChanged += OnControlChanged;
+            _store.SystemControl.TraceDetailsRequested += ShowControlTrace;
             _launchAtLogin.PropertyChanged += OnLaunchAtLoginChanged;
             _updater.PropertyChanged += OnUpdaterPropertyChanged;
 
@@ -71,6 +72,12 @@ namespace YTray
             _trayIcon = replacement;
             _notify.Icon = replacement;
             previous?.Dispose();
+        }
+
+        private void ShowControlTrace(string callId)
+        {
+            _widget?.HideWidget();
+            ControlTraceWindow.ShowFor(_store.SystemControl, callId: callId);
         }
 
         private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -287,6 +294,7 @@ namespace YTray
         public void Dispose()
         {
             _store.SystemControl.PropertyChanged -= OnControlChanged;
+            _store.SystemControl.TraceDetailsRequested -= ShowControlTrace;
             _store.PropertyChanged -= OnStorePropertyChanged;
             _launchAtLogin.PropertyChanged -= OnLaunchAtLoginChanged;
             _updater.PropertyChanged -= OnUpdaterPropertyChanged;

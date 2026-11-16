@@ -1,0 +1,283 @@
+<Window x:Class="YTray.Views.ControlInspectorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="YTray · 本机应用分析" Width="1120" Height="730" MinWidth="790" MinHeight="510"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource TextPrimaryBrush}">
+    <Window.Resources>
+        <Style x:Key="InspectorButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
+            <Setter Property="MinHeight" Value="0"/><Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="13,0"/><Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="InspectorPanel" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SurfaceRaisedBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="10"/>
+        </Style>
+        <Style x:Key="CanvasButton" TargetType="Button" BasedOn="{StaticResource InspectorButton}">
+            <Setter Property="Padding" Value="8,0"/><Setter Property="Height" Value="25"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceRaisedBrush}"/>
+        </Style>
+        <Style x:Key="InspectorTreeItem" TargetType="TreeViewItem">
+            <Setter Property="IsExpanded" Value="{Binding Expanded, Mode=TwoWay}"/>
+            <Setter Property="IsSelected" Value="{Binding Selected, Mode=TwoWay}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TreeViewItem">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="15"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <ToggleButton x:Name="Expander" Focusable="False" Width="15" Height="23"
+                                          IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="Transparent">
+                                            <Path x:Name="Chevron" Data="M 0,0 L 4,3.5 L 0,7" StrokeThickness="1.2"
+                                                  Stroke="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin=".5,.5"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Chevron" Property="RenderTransform"><Setter.Value><RotateTransform Angle="90"/></Setter.Value></Setter>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <Border x:Name="HeaderSurface" Grid.Column="1" Background="Transparent" CornerRadius="4" Padding="4,3" MinHeight="23">
+                                <ContentPresenter x:Name="PART_Header" ContentSource="Header"/>
+                            </Border>
+                            <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="HasItems" Value="False"><Setter TargetName="Expander" Property="Visibility" Value="Hidden"/></Trigger>
+                            <Trigger Property="IsExpanded" Value="False"><Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed"/></Trigger>
+                            <Trigger SourceName="HeaderSurface" Property="IsMouseOver" Value="True"><Setter TargetName="HeaderSurface" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="HeaderSurface" Property="Background" Value="{DynamicResource BrandPaleBrush}"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="20,17,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <DockPanel Margin="0,0,0,14" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="RecentFailureButton" Content="最近失败" Click="RecentFailure_Click" Style="{StaticResource InspectorButton}" Margin="0,0,8,0"/>
+                <Button x:Name="RefreshButton" Content="刷新窗口列表" Click="Refresh_Click" Style="{StaticResource InspectorButton}"/>
+            </StackPanel>
+            <TextBlock Text="本机应用分析" FontSize="23" FontWeight="SemiBold" VerticalAlignment="Center"/>
+        </DockPanel>
+        <Border Grid.Row="1" x:Name="FailurePanel" Visibility="Collapsed" Style="{StaticResource InspectorPanel}"
+                BorderBrush="{DynamicResource DangerBrush}" BorderThickness="3,1,1,1" Margin="0,0,0,12" Padding="13,10">
+            <StackPanel>
+                <ListBox x:Name="TaskCalls" Visibility="Collapsed" SelectionChanged="TaskCall_Selected"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                         Background="Transparent" BorderThickness="0" Margin="-3,0,-3,7" AutomationProperties.Name="任务步骤">
+                    <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource YTrayControlListItem}">
+                            <Setter Property="Padding" Value="8,4"/><Setter Property="Margin" Value="3,0,3,4"/>
+                            <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}"/>
+                            <Setter Property="ToolTip" Value="{Binding Details}"/>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" FontSize="11.5">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Failed}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <DockPanel>
+                    <Button x:Name="ViewTraceButton" DockPanel.Dock="Right" Content="查看调用" Click="ViewTrace_Click"
+                            Visibility="Collapsed" Style="{StaticResource CanvasButton}" Margin="9,0,0,0"/>
+                    <TextBlock x:Name="FailureTitle" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                </DockPanel>
+                <TextBlock x:Name="FailureReason" Margin="0,5,0,0" FontSize="13" TextWrapping="Wrap" MaxHeight="51"/>
+                <TextBlock x:Name="FailureOutcome" Margin="0,5,0,0" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                <ItemsControl x:Name="FailureSteps" Margin="0,6,0,0">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="7,3" Margin="0,2,6,0" CornerRadius="5" Background="{DynamicResource SurfaceMutedBrush}">
+                                <TextBlock Text="{Binding Label}" FontSize="11.5">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Failed}" Value="True"><Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="216"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*" MinWidth="506"/></Grid.ColumnDefinitions>
+            <Border Style="{StaticResource InspectorPanel}" Padding="10">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <TextBlock Text="当前窗口" FontWeight="SemiBold" FontSize="13" Margin="5,4,0,9"/>
+                    <ListBox x:Name="WindowList" Grid.Row="1" SelectionChanged="Window_Selected"
+                             Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.CanContentScroll="False"
+                             ItemContainerStyle="{DynamicResource YTrayControlListItem}">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="11" Margin="5,10,3,4"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ToolTip="{Binding Details}">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Border Width="26" Height="26" CornerRadius="6" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            Background="{DynamicResource SurfaceMutedBrush}">
+                                        <Grid>
+                                            <TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="13" HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" Foreground="{DynamicResource TextTertiaryBrush}"
+                                                       Visibility="{Binding FallbackIconVisibility}"/>
+                                            <Image Source="{Binding Icon}" Width="21" Height="21" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Subtitle}" FontSize="10.5" Margin="0,2,0,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource InspectorPanel}" Padding="13">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock x:Name="WindowTitleText" Text="选择窗口" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="ObservationText" Margin="0,4,0,0" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="AnalysisButton" Content="分析" Click="Analyze_Click" Style="{StaticResource InspectorButton}"
+                                    Background="{DynamicResource BrandOrangeBrush}" Foreground="White"/>
+                            <Button x:Name="ScreenshotButton" Content="查看截图" Click="Screenshot_Click" Style="{StaticResource InspectorButton}" Margin="7,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="235" MinWidth="154"/><ColumnDefinition Width="9"/><ColumnDefinition Width="*" MinWidth="224"/></Grid.ColumnDefinitions>
+                        <Border Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="7" Padding="8,8,4,4">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <TextBlock Text="控件图层" Margin="4,2,0,6" FontSize="12" FontWeight="SemiBold"/>
+                                <TreeView x:Name="ControlTree" Grid.Row="1" SelectedItemChanged="Control_Selected" BorderThickness="0"
+                                          Background="Transparent" Foreground="{DynamicResource TextPrimaryBrush}"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.CanContentScroll="False">
+                                    <TreeView.Resources><Style TargetType="TreeViewItem" BasedOn="{StaticResource InspectorTreeItem}"/></TreeView.Resources>
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <Grid ToolTip="{Binding Label}">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                <Path Data="{Binding LayerIcon}" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.1"
+                                                      Width="11" Height="11" Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding LayerName}" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding LayerNumber}" FontFamily="Consolas" FontSize="10" Margin="7,0,0,0"
+                                                           VerticalAlignment="Center" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                            </Grid>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                </TreeView>
+                            </Grid>
+                        </Border>
+                        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                                      Background="Transparent" ResizeBehavior="PreviousAndNext"/>
+                        <Grid x:Name="LayoutSlot" Grid.Column="2">
+                        <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource HairlineBrush}"
+                                BorderThickness="1" CornerRadius="7" ClipToBounds="True">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <Border BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Background="{DynamicResource SurfaceMutedBrush}" Padding="9,5">
+                                    <DockPanel>
+                                        <StackPanel x:Name="CanvasControls" Orientation="Horizontal" DockPanel.Dock="Right" IsEnabled="False"
+                                                    ToolTip="拖动画布，Ctrl + 滚轮缩放">
+                                            <Button Content="−" Click="ZoomOut_Click" Style="{StaticResource CanvasButton}" AutomationProperties.Name="缩小"/>
+                                            <Button x:Name="ZoomPercentButton" Content="100%" Click="ActualSize_Click" Style="{StaticResource CanvasButton}"
+                                                    ToolTip="恢复 100% 缩放" MinWidth="47" Margin="2,0"/>
+                                            <Button Content="+" Click="ZoomIn_Click" Style="{StaticResource CanvasButton}" AutomationProperties.Name="放大"/>
+                                            <Button x:Name="FitLayoutButton" Content="适应" Click="Fit_Click" Style="{StaticResource CanvasButton}" Margin="5,0,0,0"/>
+                                            <Button x:Name="ExpandLayoutButton" Click="ExpandLayout_Click" Style="{StaticResource CanvasButton}"
+                                                    ToolTip="放大查看布局" AutomationProperties.Name="放大查看布局" Margin="5,0,0,0">
+                                                <TextBlock x:Name="ExpandLayoutGlyph" Text="&#xE740;" FontFamily="Segoe MDL2 Assets"/>
+                                            </Button>
+                                        </StackPanel>
+                                        <TextBlock x:Name="LayoutTitle" Text="窗口布局" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    </DockPanel>
+                                </Border>
+                                <Grid Grid.Row="1">
+                                    <Canvas x:Name="LayoutViewport" ClipToBounds="True" Cursor="Hand" SizeChanged="Viewport_SizeChanged"
+                                            PreviewMouseWheel="Viewport_Wheel" PreviewMouseDown="Viewport_MouseDown"
+                                            PreviewMouseMove="Viewport_MouseMove" PreviewMouseUp="Viewport_MouseUp" LostMouseCapture="Viewport_LostCapture">
+                                        <Canvas.Background>
+                                            <DrawingBrush TileMode="Tile" ViewportUnits="Absolute" Viewport="0,0,16,16"
+                                                          ViewboxUnits="Absolute" Viewbox="0,0,16,16">
+                                                <DrawingBrush.Drawing>
+                                                    <GeometryDrawing Brush="{DynamicResource HairlineBrush}">
+                                                        <GeometryDrawing.Geometry><EllipseGeometry Center="2,2" RadiusX=".8" RadiusY=".8"/></GeometryDrawing.Geometry>
+                                                    </GeometryDrawing>
+                                                </DrawingBrush.Drawing>
+                                            </DrawingBrush>
+                                        </Canvas.Background>
+                                        <Grid x:Name="LayoutWorld" ClipToBounds="True" Visibility="Collapsed">
+                                            <Canvas x:Name="LayoutCanvas"/>
+                                            <Image x:Name="CaptureImage" Visibility="Collapsed" Stretch="Fill" AutomationProperties.Name="目标窗口截图"/>
+                                        </Grid>
+                                    </Canvas>
+                                    <TextBlock x:Name="LayoutPlaceholder" Text="选择窗口后点击「分析」。" IsHitTestVisible="False" TextWrapping="Wrap" TextAlignment="Center" Margin="16"
+                                               VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                        </Grid>
+                    </Grid>
+                    <Grid Grid.Row="2" Margin="0,10,0,0" x:Name="SelectedPanel" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,12,0">
+                            <TextBlock x:Name="SelectedTitle" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="SelectedMetadata" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <TextBlock x:Name="SelectedValue" FontSize="11.5" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <Button x:Name="HighlightButton" Grid.Column="1" Content="在窗口高亮" Click="Highlight_Click" VerticalAlignment="Center" Style="{StaticResource InspectorButton}"/>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+        <TextBlock Grid.Row="3" x:Name="InspectorStatus" Visibility="Collapsed" FontSize="12" Margin="2,10,2,0"
+                   Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+    </Grid>
+</Window>
