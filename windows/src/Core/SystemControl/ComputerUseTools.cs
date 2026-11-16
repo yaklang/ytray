@@ -933,11 +933,17 @@ namespace YTray.Core.SystemControl
                     updated = await PublicStateAsync(await ObserveSimpleAsync(null, options, timing, cancellation).ConfigureAwait(false),
                         null, "操作未完成，已返回最新界面", options, timing, cancellation).ConfigureAwait(false);
                 } else {
-                    updated = await UpdatedAsync(target, message,
-                        navigate && !failed, oldTitle, options, waitForUpdate: !failed && !waited, timing: timing, cancellation: cancellation).ConfigureAwait(false);
-                    if (owner != null && updated.Value<bool>("isError")
-                        && (string?)updated["structuredContent"]?["error"]?["code"] is "PopupChanged" or "TargetChanged")
-                        updated = await ReadOwnerAsync().ConfigureAwait(false);
+                    JObject? popupReadback;
+                    try {
+                        popupReadback = await UpdatedAsync(target, message, navigate && !failed, oldTitle, options,
+                            waitForUpdate: !failed && !waited, timing: timing, cancellation: cancellation).ConfigureAwait(false);
+                    } catch (ControlException error) when (owner != null && !cancellation.IsCancellationRequested
+                        && error.Code is "PopupChanged" or "TargetChanged") {
+                        popupReadback = null;
+                    }
+                    updated = popupReadback == null || owner != null && popupReadback.Value<bool>("isError")
+                        && (string?)popupReadback["structuredContent"]?["error"]?["code"] is "PopupChanged" or "TargetChanged"
+                        ? await ReadOwnerAsync().ConfigureAwait(false) : popupReadback;
                 }
             } catch (Exception error) when (cancellation.IsCancellationRequested && (error is ControlException || error is OperationCanceledException)) {
                 return Cancelled();
