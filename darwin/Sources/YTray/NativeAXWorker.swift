@@ -7,18 +7,37 @@ import Foundation
 /// an ambiguous mapping fails closed instead of guessing which window receives input.
 enum NativeWindowMatcher {
     struct Candidate { let frame: CGRect; let title: String }
-    static func index(frame: CGRect, title: String, candidates: [Candidate]) throws -> Int {
+    static func index(frame: CGRect, title: String, candidates: [Candidate], applicationName: String? = nil) throws -> Int {
         let matches = candidates.indices.filter { i in
             let other = candidates[i]
             return abs(frame.minX - other.frame.minX) <= 1 && abs(frame.minY - other.frame.minY) <= 1
                 && abs(frame.width - other.frame.width) <= 1 && abs(frame.height - other.frame.height) <= 1
-                && (title.isEmpty || other.title == title)
+                && titleMatches(title, accessibilityTitle: other.title, applicationName: applicationName)
         }
         guard matches.count == 1 else {
             throw DesktopOperationError(matches.isEmpty ? "window_unresolved" : "window_ambiguous",
                                         "无法通过 PID、位置、尺寸和标题唯一匹配 AX 窗口，请重新观察")
         }
         return matches[0]
+    }
+
+    private static func titleMatches(_ title: String, accessibilityTitle: String, applicationName: String?) -> Bool {
+        if title.isEmpty || accessibilityTitle == title { return true }
+        // Chromium exposes the page title through CG but decorates AXTitle with
+        // its actual application name and optional profile. Keep exact geometry
+        // and uniqueness; do not accept arbitrary prefix/substring title matches.
+        guard let applicationName, !applicationName.isEmpty else { return false }
+        let decorated = title + " - " + applicationName
+        return accessibilityTitle == decorated || accessibilityTitle.hasPrefix(decorated + " - ")
+    }
+}
+
+enum NativePointerValidation {
+    static func validate(window: CGRect, currentWindow: CGRect, point: CGPoint, currentPoint: CGPoint) throws {
+        guard window == currentWindow, point == currentPoint,
+              point.x.isFinite, point.y.isFinite else {
+            throw DesktopOperationError("stale_pointer_target", "窗口或控件位置已改变，请重新观察；没有继续发送指针事件")
+        }
     }
 }
 
@@ -190,7 +209,8 @@ final class NativeAXWorker: @unchecked Sendable {
             valid.append(window); candidates.append(.init(frame: f, title: string(window, kAXTitleAttribute)))
         }
         let title = row[kCGWindowName as String] as? String ?? ""
-        let index = try NativeWindowMatcher.index(frame: cgFrame, title: title, candidates: candidates)
+        let index = try NativeWindowMatcher.index(frame: cgFrame, title: title, candidates: candidates,
+            applicationName: NSRunningApplication(processIdentifier: target.pid)?.localizedName)
         return Window(target: target, frame: cgFrame, title: candidates[index].title, element: valid[index])
     }
     private static func bounds(_ frame: CGRect) -> [String: Double] { ["x": Double(frame.minX), "y": Double(frame.minY), "width": Double(frame.width), "height": Double(frame.height)] }
@@ -476,7 +496,7 @@ final class NativeAXWorker: @unchecked Sendable {
         }
     }
     func act(_ name: String, args: [String: Any], generation: UUID,
-             desktopCapture: (id: String, date: Date, scale: CGFloat, frame: CGRect)?) throws -> [String: Any] {
+             desktopCapture: DesktopCapture?) throws -> [String: Any] {
         try lease.check(generation)
         let foreground = args["delivery_mode"] as? String == "foreground"
         let desktop = (args["target"] as? [String: Any])?["kind"] as? String == "desktop"
@@ -489,6 +509,7 @@ final class NativeAXWorker: @unchecked Sendable {
                 frame = snapshot.window.frame; scale = snapshot.scale
             } else {
                 guard desktop, let capture = desktopCapture, Date().timeIntervalSince(capture.date) <= 60 else { throw DesktopOperationError("capture_required", "请先截取主显示器") }
+                try capture.validatePrimaryDisplay()
                 frame = capture.frame; scale = capture.scale
                 if let id = args["capture_id"] as? String, id != capture.id { throw DesktopOperationError("stale_capture", "桌面截图已过期") }
             }
@@ -550,7 +571,8 @@ final class NativeAXWorker: @unchecked Sendable {
                     }
                 }
             }
-            return try foregroundInput(name, args: args, snapshot: snapshot, frame: frame, scale: scale, generation: generation)
+            return try foregroundInput(name, args: args, snapshot: snapshot, frame: frame, scale: scale, generation: generation,
+                desktopCapture: desktop ? desktopCapture : nil)
         }
         guard let snapshot else { throw DesktopOperationError("background_unavailable", "后台输入必须指定窗口") }
         let node = try selected(args, snapshot: snapshot)
@@ -584,6 +606,16 @@ final class NativeAXWorker: @unchecked Sendable {
                 guard range.location >= 0, range.length >= 0, range.location <= original.length, range.length <= original.length - range.location else { throw DesktopOperationError("invalid_selection", "文本选择范围已改变") }
                 let replacement = original.replacingCharacters(in: NSRange(location: range.location, length: range.length), with: text)
                 if !text.isEmpty { try indicate(.type, args: args, snapshot: snapshot, node: node, generation: generation) }
+                // Do not overwrite edits made while the visible input cue was
+                // animating. The AXValue fallback is a read/modify/write operation.
+                var latestRange = CFRange(location: original.length, length: 0)
+                if let selected = copy(node, kAXSelectedTextRangeAttribute), CFGetTypeID(selected) == AXValueGetTypeID() {
+                    _ = AXValueGetValue(selected as! AXValue, .cfRange, &latestRange)
+                }
+                guard copy(node, kAXValueAttribute) as? String == current,
+                      latestRange.location == range.location, latestRange.length == range.length else {
+                    throw DesktopOperationError("stale_text_selection", "文本或选择范围在输入提示期间改变，没有覆盖新内容，请重新观察")
+                }
                 try set(node, kAXValueAttribute, replacement as CFString)
                 if writable(node, kAXSelectedTextRangeAttribute) {
                     var after = CFRange(location: range.location + text.utf16.count, length: 0)
@@ -672,17 +704,30 @@ final class NativeAXWorker: @unchecked Sendable {
         }
         throw DesktopOperationError("focus_unverified", "不能确认目标窗口已获得前台焦点，拒绝发送事件")
     }
-    private func foregroundInput(_ name: String, args: [String: Any], snapshot: Snapshot?, frame: CGRect, scale: CGFloat, generation: UUID) throws -> [String: Any] {
+    private func foregroundInput(_ name: String, args: [String: Any], snapshot: Snapshot?, frame: CGRect, scale: CGFloat, generation: UUID,
+                                 desktopCapture: DesktopCapture? = nil) throws -> [String: Any] {
         var keyboardTarget: AXUIElement?
         func post(_ event: CGEvent?) throws {
             guard let event else { throw DesktopOperationError("event_creation_failed", "无法创建系统输入事件") }
             try lease.check(generation)
+            try desktopCapture?.validatePrimaryDisplay()
             if let snapshot { try verifyFocus(snapshot.window, generation: generation) }
             if let keyboardTarget {
                 let source = snapshot.map { AXUIElementCreateApplication($0.window.target.pid) } ?? AXUIElementCreateSystemWide()
                 guard let focused = element(source, kAXFocusedUIElementAttribute), CFEqual(focused, keyboardTarget) else {
                     throw DesktopOperationError("focus_unverified", "文本焦点已改变，没有继续发送输入")
                 }
+            }
+            // The visible cursor cue yields for 140 ms. A window or element can
+            // move during that interval while remaining focused. Recheck before
+            // admitting each pointer gesture; never click its previous position.
+            if let snapshot, [.leftMouseDown, .rightMouseDown, .mouseMoved, .scrollWheel].contains(event.type) {
+                let current = try resolve(snapshot.window.target)
+                guard CFEqual(current.element, snapshot.window.element) else {
+                    throw DesktopOperationError("stale_pointer_target", "目标窗口已替换，请重新观察")
+                }
+                try NativePointerValidation.validate(window: snapshot.window.frame, currentWindow: current.frame,
+                    point: event.location, currentPoint: try location())
             }
             try lease.check(generation)
             event.post(tap: .cghidEventTap)
@@ -727,6 +772,15 @@ final class NativeAXWorker: @unchecked Sendable {
             }
         case "type_text":
             guard let text = args["text"] as? String else { throw DesktopOperationError("invalid_arguments", "缺少 text") }
+            if args["element_token"] == nil, args["x"] == nil, args["y"] == nil {
+                let source = snapshot.map { AXUIElementCreateApplication($0.window.target.pid) } ?? AXUIElementCreateSystemWide()
+                if let editor = element(source, kAXFocusedUIElementAttribute),
+                   snapshot.map({ belongs(editor, to: $0.window.element) }) ?? true {
+                    // Bind before the visible cue, not to whichever editor happens
+                    // to gain focus while the cue is moving.
+                    keyboardTarget = editor
+                }
+            }
             if args["element_token"] != nil || args["x"] != nil || args["y"] != nil {
                 let p = try location()
                 if !text.isEmpty { try showCursor(.type, at: p, generation: generation) }
@@ -754,9 +808,19 @@ final class NativeAXWorker: @unchecked Sendable {
                       snapshot.map({ belongs(editor, to: $0.window.element) }) ?? true else {
                     throw DesktopOperationError("focus_unverified", "组合输入需要目标窗口中的已聚焦文本控件")
                 }
+                if let keyboardTarget, !CFEqual(editor, keyboardTarget) {
+                    throw DesktopOperationError("focus_unverified", "文本焦点在输入提示期间改变，没有发送文本")
+                }
                 keyboardTarget = editor
                 if let snapshot, args["element_token"] != nil, !CFEqual(editor, try selected(args, snapshot: snapshot)) {
                     throw DesktopOperationError("focus_unverified", "组合输入的焦点不属于指定控件")
+                }
+            }
+            if keyboardTarget == nil {
+                let source = snapshot.map { AXUIElementCreateApplication($0.window.target.pid) } ?? AXUIElementCreateSystemWide()
+                if let editor = element(source, kAXFocusedUIElementAttribute),
+                   snapshot.map({ belongs(editor, to: $0.window.element) }) ?? true {
+                    keyboardTarget = editor
                 }
             }
             if args["replace"] as? Bool == true {
@@ -816,6 +880,7 @@ final class NativeAXWorker: @unchecked Sendable {
                 guard let focused = element(application, kAXFocusedUIElementAttribute), CFEqual(node, focused) else {
                     throw DesktopOperationError("focus_unverified", "指定控件并非当前焦点，请先点击并重新观察")
                 }
+                keyboardTarget = node
             }
             let key = (args["key"] as? String ?? "").lowercased()
             guard let code = Self.keyCodes[key] else { throw DesktopOperationError("unsupported_key", "不支持的键名 \(key)") }

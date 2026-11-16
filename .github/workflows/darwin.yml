@@ -113,6 +113,43 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
           unzip -t "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
 
+      - name: Install real browser for integration tests
+        if: matrix.os == 'macos-15'
+        id: test-browser
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2
+        with:
+          chrome-version: stable
+
+      - name: Exercise real browser, plugin recovery, CDP and proxy authentication
+        if: matrix.os == 'macos-15'
+        env:
+          YTRAY_CHROME_PATH: ${{ steps.test-browser.outputs.chrome-path }}
+          YTRAY_CFT_PATH: ${{ steps.test-browser.outputs.chrome-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Channel installs can flatten the macOS bundle, leaving page targets unresponsive.
+          # Keep testing stable Chrome, but restore its .app path (setup-chrome issue #658).
+          browser_root="${YTRAY_CHROME_PATH%/Contents/MacOS/*}"
+          if [[ "$browser_root" != *.app ]]; then
+            browser_bundle="$RUNNER_TEMP/integration-browser/Google Chrome for Testing.app"
+            mkdir -p "$(dirname "$browser_bundle")"
+            ditto "$browser_root" "$browser_bundle"
+            export YTRAY_CHROME_PATH="$browser_bundle/Contents/MacOS/Google Chrome for Testing"
+            export YTRAY_CFT_PATH="$YTRAY_CHROME_PATH"
+          fi
+          export YTRAY_LAUNCHER_PATH="$PWD/dist/darwin-universal/YTray.app/Contents/MacOS/YTray"
+          export YTRAY_TEST_EXTENSION_PATH="$RUNNER_TEMP/browser-agent-fixture"
+          test -x "$YTRAY_CHROME_PATH"
+          test -x "$YTRAY_LAUNCHER_PATH"
+          mkdir -p "$YTRAY_TEST_EXTENSION_PATH"
+          unzip -q dist/darwin-universal/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip \
+            -d "$YTRAY_TEST_EXTENSION_PATH"
+          swift test --package-path darwin \
+            --filter 'BrowserExtensionIntegrationTests|testMCPReadsAndEvaluatesARealBrowserPageWhenAvailable|testRealChromeForTestingUsesGeneratedProxyAuthenticationExtensionWhenConfigured' \
+            2>&1 | tee "$RUNNER_TEMP/browser-integration.log"
+          ! grep -E 'Test Case .* skipped|[1-9][0-9]* tests skipped' "$RUNNER_TEMP/browser-integration.log"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -121,6 +158,7 @@ jobs:
             dist/YTray-*-darwin-universal.dmg
             ${{ runner.temp }}/ytray-*.png
             ${{ runner.temp }}/startup-evidence
+            ${{ runner.temp }}/browser-integration.log
           if-no-files-found: error
           retention-days: 14
 

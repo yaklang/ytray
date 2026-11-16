@@ -87,8 +87,9 @@ namespace YTray.Native
                 ? "未找到应用，请先 list_apps(query) 查看名称，或提供应用的 EXE 路径" : "找到多个应用，请使用 list_apps 返回的 executable 指定应用");
             return matches[0];
         }
-        internal static async Task<WindowsControlTarget> LaunchAsync(App app, bool newWindow, string? url = null)
+        internal static async Task<WindowsControlTarget> LaunchAsync(App app, bool newWindow, string? url = null, Action? requireActive = null)
         {
+            requireActive?.Invoke();
             var before = WindowsControlTarget.Enumerate().Select(w => w.Handle).ToHashSet();
             var browser = new[] { "chrome", "msedge", "chromium", "firefox" }.Contains(app.Id);
             Uri? destination = null;
@@ -98,26 +99,35 @@ namespace YTray.Native
             var start = new ProcessStartInfo(app.Path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(app.Path)! };
             if (newWindow && browser) start.Arguments = "--new-window";
             if (destination != null) start.Arguments += " \"" + destination.AbsoluteUri.Replace("\"", "%22") + "\"";
+            requireActive?.Invoke();
             using var launched = Process.Start(start);
-            var elapsed = Stopwatch.StartNew();
-            while (elapsed.Elapsed < TimeSpan.FromSeconds(12)) {
-                var windows = WindowsControlTarget.Enumerate().Where(w => SamePath(w.Executable, app.Path)
-                    || System.IO.Path.GetFileNameWithoutExtension(w.Executable).Equals(app.Id, StringComparison.OrdinalIgnoreCase)
-                    || app.Id == "calc" && (w.Title == "计算器" || w.Title == "Calculator")).ToArray();
-                if (browser) windows = windows.Where(w => w.Bounds.Right - w.Bounds.Left >= 400 && w.Bounds.Bottom - w.Bounds.Top >= 300).ToArray();
-                windows = windows.OrderByDescending(w => (long)(w.Bounds.Right - w.Bounds.Left) * (w.Bounds.Bottom - w.Bounds.Top)).ToArray();
-                var fresh = windows.FirstOrDefault(w => !before.Contains(w.Handle));
-                // A second native instance can take time to create its HWND. Do
-                // not bind immediately to an older window from the same exe.
-                var reused = !newWindow || !browser && launched?.HasExited == true && elapsed.ElapsedMilliseconds >= 750;
-                var target = fresh ?? (reused ? windows.OrderByDescending(w => w.Handle == GetForegroundWindow()).FirstOrDefault() : null);
-                if (target != null) { await ActivateAsync(target).ConfigureAwait(false); return WindowsControlTarget.Resolve(target.Handle); }
-                await Task.Delay(150).ConfigureAwait(false);
+            try {
+                var elapsed = Stopwatch.StartNew();
+                while (elapsed.Elapsed < TimeSpan.FromSeconds(12)) {
+                    requireActive?.Invoke();
+                    var windows = WindowsControlTarget.Enumerate().Where(w => SamePath(w.Executable, app.Path)
+                        || System.IO.Path.GetFileNameWithoutExtension(w.Executable).Equals(app.Id, StringComparison.OrdinalIgnoreCase)
+                        || app.Id == "calc" && (w.Title == "计算器" || w.Title == "Calculator")).ToArray();
+                    if (browser) windows = windows.Where(w => w.Bounds.Right - w.Bounds.Left >= 400 && w.Bounds.Bottom - w.Bounds.Top >= 300).ToArray();
+                    windows = windows.OrderByDescending(w => (long)(w.Bounds.Right - w.Bounds.Left) * (w.Bounds.Bottom - w.Bounds.Top)).ToArray();
+                    var fresh = windows.FirstOrDefault(w => !before.Contains(w.Handle));
+                    // A second native instance can take time to create its HWND. Do
+                    // not bind immediately to an older window from the same exe.
+                    var reused = !newWindow || !browser && launched?.HasExited == true && elapsed.ElapsedMilliseconds >= 750;
+                    var target = fresh ?? (reused ? windows.OrderByDescending(w => w.Handle == GetForegroundWindow()).FirstOrDefault() : null);
+                    if (target != null) { await ActivateAsync(target, requireActive).ConfigureAwait(false); return WindowsControlTarget.Resolve(target.Handle); }
+                    await Task.Delay(150).ConfigureAwait(false);
+                }
+                throw new ControlException("WindowNotReady", "应用已启动，但尚未出现可操作窗口；请 list_windows 查看", "Unknown");
+            } catch (ControlException error) when (error.ExecutionState == "NotStarted") {
+                // Process.Start has already succeeded. Losing the grant or failing
+                // to activate/read a window must not suggest launching a second copy.
+                throw new ControlException(error.Code, error.Message, "Unknown");
             }
-            throw new ControlException("WindowNotReady", "应用已启动，但尚未出现可操作窗口；请 list_windows 查看");
         }
-        internal static async Task ActivateAsync(WindowsControlTarget target)
+        internal static async Task ActivateAsync(WindowsControlTarget target, Action? requireActive = null)
         {
+            requireActive?.Invoke();
             target.Revalidate();
             // Our topmost popover can cover a real target while window capture
             // still shows the underlying app. Dismiss it before foreground work
@@ -127,18 +137,24 @@ namespace YTray.Native
                 if (application.Dispatcher.CheckAccess()) Views.WidgetView.DismissForComputerUse();
                 else await application.Dispatcher.InvokeAsync(Views.WidgetView.DismissForComputerUse, System.Windows.Threading.DispatcherPriority.Send);
             }
-            if (IsIconic(target.Handle)) ShowWindowAsync(target.Handle, 9);
-            if (IsForeground(target.Handle)) return;
-            var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
-            var currentThread = GetCurrentThreadId();
-            var attached = foregroundThread != 0 && foregroundThread != currentThread && AttachThreadInput(currentThread, foregroundThread, true);
-            try { BringWindowToTop(target.Handle); SetForegroundWindow(target.Handle); }
-            finally { if (attached) AttachThreadInput(currentThread, foregroundThread, false); }
-            for (var attempt = 0; attempt < 10; attempt++) {
+            requireActive?.Invoke();
+            try {
+                if (IsIconic(target.Handle)) ShowWindowAsync(target.Handle, 9);
                 if (IsForeground(target.Handle)) return;
-                await Task.Delay(50).ConfigureAwait(false);
+                var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+                var currentThread = GetCurrentThreadId();
+                var attached = foregroundThread != 0 && foregroundThread != currentThread && AttachThreadInput(currentThread, foregroundThread, true);
+                try { BringWindowToTop(target.Handle); SetForegroundWindow(target.Handle); }
+                finally { if (attached) AttachThreadInput(currentThread, foregroundThread, false); }
+                for (var attempt = 0; attempt < 10; attempt++) {
+                    requireActive?.Invoke();
+                    if (IsForeground(target.Handle)) return;
+                    await Task.Delay(50).ConfigureAwait(false);
+                }
+                throw new ControlException("WindowNotActive", "窗口未能切到前台，已返回当前窗口信息", "Unknown");
+            } catch (ControlException error) when (error.ExecutionState == "NotStarted") {
+                throw new ControlException(error.Code, error.Message, "Unknown");
             }
-            throw new ControlException("WindowNotActive", "窗口未能切到前台，已返回当前窗口信息");
         }
         private static bool IsForeground(IntPtr window) => GetAncestor(GetForegroundWindow(), 2) == GetAncestor(window, 2);
         internal static long ForegroundWindow => GetForegroundWindow().ToInt64();

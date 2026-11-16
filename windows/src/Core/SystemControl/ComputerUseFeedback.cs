@@ -16,6 +16,7 @@ namespace YTray.Core.SystemControl
         private async Task<bool> SendOperationFeedbackAsync(long id, string phase, long window = 0, string description = "", string context = "")
         {
             try {
+                RequirePublicGrant();
                 var connection = _connection;
                 if (connection == null || !IsRunning) return false;
                 var result = await connection.RequestAsync("feedback", new JObject { ["id"] = id, ["phase"] = phase, ["window_id"] = window,

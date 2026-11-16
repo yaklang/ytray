@@ -101,6 +101,12 @@ final class DesktopActionIndicator {
         }
     }
 
+    deinit {
+        hideTask?.cancel()
+        moveTask?.cancel()
+        DesktopFeedbackPanel.closeOnMain([panel])
+    }
+
     func hide() {
         revision &+= 1
         hideTask?.cancel(); hideTask = nil

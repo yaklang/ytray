@@ -52,7 +52,9 @@ enum DesktopObservation {
         let duplicateCount = beforeDedup - rows.count
         let maximum = try NativeAXWorker.integer(arguments, "max_text_chars", fallback: full ? 30000 : 6000, range: 256...30000)
         var remaining = maximum, lines: [(Int, String)] = [], omitted = 0
-        var labels = Set(all.filter { linkKey($0) != nil }.compactMap { $0["label"] as? String })
+        // Only controls actually emitted may suppress their duplicate passive text.
+        // Hidden, off-region or budget-omitted links must not erase visible content.
+        var labels = Set<String>()
         var clipped = false
         // Focused and editable controls survive the budget before passive text.
         let ordered = rows.sorted {
@@ -62,14 +64,23 @@ enum DesktopObservation {
         for row in ordered {
             let label = row["label"] as? String ?? ""
             let passive = row["role"] as? String == "AXStaticText"
-            if !full && passive && !label.isEmpty && !labels.insert(label).inserted { omitted += 1; continue }
-            let cap = full ? 8000 : 180
+            if !full && passive && !label.isEmpty && labels.contains(label) { omitted += 1; continue }
+            var cap = full ? 8000 : 180
             if (row["label"] as? String ?? "").count > cap || String(describing: row["value"] ?? "").count > cap { clipped = true }
             let legacy = arguments["tree_format"] as? String
-            let line = legacy == "markdown" || legacy == "both" ? describeLegacy(row) : describe(row, full: full)
+            var line = legacy == "markdown" || legacy == "both" ? describeLegacy(row) : describe(row, full: full)
+            // A long URL/value must not make the focused field disappear from a
+            // small observation budget. Preserve its original actionable index.
+            if !full && priority(row, focused: focusedIndex) <= 0 {
+                while line.count + 1 > remaining && cap > 8 {
+                    cap = max(8, cap / 2)
+                    line = describe(row, full: false, textLimit: cap)
+                    clipped = true
+                }
+            }
             if (!full && lines.count >= 80) || line.count + 1 > remaining { omitted += 1; continue }
             lines.append((index(row), line)); remaining -= line.count + 1
-            if !passive && !label.isEmpty { labels.insert(label) }
+            if !label.isEmpty { labels.insert(label) }
         }
         state["controls_total"] = all.count
         state["controls_shown"] = lines.count
@@ -94,7 +105,19 @@ enum DesktopObservation {
         let title = clip(state["window_title"] as? String ?? "", 120)
         let summary = (title.isEmpty ? "" : quote(title) + " ") + "window_id=\(state["window_id"] ?? "") pid=\(state["pid"] ?? "") snapshot_id=\(state["snapshot_id"] ?? "") controls=\(lines.count)/\(all.count)"
         var text = summary + (focusLine.isEmpty ? "" : "\n" + focusLine) + (tree.isEmpty ? "\nNo matching accessible controls." : "\n" + tree)
-        if state["truncated"] as? Bool == true || state["degraded"] as? Bool == true { text += "\nAX capture incomplete; inspect capture limits or retry observation." }
+        let screenshotError = state["screenshot_error"] as? [String: Any]
+        let hasAXErrors = !(state["ax_errors"] as? [String] ?? []).isEmpty
+        if state["truncated"] as? Bool == true || hasAXErrors || (state["degraded"] as? Bool == true && screenshotError == nil) {
+            text += "\nAX capture incomplete; inspect capture limits or retry observation."
+        }
+        if let screenshotError {
+            let reason = clip(screenshotError["reason"] as? String ?? "capture unavailable", 180)
+            text += "\nScreenshot unavailable: " + quote(reason) + ". Use available AX controls; pixel input requires a fresh valid capture."
+        } else if state["screenshot_frame_valid"] as? Bool == true,
+                  let width = state["image_width"] as? Int, let height = state["image_height"] as? Int,
+                  let capture = state["capture_id"] as? String {
+            text += "\nImage: \(width)x\(height) pixels; capture_id=\(capture). Coordinates use image pixels."
+        }
         if omitted > 0 || clipped { text += "\nMore: use query, a smaller region, or detail=full." }
         let legacy = arguments["tree_format"] as? String
         if full && legacy != "markdown" {
@@ -164,9 +187,9 @@ enum DesktopObservation {
         text += " actions=\(row["actions"] ?? [])"
         return text
     }
-    private static func describe(_ row: [String: Any], full: Bool) -> String {
+    private static func describe(_ row: [String: Any], full: Bool, textLimit: Int? = nil) -> String {
         var text = "[\(index(row))] \(row["role"] ?? "AXUnknown")"
-        let cap = full ? 8000 : 180
+        let cap = textLimit ?? (full ? 8000 : 180)
         if let label = row["label"] as? String, !label.isEmpty { text += " " + quote(clip(label, cap)) }
         if let value = row["value"], String(describing: value) != row["label"] as? String { text += " = " + quote(clip(String(describing: value), cap)) }
         for name in ["focused", "selected", "expanded"] where row[name] as? Bool == true { text += " " + name }

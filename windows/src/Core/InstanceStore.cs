@@ -920,12 +920,16 @@ namespace YTray.Core
                 launchUsesProxy: !string.IsNullOrEmpty(cfg.ProxyServer?.Trim()), chooseEngine: chooseEngine);
         }
 
+        internal bool IsCurrentLaunch(BrowserLauncher.LaunchResult launch, Guid token) => !_disposed
+            && LaunchToken == token && !launch.Instance.IsStopping && launch.Instance.Status == InstanceStatus.Running
+            && _launches.TryGetValue(launch.Instance.Id, out var current) && ReferenceEquals(current, launch);
+
         private async Task WaitForBrowserAsync(BrowserLauncher.LaunchResult launch, Guid token,
             BrowserRuntime runtime, LaunchSettings configuration, List<BrowserPlugin> plugins, BrowserInstance? restoring)
         {
             var instance = launch.Instance;
             var ready = await ScreenshotService.WaitUntilReadyAsync(instance.DebugPort);
-            if (LaunchToken != token) return;
+            if (!IsCurrentLaunch(launch, token)) return;
             if (!ready)
             {
                 var stillRunning = instance.ProcessID > 0 && IsExpectedInstanceProcess(instance);
@@ -949,7 +953,7 @@ namespace YTray.Core
                     await RecoverExtensionLaunchAsync(launch, token, runtime, configuration, plugins, restoring, ex);
                     return;
                 }
-                if (LaunchToken != token) return;
+                if (!IsCurrentLaunch(launch, token)) return;
             }
 
             // The staged controller normally installs the custom AUMID/ICO before the window becomes
@@ -960,6 +964,7 @@ namespace YTray.Core
             {
                 try { taskbarReady = await taskbarController.WaitForInitialWindowAsync(TimeSpan.FromSeconds(3)); }
                 catch { taskbarReady = false; }
+                if (!IsCurrentLaunch(launch, token)) return;
                 if (!taskbarReady) ReleaseTaskbarController(instance.Id);
             }
 
@@ -969,6 +974,7 @@ namespace YTray.Core
                 {
                     var aumid = await AumidResolver.ResolveAsync(instance.ProcessID, instance.ProfilePath,
                         instance.RuntimeKind ?? BrowserKind.Chrome, TimeSpan.FromSeconds(5));
+                    if (!IsCurrentLaunch(launch, token)) return;
                     var i = Instances.FirstOrDefault(x => x.Id == instance.Id);
                     if (i != null)
                     {
@@ -984,6 +990,7 @@ namespace YTray.Core
                 catch { /* live taskbar metadata remains best-effort on the fallback path */ }
             }
 
+            if (!IsCurrentLaunch(launch, token)) return;
             var usesProxyAuth = !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyUsername)
                 || !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyPassword);
             var restoreURL = instance.LastPageURL?.Trim();
@@ -996,6 +1003,9 @@ namespace YTray.Core
                 try
                 {
                     if (usesProxyAuth) await Task.Delay(900);
+                    // A stopped/restored instance can reuse its debug port. Never
+                    // navigate that new browser from this older continuation.
+                    if (!IsCurrentLaunch(launch, token)) return;
                     await ScreenshotService.NavigateAsync(instance.DebugPort, navigationTarget!);
                 }
                 catch (Exception ex)
@@ -1006,7 +1016,9 @@ namespace YTray.Core
             }
 
             // Populate the compact widget immediately; the periodic poll keeps it current later.
+            if (!IsCurrentLaunch(launch, token)) return;
             await RefreshPageTitleAsync(instance);
+            if (!IsCurrentLaunch(launch, token)) return;
 
             LaunchMessage = $"{instance.RuntimeName} 已启动";
             LaunchPhase = BrowserLaunchPhase.Succeeded;
@@ -1019,7 +1031,7 @@ namespace YTray.Core
             OnPropertyChanged(string.Empty);
             ScheduleAutomaticThumbnailRefresh(instance.Id);
             await Task.Delay(1200);
-            if (LaunchToken != token || LaunchPhase != BrowserLaunchPhase.Succeeded) return;
+            if (!IsCurrentLaunch(launch, token) || LaunchPhase != BrowserLaunchPhase.Succeeded) return;
             LaunchMessage = "";
             LaunchPhase = BrowserLaunchPhase.Idle;
             LaunchToken = null;
@@ -1593,7 +1605,7 @@ namespace YTray.Core
             if (_disposed || !state.HasValue) return;
             var s = state.Value;
             var i = Instances.FirstOrDefault(x => x.Id == instance.Id);
-            if (i == null) return;
+            if (i == null || !ReferenceEquals(i, instance)) return;
             if (!string.IsNullOrEmpty(s.Title)) i.LastPageTitle = s.Title;
             if (!string.IsNullOrEmpty(s.URL)) i.LastPageURL = s.URL;
             SaveDeferred();

@@ -86,16 +86,15 @@ enum BrowserLauncher {
                 arguments.append("--proxy-server=\(proxy)")
             }
             let paths = internalExtensionPaths + plugins.filter(\.enabled).map(\.path)
-            if !paths.isEmpty {
+            // Modern branded Chrome uses verified CDP loading after startup. Do
+            // not also pass obsolete CLI loading: a compatible/testing build can
+            // interpret it and block DevTools startup on an invalid-plugin dialog.
+            if !paths.isEmpty && (runtimeKind == nil || BrowserExtensionService.legacyLoadingExpected(
+                runtimeKind: runtimeKind, version: runtimeVersion
+            )) {
                 let joined = paths.joined(separator: ",")
                 arguments.append("--load-extension=\(joined)")
-                // Branded Chrome 137+ ignores CLI loading; its obsolete allowlist
-                // can also disable extensions subsequently loaded through CDP.
-                if runtimeKind == nil || BrowserExtensionService.legacyLoadingExpected(
-                    runtimeKind: runtimeKind, version: runtimeVersion
-                ) {
-                    arguments.append("--disable-extensions-except=\(joined)")
-                }
+                arguments.append("--disable-extensions-except=\(joined)")
             }
             for line in settings.additionalFlags.components(separatedBy: .newlines) {
                 let flag = line.trimmingCharacters(in: .whitespacesAndNewlines)

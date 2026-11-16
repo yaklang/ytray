@@ -45,7 +45,7 @@ final class InstanceStore: NSObject, ObservableObject {
     private var launchingInstanceID: UUID?
     private var proxyCheckToken: UUID?
     private var yakitLaunchApprovals: [UUID: YakitLaunchApproval] = [:]
-    private lazy var mcpServer = MCPServer(store: self)
+    private var mcpServer: MCPServer?
 
     private static let thumbnailRefreshInterval: TimeInterval = 12
     private static let yakitLaunchApprovalLifetime: TimeInterval = 120
@@ -61,9 +61,16 @@ final class InstanceStore: NSObject, ObservableObject {
         mcpStatusMessage = message
     }
 
-    func startMCPService() -> Bool { mcpServer.start() }
+    func startMCPService() -> Bool {
+        if mcpServer == nil { mcpServer = MCPServer(store: self) }
+        return mcpServer?.start() ?? false
+    }
 
-    func stopMCPService() { mcpServer.stop() }
+    func stopMCPService() {
+        mcpServer?.stop()
+        mcpServer = nil
+        setMCPStatus(available: false, message: "MCP 服务已停止，可随时重新启动")
+    }
 
     func setMCPAutoStart(_ enabled: Bool) {
         guard settings.mcpAutoStart != enabled else { return }
@@ -140,13 +147,19 @@ final class InstanceStore: NSObject, ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(processDidTerminate(_:)),
                                                name: .ytrayProcessDidTerminate, object: nil)
         if monitorProcesses {
-            timer = Timer.scheduledTimer(timeInterval: 2, target: self,
-                                        selector: #selector(refreshTimerFired), userInfo: nil, repeats: true)
+            timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refreshTimerFired() }
+            }
         }
         DiagnosticLog.info(
             "store.ready",
             "state loaded; runtimes=\(runtimes.count); plugins=\(plugins.count); instances=\(instances.count)"
         )
+    }
+
+    deinit {
+        timer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
     }
 
     private static func moveLegacyApplicationDirectoryIfNeeded(from legacy: URL, to current: URL) {
@@ -224,6 +237,7 @@ final class InstanceStore: NSObject, ObservableObject {
     }
 
     func install(version: MirrorVersion) async {
+        guard !isInstalling else { return }
         isInstalling = true
         errorMessage = nil
         runtimeInstallProgress = nil
@@ -243,6 +257,10 @@ final class InstanceStore: NSObject, ObservableObject {
             _ = upsert(runtime)
             activityMessage = "Chrome for Testing \(version.version) 安装完成"
         } catch {
+            if AsyncCancellation.isExpected(error) {
+                activityMessage = "浏览器安装已取消"
+                return
+            }
             report(error)
             activityMessage = error.localizedDescription
         }

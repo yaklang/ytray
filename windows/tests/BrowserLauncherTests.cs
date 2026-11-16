@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
+using System.Reflection;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows;
@@ -19,6 +20,38 @@ namespace YTray.Tests
     [TestClass]
     public class BrowserLauncherTests
     {
+        [TestMethod]
+        public void StoppedAndReplacedLaunchesCannotResumeOldBrowserInitialization()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "ytray-launch-continuation-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try {
+                using var store = new InstanceStore(directory, discoverSystemBrowsers: false, runMaintenance: false);
+                var instance = new BrowserInstance { Status = InstanceStatus.Running, DebugPort = 19221 };
+                using var launch = new BrowserLauncher.LaunchResult(new Process(), instance, null,
+                    new FileStream(Path.Combine(directory, "first.log"), FileMode.Create));
+                var launches = (Dictionary<Guid, BrowserLauncher.LaunchResult>)typeof(InstanceStore)
+                    .GetField("_launches", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store)!;
+                var token = Guid.NewGuid();
+                typeof(InstanceStore).GetProperty(nameof(InstanceStore.LaunchToken))!.SetValue(store, token);
+                launches[instance.Id] = launch;
+                Assert.IsTrue(store.IsCurrentLaunch(launch, token));
+
+                instance.IsStopping = true;
+                Assert.IsFalse(store.IsCurrentLaunch(launch, token), "Stop must revoke delayed initialization before its cleanup finishes");
+                instance.IsStopping = false;
+                using var restored = new BrowserLauncher.LaunchResult(new Process(), new BrowserInstance {
+                    Id = instance.Id, DebugPort = instance.DebugPort, Status = InstanceStatus.Running }, null,
+                    new FileStream(Path.Combine(directory, "restored.log"), FileMode.Create));
+                launches[instance.Id] = restored;
+                Assert.IsFalse(store.IsCurrentLaunch(launch, token), "A reused instance ID/port must not admit the old continuation");
+                Assert.IsTrue(store.IsCurrentLaunch(restored, token));
+                typeof(InstanceStore).GetProperty(nameof(InstanceStore.LaunchToken))!.SetValue(store, Guid.NewGuid());
+                Assert.IsFalse(store.IsCurrentLaunch(restored, token));
+                launches.Clear();
+            } finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
         [TestMethod]
         public void ProxyAuthenticationIsBoundToLaunchEndpoint()
         {

@@ -98,6 +98,14 @@ enum DesktopFeedbackGeometry {
 final class DesktopFeedbackPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    /// ARC may release a session owner off the main actor. AppKit cleanup stays on main.
+    nonisolated static func closeOnMain(_ windows: [NSWindow]) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { windows.forEach { $0.close() } }
+        } else {
+            DispatchQueue.main.async { windows.forEach { $0.close() } }
+        }
+    }
     convenience init(frame: CGRect) {
         self.init(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false; backgroundColor = .clear; hasShadow = false
@@ -240,5 +248,6 @@ final class DesktopOperationOverlay {
     deinit {
         dismissal?.cancel()
         if let displayObserver { NotificationCenter.default.removeObserver(displayObserver) }
+        DesktopFeedbackPanel.closeOnMain(panels)
     }
 }

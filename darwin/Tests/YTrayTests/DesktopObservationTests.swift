@@ -38,6 +38,35 @@ final class DesktopObservationTests: XCTestCase {
         XCTAssertTrue(text(result).contains("AX capture incomplete"))
     }
 
+    func testScreenshotFailureDoesNotMisreportSuccessfulAXCapture() throws {
+        var source = raw([row(17, label: "Save")])
+        var metadata = state(source)
+        metadata["degraded"] = true
+        metadata["ax_errors"] = [String]()
+        metadata["screenshot_frame_valid"] = false
+        metadata["screenshot_error"] = ["code": "capture_unavailable", "reason": "Screen recording denied"]
+        source["structuredContent"] = metadata
+        let result = try DesktopObservation.format(source, arguments: [:])
+        XCTAssertTrue(text(result).contains("[17] AXButton"))
+        XCTAssertTrue(text(result).contains("Screenshot unavailable"))
+        XCTAssertTrue(text(result).contains("pixel input requires a fresh valid capture"))
+        XCTAssertFalse(text(result).contains("AX capture incomplete"))
+    }
+
+    func testTextOnlyToolRenderersReceiveScreenshotCoordinateContract() throws {
+        var source = raw([row(17, label: "Save")])
+        var metadata = state(source)
+        metadata["screenshot_frame_valid"] = true
+        metadata["image_width"] = 500
+        metadata["image_height"] = 400
+        metadata["capture_id"] = "capture-token"
+        source["structuredContent"] = metadata
+        let result = try DesktopObservation.format(source, arguments: [:])
+        XCTAssertTrue(text(result).contains("500x400 pixels"))
+        XCTAssertTrue(text(result).contains("capture_id=capture-token"))
+        XCTAssertTrue(text(result).contains("Coordinates use image pixels"))
+    }
+
     func testLegacyElementsFormatHasSummaryWithoutRepeatedTreeAndScaledBounds() throws {
         var source = raw([row(8, label: "Save", x: 100)])
         var metadata = state(source); metadata["coordinate_scale"] = 0.5; source["structuredContent"] = metadata
@@ -109,6 +138,28 @@ final class DesktopObservationTests: XCTestCase {
         XCTAssertNil((state(result)["focus"] as? [String: Any])?["selected_text"])
         XCTAssertFalse(text(result).contains("secret"))
         XCTAssertTrue(text(result).contains("outside region"))
+    }
+
+    func testFilteredOutLinkCannotHideVisibleTextWithTheSameLabel() throws {
+        var link = row(3, "AXLink", label: "Saved successfully", x: 800)
+        link["url"] = "https://example.com"
+        let source = raw([link, row(17, "AXStaticText", label: "Saved successfully", x: 40)])
+        let result = try DesktopObservation.format(source, arguments: ["region": ["x": 0, "y": 0, "width": 200, "height": 100]])
+        XCTAssertTrue(text(result).contains("[17] AXStaticText"))
+        XCTAssertTrue(text(result).contains("Saved successfully"))
+        XCTAssertEqual(state(result)["controls_shown"] as? Int, 1)
+    }
+
+    func testSmallTextBudgetStillShowsLongFocusedField() throws {
+        var field = row(17, "AXTextField", label: "Address " + String(repeating: "x", count: 300))
+        field["value"] = "https://example.com/" + String(repeating: "y", count: 300)
+        let result = try DesktopObservation.format(raw([field], focus: ["status": "focused", "element_index": 17]),
+                                                 arguments: ["max_text_chars": 256])
+        XCTAssertTrue(text(result).contains("[17] AXTextField"))
+        XCTAssertTrue(text(result).contains("Address"))
+        XCTAssertEqual(state(result)["controls_shown"] as? Int, 1)
+        XCTAssertEqual(state(result)["context_truncated"] as? Bool, true)
+        XCTAssertLessThan(text(result).count, 600)
     }
 
     func testTextBudgetPrioritizesFocusedInputOverPassiveContent() throws {

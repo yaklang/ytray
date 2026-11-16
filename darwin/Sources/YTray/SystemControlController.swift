@@ -234,13 +234,15 @@ final class SystemControlController: ObservableObject {
     func perform(_ name: String, arguments: [String: Any] = [:]) async throws -> [String: Any] {
         guard phase == .running, let id = sessionID, let connection,
               let expiresAt, expiresAt > Date() else { throw SystemControlError("系统操作会话未开启或已结束") }
-        guard !busy else { throw SystemControlError("已有操作执行中，请等待结果后重新观察") }
         if name == "end_session" {
             guard arguments.isEmpty else { throw SystemControlError("end_session 不接受参数") }
-            busy = true
-            defer { if sessionID == id { stop() } }
-            return try await connection.request("tools/call", params: ["name": name, "arguments": [:]])
+            // Stopping must remain available while AX or an input request is busy.
+            // Revoke locally before returning; waiting on that backend would defeat
+            // cancellation precisely when an application stops responding.
+            stop()
+            return ["content": [["type": "text", "text": "Session ended"]], "structuredContent": ["ended": true]]
         }
+        guard !busy else { throw SystemControlError("已有操作执行中，请等待结果后重新观察") }
         let forwarded = try validatedArguments(name, arguments: arguments)
         busy = true
         defer { if sessionID == id { busy = false } }

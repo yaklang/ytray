@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
@@ -44,6 +45,37 @@ namespace YTray.Tests
             Assert.AreEqual("Cannot establish foreground for target window", SystemControlController.ActionErrorMessage(result));
             result["structuredContent"]!["error"] = new JObject { ["message"] = new string('x', 1200) };
             Assert.AreEqual(801, SystemControlController.ActionErrorMessage(result).Length);
+        }
+
+        [TestMethod, TestCategory("ControlAuthorization")]
+        public async Task QueuedCompactRequestCannotRunAfterTheUserGrantChanges()
+        {
+            using var controller = new SystemControlController(Path.Combine(Path.GetTempPath(), "ytray-queued-grant-" + Guid.NewGuid().ToString("N")));
+            var flags = BindingFlags.NonPublic | BindingFlags.Instance;
+            var grant = typeof(SystemControlController).GetField("_grant", flags)!;
+            var enabled = typeof(SystemControlController).GetProperty(nameof(SystemControlController.IsEnabled))!;
+            var interaction = (SemaphoreSlim)typeof(SystemControlController).GetField("_interaction", flags)!.GetValue(controller)!;
+            // Keep this protocol test off the actual desktop: simulate an admitted
+            // grant and occupy the queue without starting the native worker.
+            grant.SetValue(controller, new ControlSessionOptions());
+            enabled.SetValue(controller, true);
+            await interaction.WaitAsync();
+            var pending = controller.CallAsync("system_status", new JObject(), controller.Generation);
+            Assert.IsFalse(pending.IsCompleted, "The public request should be queued");
+            grant.SetValue(controller, new ControlSessionOptions());
+            interaction.Release();
+            var error = await Assert.ThrowsExactlyAsync<ControlException>(async () => await pending);
+            Assert.AreEqual("GrantRevoked", error.Code);
+            Assert.IsNull(controller.WorkerProcessId, "An old queued request must not start a new worker");
+        }
+
+        [TestMethod, TestCategory("ControlAuthorization")]
+        public async Task CompactRequestHonorsTheGatewayGenerationBeforeAdmission()
+        {
+            using var controller = new SystemControlController(Path.Combine(Path.GetTempPath(), "ytray-old-generation-" + Guid.NewGuid().ToString("N")));
+            var error = await Assert.ThrowsExactlyAsync<ControlException>(() => controller.CallAsync("system_status", new JObject(), "revoked-generation"));
+            Assert.AreEqual("RuntimeGenerationMismatch", error.Code);
+            Assert.IsNull(controller.WorkerProcessId);
         }
 
         [TestMethod, TestCategory("ControlDesktop")]

@@ -15,6 +15,8 @@ namespace YTray.Core.SystemControl
     public sealed partial class SystemControlController
     {
         private readonly SemaphoreSlim _interaction = new SemaphoreSlim(1, 1);
+        private readonly AsyncLocal<ControlRequestScope?> _publicRequest = new AsyncLocal<ControlRequestScope?>();
+        private void RequirePublicGrant() => _publicRequest.Value?.RequireActive(_grant, IsEnabled);
         private static JObject Property(string type, string description = "") => new JObject { ["type"] = type, ["description"] = description };
         private JArray PublicTools()
         {
@@ -76,21 +78,35 @@ namespace YTray.Core.SystemControl
         }
         private async Task ReadyAsync()
         {
+            RequirePublicGrant();
             if (!IsEnabled || _grant == null) throw new ControlException("ControlDisabled", "电脑控制已关闭，请在 YTray 开启");
             if (!IsRunning) await EnsureConnectedAsync().ConfigureAwait(false);
             var timer = Stopwatch.StartNew();
-            while (IsEnabled && !IsRunning && Phase != "Paused" && timer.Elapsed < TimeSpan.FromSeconds(12)) await Task.Delay(100).ConfigureAwait(false);
+            while (IsEnabled && !IsRunning && Phase != "Paused" && timer.Elapsed < TimeSpan.FromSeconds(12)) {
+                RequirePublicGrant();
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+            RequirePublicGrant();
             if (!IsRunning) throw new ControlException("DesktopUnavailable", Phase == "Paused" ? "请解锁桌面后继续" : "控制连接尚未就绪，请稍后重试");
         }
-        private async Task<JObject> CallSimpleAsync(string name, JObject arguments)
+        private async Task<JObject> CallSimpleAsync(string name, JObject arguments, string? expectedGeneration)
         {
+            if (expectedGeneration != null && expectedGeneration != _generation)
+                throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察");
+            var admittedGrant = _grant;
+            if (!IsEnabled || admittedGrant == null) throw new ControlException("ControlDisabled", "电脑控制已关闭，请在 YTray 开启");
             var definition = PublicTools().OfType<JObject>().FirstOrDefault(t => (string?)t["name"] == name)
                 ?? throw new ControlException("UnknownTool", "未找到工具，请重新读取 tools/list");
             ControlJson.Validate(arguments, (JObject)definition["inputSchema"]!);
             await _interaction.WaitAsync().ConfigureAwait(false);
             var feedbackId = Interlocked.Increment(ref _feedbackSequence);
             var shown = false; var ended = false;
+            var previousRequest = _publicRequest.Value;
+            _publicRequest.Value = new ControlRequestScope(admittedGrant);
             try {
+                // Bind queued and composed calls to the user grant, not the worker.
+                // A worker reconnect is allowed; Stop/re-enable must revoke old work.
+                RequirePublicGrant();
                 if (HasOperationFeedback(name)) {
                     try {
                         await ReadyAsync().ConfigureAwait(false);
@@ -106,7 +122,9 @@ namespace YTray.Core.SystemControl
                 if (shown) {
                     var failed = result["isError"]?.Value<bool>() == true;
                     await SendOperationFeedbackAsync(feedbackId, failed ? "failed" : "completed", (long?)result["structuredContent"]?["window_id"] ?? 0,
-                        context: failed ? (string?)result["structuredContent"]?["error"]?["message"] ?? "请查看操作结果" : (string?)result["structuredContent"]?["title"] ?? "").ConfigureAwait(false);
+                        context: failed ? (string?)result["structuredContent"]?["error"]?["message"] ?? "请查看操作结果"
+                            : result["structuredContent"]?["observation_available"]?.Value<bool>() == false ? (string?)result["structuredContent"]?["message"] ?? "动作已投递，最新界面待确认"
+                            : (string?)result["structuredContent"]?["title"] ?? "").ConfigureAwait(false);
                     ended = true;
                     // One readable completion beat per public call, never per
                     // internal Ctrl+A/type/Enter step. The remaining dwell is async.
@@ -115,6 +133,7 @@ namespace YTray.Core.SystemControl
                 return result;
             } finally {
                 if (shown && !ended) await SendOperationFeedbackAsync(feedbackId, "failed", context: "操作已中断，请查看最新界面").ConfigureAwait(false);
+                _publicRequest.Value = previousRequest;
                 _interaction.Release();
             }
         }
@@ -148,10 +167,11 @@ namespace YTray.Core.SystemControl
                 if (name == "launch_app") {
                     if (_grant!.AllowForeground != true) throw new ControlException("BackgroundUnavailable", "启动应用需要前台操作模式");
                     var app = await Task.Run(() => WindowsApplicationControl.Find((string)arguments["app"]!)).ConfigureAwait(false);
-                    target = await WindowsApplicationControl.LaunchAsync(app, arguments["new_window"]?.Value<bool>() ?? true, (string?)arguments["url"]).ConfigureAwait(false);
+                    target = await WindowsApplicationControl.LaunchAsync(app, arguments["new_window"]?.Value<bool>() ?? true, (string?)arguments["url"], RequirePublicGrant).ConfigureAwait(false);
+                    _publicRequest.Value!.InputMayHaveExecuted = true;
                     target = RegisterTarget(target.Handle.ToInt64());
                     var browser = new[] { "chrome", "msedge", "chromium", "firefox" }.Contains(app.Id);
-                    return await UpdatedAsync(target, "应用已打开并切到前台", browser, "", arguments).ConfigureAwait(false);
+                    return await FinishSimpleAsync(ControlJson.Result(new JObject { ["completed"] = true }), target, "launch_app", arguments, browser, "", "应用已打开并切到前台").ConfigureAwait(false);
                 }
                 if (name != "get_desktop_state" && windowId != 0) target = RegisterTarget(windowId);
                 if (name == "get_window_state" || name == "get_desktop_state")
@@ -159,12 +179,13 @@ namespace YTray.Core.SystemControl
                 if (name == "activate_window") {
                     if (target == null) throw new ControlException("InvalidArguments", "请选择应用窗口");
                     if (_grant!.AllowForeground != true) throw new ControlException("BackgroundUnavailable", "当前模式不切换前台窗口");
-                    await WindowsApplicationControl.ActivateAsync(target).ConfigureAwait(false);
-                    return await UpdatedAsync(target, "窗口已切到前台", options: arguments).ConfigureAwait(false);
+                    await WindowsApplicationControl.ActivateAsync(target, RequirePublicGrant).ConfigureAwait(false);
+                    _publicRequest.Value!.InputMayHaveExecuted = true;
+                    return await FinishSimpleAsync(ControlJson.Result(new JObject { ["completed"] = true }), target, "activate_window", arguments, message: "窗口已切到前台").ConfigureAwait(false);
                 }
                 return await ActSimpleAsync(name, arguments, target).ConfigureAwait(false);
             } catch (ControlException error) {
-                var result = error.Result();
+                var result = (_publicRequest.Value?.Failure(error) ?? error).Result();
                 if (target != null && IsRunning) try {
                     var state = await UpdatedAsync(target, error.Message).ConfigureAwait(false);
                     state["isError"] = true; state["structuredContent"]!["error"] = result["structuredContent"]!["error"]!.DeepClone(); return state;
@@ -274,7 +295,7 @@ namespace YTray.Core.SystemControl
             // delivery. Public foreground actions intentionally leave the chosen
             // app active, including after a delayed native restoration.
             if (target != null && ((string?)options?["delivery_mode"] ?? (_grant?.AllowForeground == true ? "foreground" : "background")) == "foreground")
-                await WindowsApplicationControl.ActivateAsync(target).ConfigureAwait(false);
+                await WindowsApplicationControl.ActivateAsync(target, RequirePublicGrant).ConfigureAwait(false);
             return await PublicStateAsync(raw, target, message, options).ConfigureAwait(false);
         }
         private static bool MatchesDestination(string? actual, string? expected)
@@ -341,7 +362,7 @@ namespace YTray.Core.SystemControl
                 selected = (previous?.View["elements"] as JArray)?.OfType<JObject>().FirstOrDefault(e => (int?)e["element_index"] == (int)input["element_index"]!);
                 if (selected == null) throw new ControlException("ElementChanged", "请使用最新返回界面的控件编号");
             }
-            if (mode == "foreground" && target != null) { await WindowsApplicationControl.ActivateAsync(target).ConfigureAwait(false); target = RegisterTarget(target.Handle.ToInt64()); }
+            if (mode == "foreground" && target != null) { await WindowsApplicationControl.ActivateAsync(target, RequirePublicGrant).ConfigureAwait(false); target = RegisterTarget(target.Handle.ToInt64()); }
             var coordinates = input["x"] != null || input["y"] != null;
             if (coordinates && (previous == null || previous.Width <= 0)) throw new ControlException("ScreenshotRequired", "请先获取带截图的窗口状态，再选择图片坐标");
             var options = new JObject { ["include_screenshot"] = coordinates || name == "scroll" && selected == null, ["_controls_only"] = true };
@@ -444,28 +465,17 @@ namespace YTray.Core.SystemControl
             }
             return result;
         }
-        private async Task<JObject> FinishSimpleAsync(JObject result, WindowsControlTarget? target, string step, JObject options, bool navigate = false, string? oldTitle = null)
+        private async Task<JObject> FinishSimpleAsync(JObject result, WindowsControlTarget? target, string step, JObject options, bool navigate = false, string? oldTitle = null, string? message = null)
         {
             var failed = result["isError"]?.Value<bool>() == true;
-            var updated = await UpdatedAsync(target, failed ? "操作未完成，已返回最新界面" : "已执行 " + step, navigate, oldTitle, options).ConfigureAwait(false);
-            if (result["isError"]?.Value<bool>() == true) {
-                updated["isError"] = true;
-                var failure = result["structuredContent"]?["error"] ?? result["structuredContent"]?["refusal"] ?? result["structuredContent"];
-                updated["structuredContent"]!["error"] = new JObject { ["code"] = failure?["code"] ?? "ActionIncomplete", ["message"] = ActionErrorMessage(result), ["step"] = step,
-                    ["execution_state"] = failure?["execution_state"] ?? "Unknown" };
-                if (step == "submit") updated["structuredContent"]!["error"]!["text_sent"] = true;
-                if (updated["content"]?[0] is JObject text) text["text"] = (string?)text["text"] + "\nError at " + step + ": " + updated["structuredContent"]!["error"]!["message"];
+            JObject updated;
+            try { updated = await UpdatedAsync(target, failed ? "操作未完成，已返回最新界面" : message ?? "已执行 " + step, navigate, oldTitle, options).ConfigureAwait(false); }
+            catch (Exception error) {
+                updated = ControlActionResult.ReadbackFailure(target?.Handle.ToInt64() ?? 0, target?.Title ?? "Desktop",
+                    error is ControlException ? error.Message : "最新界面暂不可用，请重新观察");
             }
-            return updated;
+            return ControlActionResult.Combine(result, updated, step);
         }
-        internal static string ActionErrorMessage(JObject result)
-        {
-            var state = result["structuredContent"];
-            var message = (string?)state?["error"]?["message"] ?? (string?)state?["refusal"]?["message"] ?? (string?)state?["message"];
-            if (string.IsNullOrWhiteSpace(message)) message = (result["content"] as JArray ?? new JArray())
-                .Where(c => (string?)c["type"] == "text").Select(c => (string?)c["text"]).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
-            if (message == null || string.IsNullOrWhiteSpace(message)) return "操作结果未确认，请查看已返回的最新界面";
-            return message.Length > 800 ? message.Substring(0, 800) + "…" : message;
-        }
+        internal static string ActionErrorMessage(JObject result) => ControlActionResult.Message(result);
     }
 }
