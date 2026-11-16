@@ -37,6 +37,7 @@ namespace YTray.Core.BrowserUse
         internal string Origin { get; }
         internal string? OpenRequestId { get; }
         internal bool Managed => _managed;
+        internal bool SupportsTabSelection { get; }
         private JObject _info;
         internal JObject Info { get { lock (_gate) return (JObject)_info.DeepClone(); } }
         internal bool IsConnected => !_closed && _ready.Task.Status == TaskStatus.RanToCompletion && _ready.Task.Result;
@@ -50,6 +51,7 @@ namespace YTray.Core.BrowserUse
                 || (int?)share["version"] != 1 || !Guid.TryParseExact(instanceId, "D", out var instance))
                 throw new InvalidDataException("Invalid Browser Use grant");
             InstanceId = instance;
+            SupportsTabSelection = share["select_tab"]?.Type == JTokenType.Boolean && share.Value<bool>("select_tab");
             var ticket = share["managed_ticket"];
             _managed = ticket != null;
             if (_managed && (ticket?.Type != JTokenType.String || enrollment?.Accepts(instance, (string?)ticket) != true))
@@ -138,7 +140,7 @@ namespace YTray.Core.BrowserUse
             {
                 if (_closed) throw new BrowserUseException("page_not_shared", "The page is no longer shared.");
                 if (_pending != null) throw new BrowserUseException("page_busy", "Another operation is running on this page.");
-                if (_managed && method != "observe" && method != "focus" && method != "presentation" && _captureId == null)
+                if (_managed && method is not ("observe" or "focus" or "select_tab" or "presentation" or "clear_feedback") && _captureId == null)
                     throw new BrowserUseException("stale_node", "Observe the selected tab before operating it.");
                 if (method == "observe")
                 {

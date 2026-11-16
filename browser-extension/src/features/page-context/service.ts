@@ -782,6 +782,7 @@ function operateRegisteredNode(input: {
       clearTimeout(timer);
       document.removeEventListener('visibilitychange', clear);
       window.removeEventListener('pagehide', clear);
+      if (shared) window.removeEventListener('blur', clear);
       box.remove();
       host?.remove();
       if (Reflect.get(globalThis, feedbackKey) === clear) Reflect.deleteProperty(globalThis, feedbackKey);
@@ -811,6 +812,7 @@ function operateRegisteredNode(input: {
     if (shared) Reflect.set(globalThis, feedbackBoxKey, box);
     document.addEventListener('visibilitychange', clear);
     window.addEventListener('pagehide', clear);
+    if (shared) window.addEventListener('blur', clear);
     timer = window.setTimeout(clear, 2_200);
     draw();
     feedbackVisible = box.isConnected && !box.hidden;
@@ -906,7 +908,7 @@ function operateRegisteredNode(input: {
 type PageWorld = 'MAIN' | 'ISOLATED';
 const feedbackTargets = new Map<number, { target: BrowserTarget; world: PageWorld }>();
 
-async function clearActionFeedback(target: BrowserTarget, world: PageWorld): Promise<void> {
+export async function clearActionFeedback(target: BrowserTarget, world: PageWorld): Promise<void> {
   await browser.scripting.executeScript({
     target: scriptingTarget(target),
     world,
@@ -924,6 +926,13 @@ export function initializePageActionFeedback(): void {
     feedbackTargets.delete(windowId);
     void clearActionFeedback(previous.target, previous.world);
   });
+  browser.windows.onFocusChanged.addListener((windowId) => {
+    for (const [id, previous] of feedbackTargets) {
+      if (id === windowId || previous.world !== 'ISOLATED') continue;
+      feedbackTargets.delete(id);
+      void clearActionFeedback(previous.target, previous.world);
+    }
+  });
   browser.windows.onRemoved.addListener((windowId) => { feedbackTargets.delete(windowId); });
   browser.tabs.onRemoved.addListener((tabId, { windowId }) => {
     if (feedbackTargets.get(windowId)?.target.tabId === tabId) feedbackTargets.delete(windowId);
@@ -932,7 +941,7 @@ export function initializePageActionFeedback(): void {
 
 async function trackActionFeedback(target: BrowserTarget, world: PageWorld): Promise<boolean> {
   const tab = await browser.tabs.get(target.tabId);
-  if (!tab.active) return false;
+  if (!tab.active || (world === 'ISOLATED' && !(await browser.windows.get(tab.windowId)).focused)) return false;
   const previous = feedbackTargets.get(tab.windowId);
   feedbackTargets.set(tab.windowId, { target, world });
   if (previous && (previous.world !== world || previous.target.documentId !== target.documentId

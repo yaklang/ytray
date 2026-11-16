@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Text;
 using YTray.Native;
 
@@ -74,19 +73,6 @@ namespace YTray.Native
             }, IntPtr.Zero);
             return match;
         }
-
-        internal static void RaiseBrowserWindow(IntPtr window)
-        {
-            // Show the selected profile above overlapping ordinary windows even if Windows
-            // keeps keyboard focus in the caller. Do not make the window topmost.
-            const uint NoMoveOrResize = 0x0001 | 0x0002;
-            const uint NoActivate = 0x0010;
-            const uint Async = 0x4000;
-            SetWindowPos(window, IntPtr.Zero, 0, 0, 0, 0, NoMoveOrResize | NoActivate | Async);
-        }
-
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
         public static bool EnumWindows(Win32.EnumWindowsProc callback, IntPtr lParam)
         {
