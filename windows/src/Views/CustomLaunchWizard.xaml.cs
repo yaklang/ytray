@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -20,13 +21,14 @@ namespace YTray.Views
         private List<Guid> _pluginIDs;
         private bool _usePresetProxy;
 
-        public CustomLaunchWizard(InstanceStore store)
+        public CustomLaunchWizard(InstanceStore store, BrowserEnvironment? environment = null)
         {
             InitializeComponent();
             _store = store;
             _draft = new LaunchSettings(store.Settings.DefaultRuntimeID)
             {
                 HomeURL = store.Settings.HomeURL,
+                Environment = environment?.Clone(),
                 DebugPort = store.Settings.DebugPort,
                 RestrictWebRTC = store.Settings.RestrictWebRTC,
                 DisableNotifications = store.Settings.DisableNotifications,
@@ -95,6 +97,19 @@ namespace YTray.Views
             var sp = new StackPanel();
             var label = new TextBlock { Text = "选择本次使用的浏览器", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 14) };
             sp.Children.Add(label);
+            var environment = new ComboBox { Margin = new Thickness(0, 0, 0, 10) };
+            AutomationProperties.SetName(environment, "浏览器环境");
+            environment.Items.Add(new ComboBoxItem { Content = "默认启动设置" });
+            foreach (var item in _store.BrowserEnvironments)
+                environment.Items.Add(new ComboBoxItem { Content = item.Name, Tag = item });
+            environment.SelectedItem = environment.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => (item.Tag as BrowserEnvironment)?.Id == _draft.Environment?.Id) ?? environment.Items[0];
+            environment.SelectionChanged += (_, __) =>
+            {
+                _draft.Environment = ((environment.SelectedItem as ComboBoxItem)?.Tag as BrowserEnvironment)?.Clone();
+                Dispatcher.BeginInvoke(new Action(() => { if (_step == 0) ShowStep(); }));
+            };
+            sp.Children.Add(environment);
             foreach (var rt in _store.Runtimes)
             {
                 var content = new Grid();
@@ -138,7 +153,7 @@ namespace YTray.Views
                 Grid.SetColumn(detail, 1);
                 content.Children.Add(detail);
 
-                if (_draft.DefaultRuntimeID == rt.Id)
+                if ((_draft.Environment?.RuntimeId ?? _draft.DefaultRuntimeID) == rt.Id)
                 {
                     var selected = new TextBlock
                     {
@@ -155,6 +170,7 @@ namespace YTray.Views
                 var btn = new Button
                 {
                     Tag = rt,
+                    IsEnabled = _draft.Environment?.RuntimeId == null,
                     Content = content,
                     Padding = new Thickness(12, 9, 12, 9),
                     Margin = new Thickness(0, 0, 0, 6),
@@ -162,9 +178,9 @@ namespace YTray.Views
                 };
                 btn.Style = (Style)FindResource("YTrayButton");
                 btn.SetResourceReference(Control.BackgroundProperty,
-                    _draft.DefaultRuntimeID == rt.Id ? "BrandPaleBrush" : "SurfaceBrush");
+                    (_draft.Environment?.RuntimeId ?? _draft.DefaultRuntimeID) == rt.Id ? "BrandPaleBrush" : "SurfaceBrush");
                 btn.SetResourceReference(Control.BorderBrushProperty,
-                    _draft.DefaultRuntimeID == rt.Id ? "BrandOrangeBrush" : "HairlineBrush");
+                    (_draft.Environment?.RuntimeId ?? _draft.DefaultRuntimeID) == rt.Id ? "BrandOrangeBrush" : "HairlineBrush");
                 btn.Click += (s, e) => { _draft.DefaultRuntimeID = ((BrowserRuntime)((Button)s).Tag).Id; ShowStep(); };
                 sp.Children.Add(btn);
             }
@@ -272,7 +288,9 @@ namespace YTray.Views
             networkChoices.Children.Add(direct);
             Grid.SetColumn(proxy, 2);
             networkChoices.Children.Add(proxy);
-            sp.Children.Add(networkChoices);
+            var environmentNetwork = _store.EnvironmentNetworkDescription(_draft.Environment);
+            if (environmentNetwork == null) sp.Children.Add(networkChoices);
+            else sp.Children.Add(new TextBlock { Text = environmentNetwork, Margin = new Thickness(0, 0, 0, 12) });
             sp.Children.Add(MakeField("启动地址", out var urlBox));
             urlBox.Text = _draft.HomeURL;
             sp.Children.Add(MakeField("调试端口", out var portBox));
@@ -339,7 +357,7 @@ namespace YTray.Views
 
         private bool ApplySelectedNetwork()
         {
-            if (!_usePresetProxy)
+            if (!_usePresetProxy || _store.EnvironmentNetworkDescription(_draft.Environment) != null)
             {
                 _draft.ProxyServer = "";
                 _draft.ProxyUsername = "";
@@ -418,16 +436,16 @@ namespace YTray.Views
         {
             var sp = new StackPanel();
             sp.Children.Add(new TextBlock { Text = "确认本次启动配置", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 18) });
-            var rt = _store.Runtimes.FirstOrDefault(r => r.Id == _draft.DefaultRuntimeID);
+            var rt = _store.Runtimes.FirstOrDefault(r => r.Id == (_draft.Environment?.RuntimeId ?? _draft.DefaultRuntimeID));
             var grid = new Grid { Margin = new Thickness(18) };
-            for (int i = 0; i < 9; i++) grid.RowDefinitions.Add(new RowDefinition());
+            for (int i = 0; i < 10; i++) grid.RowDefinitions.Add(new RowDefinition());
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             AddReviewRow(grid, 0, "浏览器", rt != null ? $"{rt.DisplayTitle} {rt.VersionLabel} · {rt.Source.Title()}" : "未选择");
             AddReviewRow(grid, 1, "启动地址", _draft.HomeURL);
-            AddReviewRow(grid, 2, "网络", _usePresetProxy
+            AddReviewRow(grid, 2, "网络", _store.EnvironmentNetworkDescription(_draft.Environment) ?? (_usePresetProxy
                 ? $"HTTP 代理 · {_draft.ProxyServer.Replace("http://", "").Replace("https://", "")}"
-                : "直连（无代理）");
+                : "直连（无代理）"));
             AddReviewRow(grid, 3, "调试", $"127.0.0.1:{_draft.DebugPort} 起自动避让");
             var dockBadge = _draft.DockBadge?.Trim();
             AddReviewRow(grid, 4, "Dock 角标", string.IsNullOrEmpty(dockBadge) ? "自动分配" : dockBadge!.ToUpperInvariant());
@@ -435,6 +453,7 @@ namespace YTray.Views
             AddReviewRow(grid, 6, "插件", $"{_pluginIDs.Count} 个（启动时验证）");
             AddReviewRow(grid, 7, "Profile 主题", _draft.ColorizeBrowserInstances ? "按角标分配独立主题色" : "使用浏览器默认主题");
             AddReviewRow(grid, 8, "实例数据", _store.ResolveProfileRoot(_draft));
+            AddReviewRow(grid, 9, "浏览器环境", _draft.Environment?.Name ?? "默认启动设置");
             sp.Children.Add(grid);
             return sp;
         }

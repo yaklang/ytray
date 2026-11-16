@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Windows;
 using System.Windows.Media;
 using Microsoft.Win32;
@@ -20,6 +22,24 @@ namespace YTray.Core
         public static AppThemePreference Preference => _preference;
         public static bool IsDark { get; private set; }
         public static event EventHandler? ThemeChanged;
+
+        internal static void TrackNativeTitleBar(Window window)
+        {
+            void Apply(object? sender, EventArgs e)
+            {
+                var handle = new WindowInteropHelper(window).Handle;
+                if (handle == IntPtr.Zero) return;
+                var dark = IsDark ? 1 : 0;
+                if (DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int)) != 0)
+                    DwmSetWindowAttribute(handle, 19, ref dark, sizeof(int));
+            }
+            window.SourceInitialized += Apply;
+            ThemeChanged += Apply;
+            window.Closed += (_, __) => ThemeChanged -= Apply;
+        }
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 
         public static void Initialize(AppThemePreference preference)
         {

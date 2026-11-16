@@ -80,6 +80,7 @@ namespace YTray.Core
         private const string LegacyDirectoryName = "Instance" + "Dock";
 
         // Observable collections
+        public ObservableCollection<BrowserEnvironment> BrowserEnvironments { get; } = new ObservableCollection<BrowserEnvironment>();
         public ObservableCollection<BrowserRuntime> Runtimes { get; } = new ObservableCollection<BrowserRuntime>();
         public ObservableCollection<BrowserPlugin> Plugins { get; } = new ObservableCollection<BrowserPlugin>();
         public ObservableCollection<BrowserInstance> Instances { get; } = new ObservableCollection<BrowserInstance>();
@@ -831,6 +832,20 @@ namespace YTray.Core
                 configuration.DockBadge = restoring.DockBadge ?? "";
             }
 
+            if (configuration.Environment != null)
+            {
+                try
+                {
+                    BrowserEnvironmentSettings.Validate(configuration.Environment);
+                    if (restoring == null) ApplyEnvironment(configuration);
+                }
+                catch (Exception error)
+                {
+                    FinishLaunchFailure(error, token);
+                    return false;
+                }
+                LaunchingUsesProxy = !string.IsNullOrWhiteSpace(configuration.ProxyServer);
+            }
             var runtimeID = configuration.DefaultRuntimeID ?? Runtimes.FirstOrDefault()?.Id;
             if (runtimeID == null || !Runtimes.Any(r => r.Id == runtimeID))
             {
@@ -924,10 +939,15 @@ namespace YTray.Core
             }
         }
 
-        internal BrowserInstance LaunchForBrowserUse(Guid runtimeId, Uri url, bool useProxy)
+        internal BrowserInstance LaunchForBrowserUse(Guid? runtimeId, Uri url, bool useProxy, Guid? environmentId = null)
         {
             if (IsLaunching)
                 throw new BrowserUse.BrowserUseException("instance_busy", "YTray is already starting a browser instance.");
+            var environment = environmentId == null ? null : BrowserEnvironments.FirstOrDefault(item => item.Id == environmentId)
+                ?? throw new BrowserUse.BrowserUseException("environment_not_found", "Choose an environment from browser_list_environments.");
+            if (runtimeId.HasValue && environment?.RuntimeId is Guid configuredRuntime && configuredRuntime != runtimeId.Value)
+                throw new BrowserUse.BrowserUseException("environment_runtime_conflict", "The selected environment uses another browser runtime.");
+            runtimeId = runtimeId ?? environment?.RuntimeId ?? DefaultRuntime?.Id;
             if (!Runtimes.Any(runtime => runtime.Id == runtimeId))
                 throw new BrowserUse.BrowserUseException("runtime_not_found", "Choose a runtime from browser_list_runtimes.");
             var plugin = ManagedExtension;
@@ -935,9 +955,10 @@ namespace YTray.Core
                 || "chrome-extension://" + ExtensionInstaller.ChromiumExtensionId(plugin) + "/" != BrowserUse.BrowserUseNativeHost.AllowedOrigin)
                 throw new BrowserUse.BrowserUseException("extension_unavailable", "Enable the bundled YTray browser extension before starting a Browser Use instance.");
 
-            var configuration = QuickLaunchConfiguration(useProxy);
+            var configuration = QuickLaunchConfiguration(useProxy && (environment == null || environment.Network == BrowserEnvironmentNetwork.LaunchChoice));
             if (configuration == null)
                 throw new BrowserUse.BrowserUseException("invalid_proxy", ErrorMessage ?? "The configured proxy is invalid.");
+            configuration.Environment = environment?.Clone();
             configuration.DefaultRuntimeID = runtimeId;
             configuration.HomeURL = "chrome://newtab/";
             configuration.DockBadge = "";
@@ -955,15 +976,16 @@ namespace YTray.Core
             return instance;
         }
 
-        public bool LaunchConfigured(bool usePresetProxy)
+        public bool LaunchConfigured(bool usePresetProxy, ProxyPreset? proxy = null, BrowserEnvironment? environment = null)
         {
             LaunchWasCancelled = false;
-            var cfg = QuickLaunchConfiguration(usePresetProxy);
+            var cfg = QuickLaunchConfiguration(usePresetProxy && (environment == null || environment.Network == BrowserEnvironmentNetwork.LaunchChoice), proxy);
             if (cfg == null) return false;
+            cfg.Environment = environment?.Clone();
             return Launch(LaunchMode.Quick, cfg, launchUsesProxy: usePresetProxy);
         }
 
-        public LaunchSettings? QuickLaunchConfiguration(bool usePresetProxy)
+        public LaunchSettings? QuickLaunchConfiguration(bool usePresetProxy, ProxyPreset? proxy = null)
         {
             var cfg = new LaunchSettings
             {
@@ -982,11 +1004,19 @@ namespace YTray.Core
             };
             if (usePresetProxy)
             {
-                var server = RememberPresetProxy();
-                if (server == null) return null;
-                cfg.ProxyServer = server;
-                cfg.ProxyUsername = Settings.PresetProxyUsername;
-                cfg.ProxyPassword = Settings.PresetProxyPassword;
+                if (proxy != null)
+                {
+                    try { ApplyProxy(cfg, proxy); }
+                    catch (Exception error) { Report(error); return null; }
+                }
+                else
+                {
+                    var server = RememberPresetProxy();
+                    if (server == null) return null;
+                    cfg.ProxyServer = server;
+                    cfg.ProxyUsername = Settings.PresetProxyUsername;
+                    cfg.ProxyPassword = Settings.PresetProxyPassword;
+                }
             }
             else
             {
@@ -995,6 +1025,75 @@ namespace YTray.Core
                 cfg.ProxyPassword = "";
             }
             return cfg;
+        }
+
+        internal bool IsBrowserEnvironmentConnected(BrowserInstance instance) =>
+            instance.SettingsSnapshot?.Environment?.RequiresPageEmulation != true
+            || (_launches.TryGetValue(instance.Id, out var launch) && launch.EnvironmentConnected);
+
+        public async Task<JObject> ReadBrowserEnvironmentAsync(BrowserInstance instance)
+        {
+            if (!RunningInstances.Any(candidate => ReferenceEquals(candidate, instance)) || instance.IsStopping
+                || !IsExpectedInstanceProcess(instance) || TcpListenerProcess.FindOwnerProcessId(instance.DebugPort) != instance.ProcessID)
+                throw new InvalidOperationException("浏览器实例已关闭或连接已变化。");
+            var values = await ScreenshotService.ReadEnvironmentAsync(instance.DebugPort);
+            if (instance.IsStopping || !RunningInstances.Any(candidate => ReferenceEquals(candidate, instance)))
+                throw new InvalidOperationException("读回期间浏览器实例已关闭。");
+            values["proxy"] = string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyServer) ? "直连" : instance.SettingsSnapshot!.ProxyServer;
+            values["environment_connected"] = IsBrowserEnvironmentConnected(instance);
+            return values;
+        }
+
+        public void SaveBrowserEnvironment(BrowserEnvironment environment)
+        {
+            var value = environment.Clone();
+            value.Name = value.Name.Trim();
+            BrowserEnvironmentSettings.Validate(value);
+            if (value.RuntimeId.HasValue && !Runtimes.Any(runtime => runtime.Id == value.RuntimeId))
+                throw new InvalidOperationException("请选择已安装的浏览器。");
+            if (value.Network == BrowserEnvironmentNetwork.SavedProxy && !Settings.RecentProxyPresets.Any(proxy => proxy.Id == value.ProxyPresetId))
+                throw new InvalidOperationException("请选择已保存的代理。");
+            var existing = BrowserEnvironments.FirstOrDefault(item => item.Id == value.Id);
+            if (existing != null) BrowserEnvironments[BrowserEnvironments.IndexOf(existing)] = value;
+            else BrowserEnvironments.Add(value);
+            Save();
+        }
+
+        public void RemoveBrowserEnvironment(Guid id)
+        {
+            var saved = BrowserEnvironments.FirstOrDefault(item => item.Id == id);
+            if (saved == null) return;
+            BrowserEnvironments.Remove(saved);
+            Save();
+        }
+
+        internal string? EnvironmentNetworkDescription(BrowserEnvironment? environment)
+        {
+            if (environment?.Network == BrowserEnvironmentNetwork.Direct) return "直连";
+            if (environment?.Network != BrowserEnvironmentNetwork.SavedProxy) return null;
+            var proxy = Settings.RecentProxyPresets.FirstOrDefault(item => item.Id == environment.ProxyPresetId);
+            return proxy == null ? "保存的代理已不存在"
+                : string.IsNullOrWhiteSpace(proxy.Remark) ? proxy.Server : proxy.Remark + " · " + proxy.Server;
+        }
+
+        private static void ApplyProxy(LaunchSettings launch, ProxyPreset? proxy)
+        {
+            launch.ProxyServer = proxy == null ? "" : HTTPProxyAddress.Normalize(proxy.Server);
+            launch.ProxyUsername = proxy?.Username ?? "";
+            launch.ProxyPassword = proxy?.Password ?? "";
+        }
+
+        private void ApplyEnvironment(LaunchSettings launch)
+        {
+            var environment = launch.Environment!;
+            if (environment.RuntimeId.HasValue) launch.DefaultRuntimeID = environment.RuntimeId;
+            if (environment.Network == BrowserEnvironmentNetwork.Direct) ApplyProxy(launch, null);
+            if (environment.Network == BrowserEnvironmentNetwork.SavedProxy)
+            {
+                var proxy = Settings.RecentProxyPresets.FirstOrDefault(item => item.Id == environment.ProxyPresetId)
+                    ?? throw new InvalidOperationException("模板的代理已不存在，请重新选择代理。");
+                ApplyProxy(launch, proxy);
+            }
         }
 
         public void RestoreHistory(BrowserInstance instance, bool chooseEngine = false)
@@ -1006,6 +1105,12 @@ namespace YTray.Core
                 HomeURL = instance.StartURL,
                 DockBadge = instance.DockBadge ?? "",
             };
+            if (cfg.Environment?.Network == BrowserEnvironmentNetwork.SavedProxy && string.IsNullOrEmpty(cfg.ProxyPassword))
+            {
+                var saved = Settings.RecentProxyPresets.FirstOrDefault(item => item.Id == cfg.Environment.ProxyPresetId
+                    && string.Equals(item.Server, cfg.ProxyServer, StringComparison.OrdinalIgnoreCase) && item.Username == cfg.ProxyUsername);
+                if (saved != null) cfg.ProxyPassword = saved.Password;
+            }
             cfg.DefaultRuntimeID = instance.RuntimeID;
             cfg.HomeURL = instance.StartURL;
             cfg.DockBadge = instance.DockBadge ?? "";
@@ -1034,6 +1139,29 @@ namespace YTray.Core
                         : "浏览器进程在完成启动前退出";
                 FinishLaunchFailure(new YTrayException(YTrayError.LaunchFailed, detail), token);
                 return;
+            }
+
+            if (configuration.Environment?.RequiresPageEmulation == true)
+            {
+                try
+                {
+                    var owner = TcpListenerProcess.FindOwnerProcessId(instance.DebugPort);
+                    if (!IsExpectedInstanceProcess(instance) || (owner != instance.ProcessID && !TryAdoptDebugPortProcess(instance)))
+                        throw new YTrayException(YTrayError.LaunchFailed, "浏览器调试端口与启动实例不匹配");
+                    await launch.InitializeEnvironmentAsync();
+                }
+                catch (Exception error)
+                {
+                    if (IsCurrentLaunch(launch, token))
+                    {
+                        // The browser still has only its startup blank tab at this point.
+                        var failure = new YTrayException(YTrayError.LaunchFailed, "无法应用浏览器环境：" + error.Message);
+                        await DiscardIncompleteLaunchAsync(launch, configuration, restoring);
+                        FinishLaunchFailure(failure, token);
+                    }
+                    return;
+                }
+                if (!IsCurrentLaunch(launch, token)) return;
             }
 
             if (launch.ExtensionPaths.Count > 0)
@@ -1098,7 +1226,7 @@ namespace YTray.Core
                 {
                     if (usesProxyAuth) await Task.Delay(900);
                     if (!IsCurrentLaunch(launch, token)) return;
-                    if (browserUse)
+                    if (browserUse || configuration.Environment != null)
                     {
                         // The launch tab can be replaced during Chromium's first run. Give the
                         // extension bootstrap its own target and wait for its native connection.
@@ -1153,34 +1281,11 @@ namespace YTray.Core
             DiagnosticLog.Error("extension.load", failure);
             var mode = launch.Instance.Mode;
             var usesProxy = LaunchingUsesProxy;
-            // Keep the launch gate held while closing the incomplete process and asking the user.
-            LaunchingInstanceID = null;
-            bool stopped;
-            _discardingLaunchID = launch.Instance.Id;
-            try { stopped = await StopAsync(launch.Instance); }
-            finally { _discardingLaunchID = null; }
-            if (!stopped)
+            if (!await DiscardIncompleteLaunchAsync(launch, configuration, restoring))
             {
                 FinishLaunchFailure(new YTrayException(YTrayError.LaunchFailed, "插件加载失败，且未能关闭未完成的浏览器实例"), token);
                 return;
             }
-            Instances.Remove(launch.Instance);
-            _yakitLaunchApprovals.Remove(launch.Instance.Id);
-            if (restoring != null) Instances.Insert(0, restoring);
-            else
-            {
-                // Only remove the new profile owned by this failed launch, never a restored profile.
-                var root = ResolveProfileRoot(configuration).TrimEnd(Path.DirectorySeparatorChar)
-                    + Path.DirectorySeparatorChar;
-                var profile = Path.GetFullPath(launch.Instance.ProfilePath);
-                if (profile.StartsWith(root, StringComparison.OrdinalIgnoreCase)
-                    && Path.GetFileName(profile) == launch.Instance.Id.ToString())
-                {
-                    try { if (Directory.Exists(profile)) Directory.Delete(profile, true); }
-                    catch (Exception ex) { CrashGuard.Record("failed-profile-cleanup", ex); }
-                }
-            }
-            Save();
             if (browserUse)
             {
                 FinishLaunchFailure(failure, token);
@@ -1217,6 +1322,36 @@ namespace YTray.Core
             Launch(mode, retry, new List<Guid>(), restoring, usesProxy);
         }
 
+        private async Task<bool> DiscardIncompleteLaunchAsync(BrowserLauncher.LaunchResult launch,
+            LaunchSettings configuration, BrowserInstance? restoring)
+        {
+            // Keep the launch gate held while closing the incomplete process and asking the user.
+            LaunchingInstanceID = null;
+            bool stopped;
+            _discardingLaunchID = launch.Instance.Id;
+            try { stopped = await StopAsync(launch.Instance); }
+            finally { _discardingLaunchID = null; }
+            if (!stopped) return false;
+            Instances.Remove(launch.Instance);
+            _yakitLaunchApprovals.Remove(launch.Instance.Id);
+            if (restoring != null) Instances.Insert(0, restoring);
+            else
+            {
+                // Only remove the new profile owned by this failed launch, never a restored profile.
+                var root = ResolveProfileRoot(configuration).TrimEnd(Path.DirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                var profile = Path.GetFullPath(launch.Instance.ProfilePath);
+                if (profile.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+                    && Path.GetFileName(profile) == launch.Instance.Id.ToString())
+                {
+                    try { if (Directory.Exists(profile)) Directory.Delete(profile, true); }
+                    catch (Exception ex) { CrashGuard.Record("failed-profile-cleanup", ex); }
+                }
+            }
+            Save();
+            return true;
+        }
+
         private void FinishLaunchFailure(Exception ex, Guid token)
         {
             if (LaunchToken != token) return;
@@ -1249,11 +1384,16 @@ namespace YTray.Core
                 Settings.PresetProxyHost = HTTPProxyAddress.Split(normalized).Host;
                 Settings.PresetProxyUsername = username;
                 Settings.PresetProxyRemark = remark;
-                Settings.RecentProxyPresets.RemoveAll(p =>
+                var recent = Settings.RecentProxyPresets;
+                var existing = recent.FirstOrDefault(p =>
                     string.Equals(p.Server, normalized, StringComparison.OrdinalIgnoreCase) && p.Username == username);
-                Settings.RecentProxyPresets.Insert(0, new ProxyPreset(normalized, remark, username, password));
-                if (Settings.RecentProxyPresets.Count > 5)
-                    Settings.RecentProxyPresets = Settings.RecentProxyPresets.Take(5).ToList();
+                if (existing != null) recent.Remove(existing);
+                var preset = new ProxyPreset(normalized, remark, username, password);
+                if (existing != null) preset.Id = existing.Id;
+                recent.Insert(0, preset);
+                var retained = new HashSet<Guid>(BrowserEnvironments.Where(item => item.ProxyPresetId.HasValue)
+                    .Select(item => item.ProxyPresetId!.Value));
+                Settings.RecentProxyPresets = recent.Where((item, index) => index < 5 || retained.Contains(item.Id)).ToList();
                 Save();
                 return normalized;
             }
@@ -1791,6 +1931,9 @@ namespace YTray.Core
             foreach (var i in state.Instances ?? Enumerable.Empty<BrowserInstance>())
                 if (i != null) Instances.Add(i);
             Settings = state.Settings ?? new LaunchSettings();
+            BrowserEnvironments.Clear();
+            foreach (var environment in state.BrowserEnvironments ?? Enumerable.Empty<BrowserEnvironment>())
+                if (environment != null) BrowserEnvironments.Add(environment);
             NormalizeLoadedState();
             Save();
         }
@@ -1817,6 +1960,7 @@ namespace YTray.Core
             if (!_stateDirty) return;
             var state = new PersistedState
             {
+                BrowserEnvironments = BrowserEnvironments.ToList(),
                 Runtimes = Runtimes.ToList(),
                 Plugins = Plugins.ToList(),
                 Instances = Instances.ToList(),

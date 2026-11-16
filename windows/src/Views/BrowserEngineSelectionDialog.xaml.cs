@@ -11,6 +11,7 @@ namespace YTray.Views
         public BrowserEngineSelectionDialog(IReadOnlyList<BrowserEngineTarget> targets)
         {
             InitializeComponent();
+            ThemeManager.TrackNativeTitleBar(this);
             Targets.ItemsSource = targets.Concat(new[] {
                 new BrowserEngineTarget { Mode = "legacy" }, new BrowserEngineTarget { Mode = "none" },
             }).ToArray();

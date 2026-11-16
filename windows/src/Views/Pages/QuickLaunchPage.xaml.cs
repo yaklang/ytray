@@ -26,6 +26,7 @@ namespace YTray.Views.Pages
         private sealed class NetworkChoice
         {
             public bool UsesProxy { get; set; }
+            public ProxyPreset? Preset { get; set; }
             public string Title { get; set; } = "";
             public string Subtitle { get; set; } = "";
         }
@@ -36,16 +37,14 @@ namespace YTray.Views.Pages
         private bool _isRebindingRuntimeChoices;
         private string? _runtimeChoicesSignature;
         private List<RuntimeChoice> _runtimeChoices = new List<RuntimeChoice>();
-        private readonly List<NetworkChoice> _networkChoices = new List<NetworkChoice>();
+        private string? _choiceSignature;
+        private BrowserEnvironment? SelectedEnvironment => (EnvironmentCombo.SelectedItem as ComboBoxItem)?.Tag as BrowserEnvironment;
 
         public QuickLaunchPage(InstanceStore store)
         {
             InitializeComponent();
             _store = store;
-            _networkChoices.Add(new NetworkChoice { Title = "无代理", Subtitle = "直连网络", UsesProxy = false });
-            _networkChoices.Add(new NetworkChoice { Title = "HTTP 代理", UsesProxy = true });
-            NetworkCombo.ItemsSource = _networkChoices;
-            NetworkCombo.SelectedIndex = 1;
+            EnvironmentCombo.SelectionChanged += (_, __) => ApplyEnvironmentSelection();
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
             Refresh();
@@ -83,10 +82,8 @@ namespace YTray.Views.Pages
             if (RuntimeCombo == null) return;
             RefreshRuntimeChoices();
             if (!HomeUrlBox.IsKeyboardFocusWithin) HomeUrlBox.Text = _store.Settings.HomeURL;
-            var proxyAddress = (_store.Settings.PresetProxyServer ?? LaunchSettings.DefaultPresetProxyServer)
-                .Replace("http://", "").Replace("https://", "");
-            _networkChoices[1].Subtitle = proxyAddress;
-            NetworkCombo.Items.Refresh();
+            RefreshLaunchChoices();
+            ApplyEnvironmentSelection();
 
             var running = _store.RunningInstances.Select(Present).ToList();
             var history = _store.HistoryInstances.Take(3).Select(Present).ToList();
@@ -102,6 +99,55 @@ namespace YTray.Views.Pages
                 : $"{running.Count} 个实例运行中";
             LaunchStatusDot.Fill = (Brush)FindResource(_store.IsLaunching ? "BrandOrangeBrush" : "SuccessBrush");
             LaunchButton.IsEnabled = WizardBtn.IsEnabled = !_store.IsLaunching && RuntimeCombo.SelectedItem != null;
+        }
+
+        private void RefreshLaunchChoices()
+        {
+            var settings = _store.Settings;
+            var signature = settings.PresetProxyServer + "|" + string.Join("|", settings.RecentProxyPresets.Select(item => $"{item.Id}:{item.Server}:{item.Remark}:{item.LastUsedAt.Ticks}"))
+                + "|" + string.Join("|", _store.BrowserEnvironments.Select(item => $"{item.Id}:{item.Name}:{item.RuntimeId}:{item.Network}:{item.ProxyPresetId}:{item.Language}:{item.TimeZone}:{item.WindowWidth}:{item.WindowHeight}:{item.ViewportWidth}:{item.ViewportHeight}"));
+            if (_choiceSignature == signature) return;
+            _choiceSignature = signature;
+            var selectedNetwork = NetworkCombo.SelectedItem as NetworkChoice;
+            var networks = new List<NetworkChoice>
+            {
+                new NetworkChoice { Title = "无代理", Subtitle = "直连网络" },
+                new NetworkChoice { Title = "当前代理", Subtitle = settings.PresetProxyServer, UsesProxy = true }
+            };
+            networks.AddRange(settings.RecentProxyPresets.Where(item =>
+                !string.Equals(item.Server, settings.PresetProxyServer, StringComparison.OrdinalIgnoreCase)
+                || item.Username != settings.PresetProxyUsername).Select(item => new NetworkChoice {
+                    Title = string.IsNullOrWhiteSpace(item.Remark) ? "已保存的代理" : item.Remark,
+                    Subtitle = item.Server, UsesProxy = true, Preset = item,
+                }));
+            NetworkCombo.ItemsSource = networks;
+            NetworkCombo.SelectedItem = selectedNetwork == null ? networks[1] : networks.FirstOrDefault(item =>
+                item.UsesProxy == selectedNetwork.UsesProxy && item.Preset?.Id == selectedNetwork.Preset?.Id) ?? networks[0];
+
+            var environmentId = SelectedEnvironment?.Id;
+            EnvironmentCombo.Items.Clear();
+            EnvironmentCombo.Items.Add(new ComboBoxItem { Content = "默认启动设置" });
+            foreach (var item in _store.BrowserEnvironments)
+                EnvironmentCombo.Items.Add(new ComboBoxItem { Content = item.Name, Tag = item });
+            EnvironmentCombo.SelectedItem = EnvironmentCombo.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => (item.Tag as BrowserEnvironment)?.Id == environmentId) ?? EnvironmentCombo.Items[0];
+            ApplyEnvironmentSelection();
+        }
+
+        private void ApplyEnvironmentSelection()
+        {
+            if (EnvironmentCombo == null || RuntimeCombo == null || NetworkCombo == null) return;
+            var environment = SelectedEnvironment;
+            RuntimeCombo.IsEnabled = environment?.RuntimeId == null;
+            var runtimeId = environment?.RuntimeId ?? RuntimeSelectionPolicy.TargetRuntimeId(_store.Settings.DefaultRuntimeID, _store.DefaultRuntime?.Id);
+            _isRebindingRuntimeChoices = true;
+            try { RuntimeCombo.SelectedItem = _runtimeChoices.FirstOrDefault(choice => choice.Runtime.Id == runtimeId); }
+            finally { _isRebindingRuntimeChoices = false; }
+
+            var network = _store.EnvironmentNetworkDescription(environment);
+            NetworkCombo.Visibility = network == null ? Visibility.Visible : Visibility.Collapsed;
+            EnvironmentNetwork.Visibility = network == null ? Visibility.Collapsed : Visibility.Visible;
+            EnvironmentNetwork.Text = network ?? "";
         }
 
         private void RefreshRuntimeChoices()
@@ -172,7 +218,8 @@ namespace YTray.Views.Pages
         {
             _store.Settings.HomeURL = HomeUrlBox.Text.Trim();
             _store.SaveSettings();
-            if (!_store.LaunchConfigured((NetworkCombo.SelectedItem as NetworkChoice)?.UsesProxy == true) && !_store.LaunchWasCancelled)
+            var network = NetworkCombo.SelectedItem as NetworkChoice;
+            if (!_store.LaunchConfigured(network?.UsesProxy == true, network?.Preset, SelectedEnvironment) && !_store.LaunchWasCancelled)
                 ShowLaunchError();
         }
 
@@ -189,7 +236,7 @@ namespace YTray.Views.Pages
         private void ClearAll_Click(object sender, RoutedEventArgs e) => _store.RemoveAllHistory();
         private void Wizard_Click(object sender, RoutedEventArgs e)
         {
-            var wizard = new CustomLaunchWizard(_store) { Owner = Window.GetWindow(this) };
+            var wizard = new CustomLaunchWizard(_store, SelectedEnvironment) { Owner = Window.GetWindow(this) };
             wizard.ShowDialog();
         }
     }

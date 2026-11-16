@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -18,9 +17,7 @@ namespace YTray.Views
             Content = mcp ? (object)new McpPage(store) : new SystemControlPage(store);
             SetResourceReference(BackgroundProperty, "AppBackgroundBrush");
             SetResourceReference(ForegroundProperty, "TextPrimaryBrush");
-            SourceInitialized += (_, __) => ApplyTitleBar();
-            ThemeManager.ThemeChanged += ThemeChanged;
-            Closed += (_, __) => ThemeManager.ThemeChanged -= ThemeChanged;
+            ThemeManager.TrackNativeTitleBar(this);
         }
         internal void ShowFor(Window anchor)
         {
@@ -36,12 +33,5 @@ namespace YTray.Views
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
             Activate();
         }
-        private void ThemeChanged(object? sender, EventArgs e) => ApplyTitleBar();
-        private void ApplyTitleBar()
-        {
-            var handle = new WindowInteropHelper(this).Handle; if (handle == IntPtr.Zero) return;
-            var dark = ThemeManager.IsDark ? 1 : 0; _ = DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int));
-        }
-        [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
     }
 }

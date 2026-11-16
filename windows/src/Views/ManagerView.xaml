@@ -340,6 +340,9 @@
                         <ListBoxItem x:Name="NavInstances" Tag="instances" Selected="Nav_Selected">
                             <StackPanel Orientation="Horizontal"><Path Data="M 2 2.5 L 14 2.5 L 14 13.5 L 2 13.5 Z M 2 6 L 14 6 M 5.2 4.2 L 5.3 4.2" Style="{StaticResource NavIconPath}"/><TextBlock Text="实例" Style="{StaticResource NavText}"/></StackPanel>
                         </ListBoxItem>
+                        <ListBoxItem x:Name="NavEnvironment" Tag="environments" Selected="Nav_Selected">
+                            <StackPanel Orientation="Horizontal"><Path Data="M 2.5 4 L 13.5 4 M 6 2 L 6 6 M 2.5 8 L 13.5 8 M 10 6 L 10 10 M 2.5 12 L 13.5 12 M 7 10 L 7 14" Style="{StaticResource NavIconPath}"/><TextBlock Text="浏览器环境" Style="{StaticResource NavText}"/></StackPanel>
+                        </ListBoxItem>
                         <ListBoxItem x:Name="NavRuntimes" Tag="runtimes" Selected="Nav_Selected">
                             <StackPanel Orientation="Horizontal"><Path Data="M 8 1 A 7 7 0 1 1 7.99 1 M 1 8 L 15 8 M 8 1 C 4.5 4.5 4.5 11.5 8 15 M 8 1 C 11.5 4.5 11.5 11.5 8 15" Style="{StaticResource NavIconPath}"/><TextBlock Text="浏览器" Style="{StaticResource NavText}"/></StackPanel>
                         </ListBoxItem>
