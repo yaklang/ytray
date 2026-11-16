@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, readdirSync } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import AdmZip from 'adm-zip';
@@ -148,4 +148,4 @@ for (const target of variants) {
 
 const entry = { version, notes, commit, built_at: new Date().toISOString(), artifacts };
 await writeFile(resolve(distDir, 'release-entry.json'), `${JSON.stringify(entry, null, 2)}\n`);
-console.log(`release entry written: ${resolve(distDir, 'release-entry.json').slice(root.length + 1)} (version ${version})`);
+console.log(`release entry written: ${relative(root, resolve(distDir, 'release-entry.json'))} (version ${version})`);

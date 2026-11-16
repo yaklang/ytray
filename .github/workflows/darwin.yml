@@ -172,6 +172,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-browser-extension
+        if: github.event_name == 'pull_request' || inputs.ui_release == 'source'
       - name: Build current application for native UI regression
         if: github.event_name == 'pull_request' || inputs.ui_release == 'source'
         env:
