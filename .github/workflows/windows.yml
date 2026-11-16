@@ -24,6 +24,7 @@ jobs:
         arch: [amd64, "386"]
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-browser-extension
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -39,7 +40,7 @@ jobs:
         shell: pwsh
         run: ./windows/build.ps1 -Release -Test -Package -Installer -Architecture '${{ matrix.arch }}'
 
-      - name: Verify standalone executable and bundled latest plugin
+      - name: Verify standalone executable and bundled plugin
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'

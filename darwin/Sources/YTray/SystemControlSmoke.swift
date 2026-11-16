@@ -124,6 +124,11 @@ func runSystemControlSmoke(application: NSApplication) {
                 status = "blocked_by_permissions"
             } else {
                 let target: [String: Any] = ["kind": "window", "pid": targetPID, "window_id": targetWindow]
+                let desktop = try await call("01-desktop", "get_desktop_state", ["max_image_dimension": 640])
+                let desktopState = desktop["structuredContent"] as? [String: Any] ?? [:]
+                check("desktop capture display binding", desktop["isError"] as? Bool != true
+                    && desktopState["screenshot_frame_valid"] as? Bool == true && desktopState["capture_id"] as? String != nil,
+                    detail: "ScreenCaptureKit capture matches the current primary display")
                 _ = try await call("01-windows", "list_windows", ["pid": targetPID])
                 let initial = try await observe("02-before")
                 let click = try await call("03-click", "click", ["target": target, "element_token": try token(initial, label: "Increment"), "delivery_mode": "background"])

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using YTray.Models;
 using YTray.Native;
 
 namespace YTray.Core.SystemControl
@@ -60,6 +61,7 @@ namespace YTray.Core.SystemControl
         private void PublishOperation(ControlOperation operation)
         {
             if (operation.Task == null && !HasOperationFeedback(operation.Tool)) return;
+            try { RequirePublicGrant(); } catch (ControlException) { return; }
             if (_connection is NativeControlConnection connection && _lifetime is CancellationTokenSource lifetime) {
                 var snapshot = operation.Snapshot();
                 if (operation.Task != null) snapshot["task"] = operation.Task.Summary(64);

@@ -29,6 +29,7 @@ final class YTrayMCPController: ObservableObject {
     private let token: String
     private lazy var router = YTrayMCPRouter(store: store)
     private var server: MCPHTTPServer?
+    private var serverGeneration = UUID()
 
     init(store: InstanceStore, defaults: UserDefaults = .standard) {
         self.store = store
@@ -96,6 +97,7 @@ final class YTrayMCPController: ObservableObject {
     }
 
     func stop() {
+        serverGeneration = UUID()
         server?.stop()
         server = nil
         phase = .stopped
@@ -137,12 +139,14 @@ final class YTrayMCPController: ObservableObject {
     }
 
     private func start() {
+        let generation = UUID()
+        serverGeneration = generation
         server?.stop()
         server = nil
         phase = .starting
         let candidate = MCPHTTPServer(port: configuredPort) { [weak self] request in
             guard let self else { return .text(503, "YTray is stopping") }
-            return await self.handle(request)
+            return await self.handle(request, generation: generation)
         }
         do {
             try candidate.start()
@@ -153,11 +157,14 @@ final class YTrayMCPController: ObservableObject {
         }
     }
 
-    private func handle(_ request: MCPHTTPRequest) async -> MCPHTTPResponse {
-        if request.path == "/system/mcp" {
+    private func handle(_ request: MCPHTTPRequest, generation: UUID) async -> MCPHTTPResponse {
+        // Accepted sockets can finish reading after the listener has stopped.
+        // Check on the same actor as stop/start before admitting any tool work.
+        guard generation == serverGeneration, phase == .running else { return .text(503, "YTray MCP has stopped or restarted") }
+        let cleanPath = request.path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? request.path
+        if cleanPath == "/system/mcp" {
             return await store.systemControl.handleHTTP(request, port: configuredPort)
         }
-        let cleanPath = request.path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? request.path
         guard cleanPath == "/mcp" else { return .text(404, "Not Found") }
         guard validHost(request.headers["host"]) else { return .text(403, "Invalid Host") }
         guard validOrigin(request.headers["origin"]) else { return .text(403, "Invalid Origin") }
@@ -170,8 +177,8 @@ final class YTrayMCPController: ObservableObject {
         guard request.method == "POST" else {
             return MCPHTTPResponse(status: 405, headers: ["Allow": "POST"])
         }
-        let contentType = request.headers["content-type"]?.lowercased() ?? ""
-        guard contentType.hasPrefix("application/json") else {
+        let contentType = request.headers["content-type"]?.split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased()
+        guard contentType == "application/json" else {
             return .text(415, "Content-Type must be application/json")
         }
         if let version = request.headers["mcp-protocol-version"],
@@ -363,8 +370,18 @@ final class YTrayMCPRouter {
         guard let name = params["name"] as? String else {
             return jsonRPCError(id: id, code: -32602, message: "Missing tool name")
         }
-        let arguments = params["arguments"] as? [String: Any] ?? [:]
         do {
+            guard params["arguments"] == nil || params["arguments"] is [String: Any] else {
+                throw MCPToolError.invalidArguments("arguments 必须为对象")
+            }
+            let arguments = params["arguments"] as? [String: Any] ?? [:]
+            guard let definition = toolDefinitions.first(where: { $0["name"] as? String == name }),
+                  let schema = definition["inputSchema"] as? [String: Any] else {
+                return jsonRPCError(id: id, code: -32602, message: "Unknown tool: \(name)")
+            }
+            // Validate before choosing a browser: an invalid instance_id must not
+            // silently become "use the only running instance" for script execution.
+            try NativeAXWorker.validate(arguments, schema: schema)
             let output: [String: Any]
             switch name {
             case "list_instances":

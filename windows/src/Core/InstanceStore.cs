@@ -1013,12 +1013,16 @@ namespace YTray.Core
                 launchUsesProxy: !string.IsNullOrEmpty(cfg.ProxyServer?.Trim()), chooseEngine: chooseEngine);
         }
 
+        internal bool IsCurrentLaunch(BrowserLauncher.LaunchResult launch, Guid token) => !_disposed
+            && LaunchToken == token && !launch.Instance.IsStopping && launch.Instance.Status == InstanceStatus.Running
+            && _launches.TryGetValue(launch.Instance.Id, out var current) && ReferenceEquals(current, launch);
+
         private async Task WaitForBrowserAsync(BrowserLauncher.LaunchResult launch, Guid token,
             BrowserRuntime runtime, LaunchSettings configuration, List<BrowserPlugin> plugins, BrowserInstance? restoring, bool browserUse)
         {
             var instance = launch.Instance;
             var ready = await ScreenshotService.WaitUntilReadyAsync(instance.DebugPort);
-            if (LaunchToken != token) return;
+            if (!IsCurrentLaunch(launch, token)) return;
             if (!ready)
             {
                 var stillRunning = instance.ProcessID > 0 && IsExpectedInstanceProcess(instance);
@@ -1042,7 +1046,7 @@ namespace YTray.Core
                     await RecoverExtensionLaunchAsync(launch, token, runtime, configuration, plugins, restoring, ex, browserUse);
                     return;
                 }
-                if (LaunchToken != token) return;
+                if (!IsCurrentLaunch(launch, token)) return;
             }
 
             // The staged controller normally installs the custom AUMID/ICO before the window becomes
@@ -1053,6 +1057,7 @@ namespace YTray.Core
             {
                 try { taskbarReady = await taskbarController.WaitForInitialWindowAsync(TimeSpan.FromSeconds(3)); }
                 catch { taskbarReady = false; }
+                if (!IsCurrentLaunch(launch, token)) return;
                 if (!taskbarReady) ReleaseTaskbarController(instance.Id);
             }
 
@@ -1062,6 +1067,7 @@ namespace YTray.Core
                 {
                     var aumid = await AumidResolver.ResolveAsync(instance.ProcessID, instance.ProfilePath,
                         instance.RuntimeKind ?? BrowserKind.Chrome, TimeSpan.FromSeconds(5));
+                    if (!IsCurrentLaunch(launch, token)) return;
                     var i = Instances.FirstOrDefault(x => x.Id == instance.Id);
                     if (i != null)
                     {
@@ -1077,6 +1083,7 @@ namespace YTray.Core
                 catch { /* live taskbar metadata remains best-effort on the fallback path */ }
             }
 
+            if (!IsCurrentLaunch(launch, token)) return;
             var usesProxyAuth = !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyUsername)
                 || !string.IsNullOrEmpty(instance.SettingsSnapshot?.ProxyPassword);
             var restoreURL = instance.LastPageURL?.Trim();
@@ -1084,13 +1091,12 @@ namespace YTray.Core
                 ? (!string.IsNullOrEmpty(restoreURL) ? restoreURL : instance.StartURL)
                 : (usesProxyAuth ? instance.StartURL : null));
 
-            if (LaunchToken != token) return;
             if (!string.IsNullOrEmpty(navigationTarget))
             {
                 try
                 {
                     if (usesProxyAuth) await Task.Delay(900);
-                    if (LaunchToken != token) return;
+                    if (!IsCurrentLaunch(launch, token)) return;
                     if (browserUse)
                     {
                         // The launch tab can be replaced during Chromium's first run. Give the
@@ -1101,7 +1107,7 @@ namespace YTray.Core
                         if (!IsExpectedInstanceProcess(instance) || (owner != instance.ProcessID && !TryAdoptDebugPortProcess(instance)))
                             throw new YTrayException(YTrayError.LaunchFailed, "浏览器调试端口与启动实例不匹配");
                         await browser.ConnectAsync(instance.DebugPort, timeout.Token);
-                        if (LaunchToken != token) return;
+                        if (!IsCurrentLaunch(launch, token)) return;
                         var result = await browser.SendAsync("Target.createTarget", new JObject { ["url"] = navigationTarget }, timeout.Token);
                         if (string.IsNullOrEmpty((string?)result["targetId"]))
                             throw new YTrayException(YTrayError.LaunchFailed, "浏览器未创建插件启动页");
@@ -1110,15 +1116,16 @@ namespace YTray.Core
                 }
                 catch (Exception ex)
                 {
-                    FinishLaunchFailure(ex, token);
+                    if (IsCurrentLaunch(launch, token)) FinishLaunchFailure(ex, token);
                     return;
                 }
             }
 
             // Populate the compact widget immediately; the periodic poll keeps it current later.
+            if (!IsCurrentLaunch(launch, token)) return;
             await RefreshPageTitleAsync(instance);
+            if (!IsCurrentLaunch(launch, token)) return;
 
-            if (LaunchToken != token) return;
             LaunchMessage = $"{instance.RuntimeName} 已启动";
             LaunchPhase = BrowserLaunchPhase.Succeeded;
             DiagnosticLog.Info("instance.ready",
@@ -1130,7 +1137,7 @@ namespace YTray.Core
             OnPropertyChanged(string.Empty);
             ScheduleAutomaticThumbnailRefresh(instance.Id);
             await Task.Delay(1200);
-            if (LaunchToken != token || LaunchPhase != BrowserLaunchPhase.Succeeded) return;
+            if (!IsCurrentLaunch(launch, token) || LaunchPhase != BrowserLaunchPhase.Succeeded) return;
             LaunchMessage = "";
             LaunchPhase = BrowserLaunchPhase.Idle;
             LaunchToken = null;
@@ -1710,7 +1717,7 @@ namespace YTray.Core
             if (_disposed || !state.HasValue) return;
             var s = state.Value;
             var i = Instances.FirstOrDefault(x => x.Id == instance.Id);
-            if (i == null) return;
+            if (i == null || !ReferenceEquals(i, instance)) return;
             if (!string.IsNullOrEmpty(s.Title)) i.LastPageTitle = s.Title;
             var url = ScreenshotService.PageUrlForHistory(s.URL);
             if (!string.IsNullOrEmpty(url)) i.LastPageURL = url;

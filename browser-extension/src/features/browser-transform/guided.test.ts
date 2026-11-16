@@ -1,0 +1,256 @@
+import { describe, expect, it } from 'vitest';
+import type { BrowserPageCallable, BrowserTransformPacket } from '@/types/models';
+import { executeTransformDirection } from './mapping';
+import { compileGuidedTransform, defaultGuidedTransform, parseGuidedTransform } from './guided';
+
+const callable: BrowserPageCallable = {
+  id: 'encrypt-aes',
+  name: '页面 AES-CBC 加密',
+  kind: 'recorded-call',
+  operation: 'AES.encrypt',
+  algorithm: 'AES.encrypt',
+  origin: 'https://example.test',
+  target: { tabId: 1, frameId: 0, documentId: 'document-1' },
+  lifecycle: 'document',
+  execution: { resultMode: 'sync', timeoutMs: 8_000 },
+  inputSlots: [{ id: 'data', name: 'data', index: 0, role: 'data', dataType: 'string', required: true, retained: false }],
+  output: { dataType: 'CipherParams', encoding: 'auto', shape: 'value', paths: [] },
+  provenance: { eventId: 'crypto-1' },
+  createdAt: 1,
+};
+
+function bodyBase64(value: unknown): string {
+  const valueText = typeof value === 'string' ? value : JSON.stringify(value);
+  const bytes = new TextEncoder().encode(valueText);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function decodeBody(value: string): string {
+  const binary = atob(value);
+  return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+}
+
+describe('guided browser transform compiler', () => {
+  it('maps a captured business closure to parameter-level body fields', async () => {
+    const businessCallable: BrowserPageCallable = {
+      ...callable,
+      id: 'login-envelope',
+      kind: 'business-closure',
+      operation: 'buildLoginEnvelope',
+      inputSlots: [
+        { id: 'arg-0', name: 'password', index: 0, role: 'unknown', dataType: 'unknown', required: true, retained: false },
+        { id: 'arg-1', name: 'account', index: 1, role: 'unknown', dataType: 'unknown', required: true, retained: false },
+      ],
+    };
+    const guide = defaultGuidedTransform(businessCallable);
+    expect(guide.inputPaths).toEqual(['body.password', 'body.account']);
+    const direction = compileGuidedTransform(guide, businessCallable);
+    let receivedArgs: unknown[] = [];
+    await executeTransformDirection('profile-business', 'request', direction, {
+      method: 'POST',
+      url: 'https://example.test/login',
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      bodyBase64: bodyBase64({ password: '123456', account: 'admin' }),
+    }, async (callableId, args) => {
+      receivedArgs = args;
+      return { callableId, type: 'object', preview: 'Object', value: { ciphertext: 'value' }, durationMs: 1 };
+    });
+    expect(receivedArgs).toEqual(['123456', 'admin']);
+  });
+
+  it('passes the whole body to a single business parameter or unnamed fallback', () => {
+    expect(defaultGuidedTransform({
+      ...callable,
+      kind: 'business-closure',
+      inputSlots: [{ ...callable.inputSlots[0], name: 'payload' }],
+    }).inputPaths).toEqual(['body']);
+    expect(defaultGuidedTransform({
+      ...callable,
+      kind: 'business-closure',
+      inputSlots: [
+        { ...callable.inputSlots[0], name: 'arg0' },
+        { ...callable.inputSlots[0], id: 'arg-1', name: 'options', index: 1 },
+      ],
+    }).inputPaths).toEqual(['body', 'body.options']);
+  });
+
+  it('decodes CryptoJS decrypt WordArray hex before writing the plaintext body', async () => {
+    const decryptCallable: BrowserPageCallable = {
+      ...callable,
+      id: 'decrypt-aes',
+      operation: 'cryptojs.AES.decrypt',
+      crypto: {
+        adapterId: 'cryptojs', providerKind: 'library', family: 'symmetric',
+        operation: 'AES.decrypt', algorithm: 'AES.decrypt', outputEncoding: 'hex',
+      },
+      output: { dataType: 'Object', encoding: 'hex', shape: 'value', paths: [] },
+    };
+    const direction = compileGuidedTransform(defaultGuidedTransform(decryptCallable), decryptCallable);
+    const result = await executeTransformDirection('profile-decrypt', 'response', direction, {
+      method: 'POST',
+      url: 'https://example.test/login',
+      headers: [],
+      bodyBase64: bodyBase64('cipher'),
+    }, async (callableId) => ({
+      callableId,
+      type: 'object',
+      preview: '7b226f6b223a747275657d',
+      value: '7b226f6b223a747275657d',
+      durationMs: 1,
+    }));
+
+    expect(decodeBody(result.bodyBase64)).toBe('{"ok":true}');
+    expect(parseGuidedTransform(direction, [decryptCallable])).toMatchObject({
+      callableId: decryptCallable.id,
+      outputKind: 'body',
+    });
+  });
+
+  it('compiles a form field and its content type without exposing DAG details', async () => {
+    const guide = {
+      ...defaultGuidedTransform(callable, { outputKind: 'form-field', outputField: 'encryptedData' }),
+      setFormContentType: true,
+    };
+    const direction = compileGuidedTransform(guide, callable);
+    const packet: BrowserTransformPacket = {
+      method: 'POST',
+      url: 'https://example.test/encrypt/aes.php',
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      bodyBase64: bodyBase64({ username: 'admin', password: '123456' }),
+    };
+    const result = await executeTransformDirection('profile-1', 'request', direction, packet, async (callableId, args) => ({
+      callableId,
+      type: 'string',
+      preview: 'cipher/value+',
+      value: `cipher:${JSON.stringify(args[0])}`,
+      durationMs: 1,
+    }));
+
+    expect(decodeBody(result.bodyBase64)).toBe(`encryptedData=${encodeURIComponent('cipher:{"username":"admin","password":"123456"}')}`);
+    expect(result.setHeaders).toContainEqual({ name: 'Content-Type', value: 'application/x-www-form-urlencoded' });
+    expect(parseGuidedTransform(direction, [callable])).toMatchObject({
+      callableId: callable.id,
+      inputPaths: ['body'],
+      outputKind: 'form-field',
+      outputField: 'encryptedData',
+      setFormContentType: true,
+    });
+  });
+
+  it('serializes a captured form envelope exactly once instead of nesting it under the inferred field', async () => {
+    const envelopeCallable: BrowserPageCallable = {
+      ...callable,
+      id: 'aes-request-envelope',
+      kind: 'request-transaction',
+      output: {
+        dataType: 'object',
+        encoding: 'utf8',
+        shape: 'envelope',
+        paths: ['body.encryptedData'],
+      },
+      transaction: {
+        version: 2,
+        prerequisites: [],
+        request: {
+          boundary: 'fetch',
+          method: 'POST',
+          url: 'https://example.test/encrypt/aes.php',
+          expectedDestinations: ['body.encryptedData'],
+          bodyFormat: 'form',
+        },
+        inputMode: 'auto',
+      },
+    };
+    const guide = defaultGuidedTransform(envelopeCallable, {
+      outputKind: 'form-field',
+      outputField: 'encryptedData',
+    });
+    const direction = compileGuidedTransform(guide, envelopeCallable);
+    const result = await executeTransformDirection('profile-envelope', 'request', direction, {
+      method: 'POST',
+      url: 'https://example.test/encrypt/aes.php',
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      bodyBase64: bodyBase64({ username: 'admin', password: '12345' }),
+    }, async (callableId) => ({
+      callableId,
+      type: 'object',
+      preview: 'Object',
+      value: { encryptedData: 'cipher/value+' },
+      durationMs: 1,
+    }));
+
+    expect(guide).toMatchObject({ outputKind: 'body', outputField: '' });
+    expect(decodeBody(result.bodyBase64)).toBe(`encryptedData=${encodeURIComponent('cipher/value+')}`);
+    expect(decodeBody(result.bodyBase64)).not.toContain(encodeURIComponent('{"encryptedData"'));
+    expect(result.setHeaders).toContainEqual({
+      name: 'Content-Type',
+      value: 'application/x-www-form-urlencoded',
+    });
+    expect(parseGuidedTransform(direction, [envelopeCallable])).toMatchObject({
+      outputKind: 'body',
+      outputField: '',
+    });
+  });
+
+  it('preserves a multi-field AES and RSA envelope as one JSON request', async () => {
+    const envelopeCallable: BrowserPageCallable = {
+      ...callable,
+      id: 'aes-rsa-request-envelope',
+      kind: 'request-transaction',
+      output: {
+        dataType: 'object',
+        encoding: 'json',
+        shape: 'envelope',
+        paths: ['body.encryptedData', 'body.encryptedKey', 'body.encryptedIv'],
+      },
+      transaction: {
+        version: 2,
+        prerequisites: [],
+        request: {
+          boundary: 'fetch',
+          method: 'POST',
+          url: 'https://example.test/encrypt/aesrsa.php',
+          expectedDestinations: ['body.encryptedData', 'body.encryptedKey', 'body.encryptedIv'],
+          bodyFormat: 'json',
+        },
+        inputMode: 'auto',
+      },
+    };
+    const direction = compileGuidedTransform(defaultGuidedTransform(envelopeCallable), envelopeCallable);
+    const envelope = {
+      encryptedData: 'aes-cipher',
+      encryptedKey: 'rsa-key',
+      encryptedIv: 'rsa-iv',
+    };
+    const result = await executeTransformDirection('profile-aes-rsa', 'request', direction, {
+      method: 'POST',
+      url: 'https://example.test/encrypt/aesrsa.php',
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      bodyBase64: bodyBase64({ username: 'admin', password: '123456' }),
+    }, async (callableId) => ({
+      callableId,
+      type: 'object',
+      preview: 'Object',
+      value: envelope,
+      durationMs: 1,
+    }));
+
+    expect(JSON.parse(decodeBody(result.bodyBase64))).toEqual(envelope);
+    expect(result.setHeaders).toContainEqual({ name: 'Content-Type', value: 'application/json' });
+  });
+
+  it.each([
+    ['json-field', 'encryptedData', 'body.encryptedData'],
+    ['header', 'X-Sign', 'header.X-Sign'],
+    ['query', 'signature', 'query.signature'],
+  ] as const)('compiles %s intent to an explicit output destination', (outputKind, outputField, destination) => {
+    const direction = compileGuidedTransform({
+      ...defaultGuidedTransform(callable), outputKind, outputField,
+    }, callable);
+    const output = direction.nodes.find((node) => node.kind === 'output.write');
+    expect(output).toMatchObject({ destination });
+    expect(parseGuidedTransform(direction, [callable])).toMatchObject({ outputKind, outputField });
+  });
+});

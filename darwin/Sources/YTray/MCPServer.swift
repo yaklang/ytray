@@ -9,7 +9,7 @@ final class MCPServer {
     private static let legacyVersions = ["2025-11-25", "2025-06-18", "2025-03-26"]
     private static let maxHeaderBytes = 64 * 1024
     private static let maxBodyBytes = 1024 * 1024
-    private let store: InstanceStore
+    private weak var store: InstanceStore?
     private var listener: Int32 = -1
 
     static let toolNames = [
@@ -83,8 +83,16 @@ final class MCPServer {
         self.store = store
     }
 
+    deinit {
+        if listener >= 0 {
+            Darwin.shutdown(listener, SHUT_RDWR)
+            Darwin.close(listener)
+        }
+    }
+
     @MainActor
     func start() -> Bool {
+        guard let store else { return false }
         if listener >= 0 { return true }
         let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -114,8 +122,7 @@ final class MCPServer {
         }
         listener = fd
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self else { return }
-            Self.acceptLoop(listener: fd, server: self)
+            Self.acceptLoop(listener: fd, server: { self })
         }
         store.setMCPStatus(available: true, message: "正在监听 \(Self.endpoint)")
         DiagnosticLog.info("mcp.start", "listening on \(Self.endpoint)")
@@ -125,26 +132,30 @@ final class MCPServer {
     @MainActor
     func stop() {
         guard listener >= 0 else {
-            store.setMCPStatus(available: false, message: "MCP 服务已停止，可随时重新启动")
+            store?.setMCPStatus(available: false, message: "MCP 服务已停止，可随时重新启动")
             return
         }
         Darwin.shutdown(listener, SHUT_RDWR)
         Darwin.close(listener)
         listener = -1
-        store.setMCPStatus(available: false, message: "MCP 服务已停止，可随时重新启动")
+        store?.setMCPStatus(available: false, message: "MCP 服务已停止，可随时重新启动")
         DiagnosticLog.info("mcp.stop", "listener stopped")
     }
 
-    private static func acceptLoop(listener: Int32, server: MCPServer) {
+    private static func acceptLoop(listener: Int32, server: @escaping () -> MCPServer?) {
         while true {
             var address = sockaddr()
             var length = socklen_t(MemoryLayout<sockaddr>.size)
             let client = Darwin.accept(listener, &address, &length)
             if client < 0 { return }
+            guard let owner = server() else { Darwin.close(client); return }
             var noSignal: Int32 = 1
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout.size(ofValue: noSignal)))
+            var timeout = timeval(tv_sec: 10, tv_usec: 0)
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
+            setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
             DispatchQueue.global(qos: .utility).async {
-                handleClient(client, server: server)
+                handleClient(client, server: owner)
             }
         }
     }
@@ -170,6 +181,9 @@ final class MCPServer {
 
     @MainActor
     private func handle(_ request: HTTPRequest) -> HTTPResponse {
+        guard listener >= 0, store != nil else {
+            return HTTPResponse(status: 503, body: Self.jsonError(id: nil, code: -32603, message: "YTray MCP has stopped"))
+        }
         guard request.method == "POST", request.path == "/mcp" else {
             return HTTPResponse(status: 404, body: Self.jsonError(id: nil, code: -32601, message: "MCP endpoint not found"))
         }
@@ -239,6 +253,7 @@ final class MCPServer {
 
     @MainActor
     private func callTool(_ message: [String: Any]) -> [String: Any] {
+        guard let store else { return Self.toolError("YTray is stopping") }
         guard let parameters = message["params"] as? [String: Any],
               let name = parameters["name"] as? String else {
             return Self.toolError("params and tool name are required")
@@ -285,6 +300,7 @@ final class MCPServer {
 
     @MainActor
     private func openBrowser(_ arguments: [String: Any]) -> [String: Any] {
+        guard let store else { return Self.toolError("YTray is stopping") }
         let instanceID: String?
         switch Self.optionalString(arguments, "instance_id") {
         case .success(let value): instanceID = value
@@ -354,6 +370,7 @@ final class MCPServer {
         _ arguments: [String: Any],
         action: (BrowserInstance) -> [String: Any]
     ) -> [String: Any] {
+        guard let store else { return Self.toolError("YTray is stopping") }
         let raw: String
         switch Self.optionalString(arguments, "instance_id") {
         case .success(let value):
@@ -376,7 +393,7 @@ final class MCPServer {
             "version": runtime.versionLabel,
             "kind": runtime.kind.rawValue,
             "source": runtime.source.rawValue,
-            "default": runtime.id == store.defaultRuntime?.id,
+            "default": runtime.id == store?.defaultRuntime?.id,
         ]
     }
 

@@ -190,7 +190,7 @@ windows/
 - .NET 10 SDK 和 PowerShell 7.2+；不要求 Visual Studio，.NET Framework 4.7.2 引用程序集通过 NuGet 自动恢复
 - NuGet 包在构建时自动还原（Newtonsoft.Json / MSTest 等）
 - `-Package` 使用 Costura 嵌入 HandyControl / Newtonsoft.Json 等托管依赖，输出 `YTray.exe` 与很小的 `.exe.config`；不打包 .NET 运行时或外部电脑控制引擎
-- `-Package` 会读取 OSS 发布清单的 `latest`，下载并校验对应的 Yakit Browser Agent，再作为资源嵌入同一个 EXE
+- `-Package` 使用 Node.js 22 和 pnpm 从 `browser-extension/` 构建 Yakit Browser Agent 的企业版，校验并嵌入 EXE。
 - 正式版启动后会读取 YTray OSS `latest.json`；用户可在设置页查看下载进度，安装包通过大小与 SHA-256 校验后由 Inno Setup 静默替换并自动重启
 
 ### 构建

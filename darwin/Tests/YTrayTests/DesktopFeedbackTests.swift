@@ -64,6 +64,20 @@ final class DesktopFeedbackTests: XCTestCase {
     }
 
     @MainActor
+    func testOverlayCleanupMovesBackgroundReleaseToMainThread() async {
+        let panel = DesktopFeedbackPanel(frame: CGRect(x: -10000, y: -10000, width: 300, height: 124))
+        panel.orderFrontRegardless()
+        XCTAssertTrue(panel.isVisible)
+        let closed = expectation(description: "Window cleanup returned to main queue")
+        DispatchQueue.global().async {
+            DesktopFeedbackPanel.closeOnMain([panel])
+            DispatchQueue.main.async { closed.fulfill() }
+        }
+        await fulfillment(of: [closed], timeout: 1)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    @MainActor
     func testRenderedGlowHasNoCornerSeamsAndFadesToTransparent() throws {
         let width = 600, height = 400
         let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
@@ -99,6 +113,75 @@ final class DesktopFeedbackTests: XCTestCase {
         XCTAssertTrue((schema["required"] as? [String] ?? []).contains("window_id"))
         XCTAssertEqual((properties["delivery_mode"] as? [String: Any])?["default"] as? String, "background")
         XCTAssertEqual(Set(definitions.compactMap { $0["name"] as? String }).count, definitions.count)
+    }
+
+    @MainActor
+    func testInspectionResetDiscardsLateResultAndError() async throws {
+        let model = DesktopInspectionModel()
+        for fails in [false, true] {
+            let started = expectation(description: "Read started")
+            var resume: CheckedContinuation<[String: Any], Error>?
+            let pending = model.inspect("list_windows") {
+                try await withCheckedThrowingContinuation { continuation in
+                    resume = continuation
+                    started.fulfill()
+                }
+            }
+            await fulfillment(of: [started], timeout: 1)
+            XCTAssertTrue(model.isLoading)
+            model.reset()
+            if fails { resume?.resume(throwing: SystemControlError("Old session error")) }
+            else { resume?.resume(returning: ["structuredContent": ["windows": [["window_id": 99]], "text": "Old window"]]) }
+            await pending.value
+            XCTAssertTrue(model.windows.isEmpty)
+            XCTAssertTrue(model.observation.isEmpty)
+            XCTAssertTrue(model.error.isEmpty)
+            XCTAssertNil(model.screenshot)
+            XCTAssertFalse(model.isLoading)
+        }
+    }
+
+    @MainActor
+    func testReplacedInspectionCannotOverwriteNewResult() async throws {
+        let model = DesktopInspectionModel()
+        let started = expectation(description: "First read started")
+        var resume: CheckedContinuation<[String: Any], Never>?
+        let old = model.inspect("list_windows") {
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                started.fulfill()
+            }
+        }
+        await fulfillment(of: [started], timeout: 1)
+        await model.inspect("list_windows") {
+            ["structuredContent": ["windows": [["window_id": 42]], "text": "Current window"]]
+        }.value
+        resume?.resume(returning: ["structuredContent": ["windows": [["window_id": 99]], "text": "Old window"]])
+        await old.value
+        XCTAssertEqual(model.windows.first?["window_id"] as? Int, 42)
+        XCTAssertTrue(model.observation.contains("Current window"))
+        XCTAssertFalse(model.observation.contains("Old window"))
+        XCTAssertFalse(model.isLoading)
+        model.reset()
+        XCTAssertTrue(model.observation.isEmpty)
+    }
+
+    @MainActor
+    func testResetBeforeInspectionStartsDoesNotCallBackend() async {
+        let model = DesktopInspectionModel()
+        var calls = 0
+        let pending = model.inspect("list_windows") { calls += 1; return [:] }
+        model.reset()
+        await pending.value
+        XCTAssertEqual(calls, 0)
+        XCTAssertFalse(model.isLoading)
+        await model.inspect("get_window_state") {
+            ["isError": true, "structuredContent": ["error_code": "stale_observation", "message": "Read the window again"]]
+        }.value
+        XCTAssertEqual(model.error, "stale_observation: Read the window again")
+        XCTAssertFalse(model.isLoading)
+        model.reset()
+        XCTAssertTrue(model.error.isEmpty)
     }
 
     /// Export real native views without activating an app or reading/clicking the user's desktop.

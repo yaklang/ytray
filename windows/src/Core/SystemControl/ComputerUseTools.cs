@@ -35,6 +35,13 @@ namespace YTray.Core.SystemControl
         }
 
         private readonly SemaphoreSlim _interaction = new SemaphoreSlim(1, 1);
+        private readonly AsyncLocal<ControlRequestScope?> _publicRequest = new AsyncLocal<ControlRequestScope?>();
+        private void RequirePublicGrant() => _publicRequest.Value?.RequireActive(_grant, IsEnabled);
+        private void MarkPublicInput()
+        {
+            if (_publicRequest.Value is ControlRequestScope scope) scope.InputMayHaveExecuted = true;
+        }
+
         private enum WindowCaptureMode { Requested, NativeFirst, ForegroundRetry }
         private static JObject Property(string type, string description = "") => new JObject { ["type"] = type, ["description"] = description };
         private JArray PublicTools()
@@ -131,12 +138,16 @@ namespace YTray.Core.SystemControl
         }
         private async Task ReadyAsync(CancellationToken cancellation)
         {
+            RequirePublicGrant();
             ControlCancellation.Check(cancellation);
             if (!IsEnabled || _grant == null) throw new ControlException("ControlDisabled", "电脑控制已关闭，请在 YTray 开启");
             if (!IsRunning) _ = EnsureConnectedAsync();
             var timer = Stopwatch.StartNew();
-            while (IsEnabled && !IsRunning && Phase != "Paused" && timer.Elapsed < TimeSpan.FromSeconds(12))
+            while (IsEnabled && !IsRunning && Phase != "Paused" && timer.Elapsed < TimeSpan.FromSeconds(12)) {
+                RequirePublicGrant();
                 await Task.Delay(100, cancellation).ConfigureAwait(false);
+            }
+            RequirePublicGrant();
             ControlCancellation.Check(cancellation);
             if (!IsRunning) throw new ControlException("DesktopUnavailable", Phase == "Paused" ? "请解锁桌面后继续" : "控制连接尚未就绪，请稍后重试");
         }
@@ -146,7 +157,6 @@ namespace YTray.Core.SystemControl
                 ?? throw new ControlException("UnknownTool", "未找到工具，请重新读取 tools/list");
             ControlJson.Validate(arguments, (JObject)definition["inputSchema"]!);
             var timing = new ControlTiming();
-            var grant = _grant;
             try { await _interaction.WaitAsync(cancellation).ConfigureAwait(false); }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
                 timing.Queue = timing.Clock.ElapsedMilliseconds;
@@ -157,7 +167,7 @@ namespace YTray.Core.SystemControl
             timing.Queue = timing.Clock.ElapsedMilliseconds;
             try {
                 ControlCancellation.Check(cancellation);
-                if (!ReferenceEquals(grant, _grant)) throw new ControlException("GrantRevoked", "电脑控制授权已更新，请重新连接");
+                RequirePublicGrant();
                 var task = FindTask(arguments);
                 var resumedFrom = (long?)arguments["resume_from"];
                 var action = HasOperationFeedback(name);
@@ -184,7 +194,7 @@ namespace YTray.Core.SystemControl
                 try { await ReadyAsync(cancellation).ConfigureAwait(false); }
                 catch (ControlException error) { return CompleteOperation(timing, error.Result()); }
                 finally { timing.Ready = timing.Clock.ElapsedMilliseconds - readyAt; }
-                if (!ReferenceEquals(grant, _grant)) throw new ControlException("GrantRevoked", "电脑控制授权已更新，请重新连接");
+                RequirePublicGrant();
                 EnterOperation(timing, "target");
                 return CompleteOperation(timing, await CallSimpleCoreAsync(name, arguments, timing, cancellation).ConfigureAwait(false), arguments);
             } catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
@@ -216,6 +226,7 @@ namespace YTray.Core.SystemControl
 
         private void RequireFolderAccess(string generation)
         {
+            RequirePublicGrant();
             var grant = _grant;
             if (!IsEnabled || grant == null)
                 throw new ControlException("ControlDisabled", "电脑控制已关闭，请在本机开启");
@@ -233,6 +244,7 @@ namespace YTray.Core.SystemControl
             RequireFolderAccess(generation);
             ControlCancellation.Check(cancellation);
             EnterOperation(timing, "launch");
+            RequirePublicGrant();
             try
             {
                 using var process = Process.Start(start);
@@ -267,6 +279,7 @@ namespace YTray.Core.SystemControl
                 if (name == "launch_app") {
                     if (_grant!.AllowForeground != true) throw new ControlException("BackgroundUnavailable", "启动应用需要前台操作模式");
                     var app = await Task.Run(() => WindowsApplicationControl.Find((string)arguments["app"]!, CurrentWindows()), cancellation).ConfigureAwait(false);
+                    RequirePublicGrant();
                     if (!AllowedApp(app.Path))
                         throw new ControlException("ScopeDenied", "当前授权范围不允许打开这个应用");
                     var url = (string?)arguments["url"];
@@ -278,7 +291,7 @@ namespace YTray.Core.SystemControl
                             timing.Operation?.Bind(window);
                         }
                         EnterOperation(timing, step);
-                    }, (selected, processes) => RestoreTrayAppAsync(selected, processes, timing, cancellation)).ConfigureAwait(false);
+                    }, (selected, processes) => RestoreTrayAppAsync(selected, processes, timing, cancellation), RequirePublicGrant).ConfigureAwait(false);
                     actionCompleted = true;
                     target = RegisterTarget(opened.Target.Handle.ToInt64());
                     timing.Operation?.Bind(target);
@@ -286,8 +299,7 @@ namespace YTray.Core.SystemControl
                     var waitForBrowser = app.IsBrowser && (!opened.Reused || url != null);
                     var message = opened.RestoredFromTray ? "已从托盘打开现有应用窗口"
                         : opened.Reused && url == null ? "已切到现有应用窗口" : "应用已打开并切到前台";
-                    var state = await UpdatedAsync(target, message, waitForBrowser, "", arguments, waitForUpdate: waitForBrowser,
-                        timing: timing, cancellation: cancellation, nativeFirst: true).ConfigureAwait(false);
+                    var state = await ReadActionStateAsync(target, message, arguments, timing, cancellation, waitForBrowser).ConfigureAwait(false);
                     state["structuredContent"]!["reused_window"] = opened.Reused;
                     if (opened.RestoredFromTray) state["structuredContent"]!["restored_from_tray"] = true;
                     return state;
@@ -313,16 +325,19 @@ namespace YTray.Core.SystemControl
                     if (target == null) throw new ControlException("InvalidArguments", "请选择应用窗口");
                     if (_grant!.AllowForeground != true) throw new ControlException("BackgroundUnavailable", "当前模式不切换前台窗口");
                     EnterOperation(timing, "activate");
-                    await WindowsApplicationControl.ActivateAsync(target, cancellation).ConfigureAwait(false);
+                    await WindowsApplicationControl.ActivateAsync(target, cancellation, RequirePublicGrant).ConfigureAwait(false);
                     actionCompleted = true;
                     EnterOperation(timing, "readback");
-                    return await UpdatedAsync(target, "窗口已切到前台", options: arguments, timing: timing, cancellation: cancellation, nativeFirst: true).ConfigureAwait(false);
+                    return await ReadActionStateAsync(target, "窗口已切到前台", arguments, timing, cancellation).ConfigureAwait(false);
                 }
                 return await ActSimpleAsync(name, arguments, target, timing, cancellation).ConfigureAwait(false);
             } catch (Exception error) when (actionCompleted && cancellation.IsCancellationRequested && (error is ControlException || error is OperationCanceledException)) {
                 return ControlCancellation.Error("Completed").Result();
             } catch (ControlException error) {
-                var result = (actionCompleted ? new ControlException(error.Code, error.Message, "Completed", error.Verification) : error).Result();
+                if (actionCompleted)
+                    return ControlActionResult.Combine(ControlJson.Result(new JObject()),
+                        ControlActionResult.ReadbackFailure(target?.Handle.ToInt64() ?? 0, target?.Title ?? "Desktop", error.Message), name);
+                var result = error.Result();
                 if ((error.Code == "PopupChanged" || error.Verification != null) && IsScreenshotClick(name, arguments, target)) EnterOperation(timing, "verify_capture");
                 FinishOperation(timing.Operation, (JObject)result["structuredContent"]!["error"]!);
                 var staleDesktop = target == null && _grant?.AllowDesktop == true && (error.Code == "StaleObservation" || error.Code == "CaptureExpired");
@@ -412,6 +427,7 @@ namespace YTray.Core.SystemControl
                     ["processes"] = new JArray(processes.Select(process => new JObject { ["pid"] = process.Pid, ["created"] = process.Created })),
                     ["_operation_id"] = timing.Operation?.Id ?? 0
                 };
+                if (restore) MarkPublicInput();
                 var reply = await RequestNativeAsync(_connection!, restore ? "tray/restore" : "tray/inspect", parameters, _lifetime!.Token,
                     cancellation, restore ? 6000 : 1800).ConfigureAwait(false);
                 RequireGeneration(generation);
@@ -487,7 +503,7 @@ namespace YTray.Core.SystemControl
             RequireGeneration((string)state["runtime_generation"]!);
             EnterOperation(timing, "activate_capture");
             var activateAt = timing.Clock.ElapsedMilliseconds;
-            try { await WindowsApplicationControl.ActivateAsync(target, cancellation).ConfigureAwait(false); }
+            try { await WindowsApplicationControl.ActivateAsync(target, cancellation, RequirePublicGrant).ConfigureAwait(false); }
             catch (ControlException error) when (error.Code == "WindowNotActive") {
                 state["screenshot_error"] = "后台未能取得可靠画面，Windows 也未能将窗口切到前台。";
                 return raw;
@@ -525,7 +541,8 @@ namespace YTray.Core.SystemControl
                         continue;
                     }
                     return result;
-                } catch (ControlException error) when (!cancellation.IsCancellationRequested && attempt == 0 && (!IsRunning || error.Code == "RuntimeGenerationMismatch")) { }
+                } catch (ControlException error) when (!cancellation.IsCancellationRequested && attempt == 0
+                    && error.Code != "GrantRevoked" && (!IsRunning || error.Code == "RuntimeGenerationMismatch")) { }
                 finally { if (timing != null) timing.State += timing.Clock.ElapsedMilliseconds - readAt; }
             }
         }
@@ -742,7 +759,7 @@ namespace YTray.Core.SystemControl
                 && (name == "scroll" || name == "click" && ((string?)input["button"] ?? "left") == "left" && ((int?)input["count"] ?? 1) == 1);
             if (boundState == null && mode == "foreground" && !preferNative && target != null && WindowsApplicationControl.IsMinimized(target.Handle)) {
                 EnterOperation(timing, "activate");
-                await WindowsApplicationControl.ActivateAsync(target, cancellation).ConfigureAwait(false);
+                await WindowsApplicationControl.ActivateAsync(target, cancellation, RequirePublicGrant).ConfigureAwait(false);
                 target = RegisterTarget(target.Handle.ToInt64());
             }
             var matchingWindow = MatchesWindow();
@@ -846,6 +863,20 @@ namespace YTray.Core.SystemControl
             return (sameFrame.Length == 1 ? sameFrame[0] : null)
                 ?? throw new ControlException("ElementChanged", "控件已变化，已刷新界面，请重新选择");
         }
+        private async Task<JObject> ReadActionStateAsync(WindowsControlTarget target, string message, JObject options,
+            ControlTiming timing, CancellationToken cancellation, bool waitForBrowser = false)
+        {
+            JObject observation;
+            try {
+                observation = await UpdatedAsync(target, message, waitForBrowser, "", options, waitForUpdate: waitForBrowser,
+                    timing: timing, cancellation: cancellation, nativeFirst: true).ConfigureAwait(false);
+            } catch (Exception error) when (!cancellation.IsCancellationRequested) {
+                observation = ControlActionResult.ReadbackFailure(target.Handle.ToInt64(), target.Title,
+                    error is ControlException ? error.Message : "最新界面暂不可用，请重新观察");
+            }
+            return ControlActionResult.Combine(ControlJson.Result(new JObject()), observation, timing.Operation?.Tool ?? "readback");
+        }
+
         private async Task<JObject> FinishSimpleAsync(JObject result, WindowsControlTarget? target, string step, JObject options, ControlTiming timing,
             CancellationToken cancellation, bool navigate = false, string? oldTitle = null, int? verificationImageDimension = null)
         {
@@ -861,15 +892,8 @@ namespace YTray.Core.SystemControl
                 return cancelled;
             }
             if ((string?)failure?["code"] == "Cancelled" || cancellation.IsCancellationRequested) return Cancelled();
-            JObject? actionError = null;
-            if (failed) {
-                actionError = new JObject { ["code"] = failure?["code"] ?? "ActionIncomplete", ["message"] = ActionErrorMessage(result),
-                    ["step"] = failure?["step"] ?? new JValue(step), ["execution_state"] = failure?["execution_state"] ?? "Unknown" };
-                foreach (var field in new[] { "selection_sent", "text_sent" })
-                    if (failure?[field] is JToken value) actionError[field] = value.DeepClone();
-                if (failure?["verification"] is JObject difference) actionError["verification"] = difference.DeepClone();
-                FinishOperation(timing.Operation, actionError);
-            } else EnterOperation(timing, "readback");
+            if (failed) FinishOperation(timing.Operation, ControlActionResult.ActionError(result, step));
+            else EnterOperation(timing, "readback");
             var waited = result["structuredContent"]?["_state_waited"]?.Value<bool>() == true;
             var owner = FindPopupOwner(target);
             var message = failed ? "操作未完成，已返回最新界面" : "已执行 " + step;
@@ -886,12 +910,15 @@ namespace YTray.Core.SystemControl
                 // the input result and let the caller select the next authorized HWND.
                 var notice = failed ? "操作未完成，原窗口无法读回，请核对窗口列表。"
                     : "输入已投递，原窗口无法读回，请核对窗口列表。";
-                var state = new JObject { ["message"] = notice, ["windows"] = new JArray(CurrentWindows().Select(WindowsApplicationControl.WindowJson)) };
-                if (!target!.IsDisplayed || !target.IsOwnedBy(owner!.Handle)) {
+                RequirePublicGrant();
+                var missing = ControlActionResult.ReadbackFailure(target!.Handle.ToInt64(), target.Title, notice);
+                var state = (JObject)missing["structuredContent"]!;
+                state["windows"] = new JArray(CurrentWindows().Select(WindowsApplicationControl.WindowJson));
+                if (!target.IsDisplayed || !target.IsOwnedBy(owner!.Handle)) {
                     state["window_closed"] = true;
                     state["closed_window_id"] = target.Handle.ToInt64();
                 }
-                return ControlJson.Result(state, notice);
+                return missing;
             }
             JObject updated;
             try {
@@ -914,33 +941,17 @@ namespace YTray.Core.SystemControl
                 }
             } catch (Exception error) when (cancellation.IsCancellationRequested && (error is ControlException || error is OperationCanceledException)) {
                 return Cancelled();
-            } catch (ControlException error) {
-                if (owner != null && !cancellation.IsCancellationRequested && error.Code is "PopupChanged" or "TargetChanged")
-                    updated = await ReadOwnerAsync().ConfigureAwait(false);
-                else {
-                    if (actionError == null) throw new ControlException(error.Code, error.Message, "Completed");
-                    return new JObject { ["isError"] = true, ["structuredContent"] = new JObject { ["error"] = actionError },
-                        ["content"] = new JArray(new JObject { ["type"] = "text", ["text"] = actionError["message"] }) };
-                }
+            } catch (Exception error) {
+                updated = ControlActionResult.ReadbackFailure(target?.Handle.ToInt64() ?? 0, target?.Title ?? "Desktop",
+                    error is ControlException ? error.Message : "最新界面暂不可用，请重新观察");
             }
-            if (actionError != null) {
-                updated["isError"] = true;
-                updated["structuredContent"]!["error"] = actionError;
-            }
+            updated = ControlActionResult.Combine(result, updated, step);
             if (result["structuredContent"]?["visual_verification"] is JToken verification)
                 updated["structuredContent"]!["visual_verification"] = verification.DeepClone();
             if (result["structuredContent"]?["visual_verification_caret"] is JToken caret)
                 updated["structuredContent"]!["visual_verification_caret"] = caret.DeepClone();
             return updated;
         }
-        internal static string ActionErrorMessage(JObject result)
-        {
-            var state = result["structuredContent"];
-            var message = (string?)state?["error"]?["message"] ?? (string?)state?["refusal"]?["message"] ?? (string?)state?["message"];
-            if (string.IsNullOrWhiteSpace(message)) message = (result["content"] as JArray ?? new JArray())
-                .Where(c => (string?)c["type"] == "text").Select(c => (string?)c["text"]).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
-            if (message == null || string.IsNullOrWhiteSpace(message)) return "操作结果未确认，请查看已返回的最新界面";
-            return message.Length > 800 ? message.Substring(0, 800) + "…" : message;
-        }
+        internal static string ActionErrorMessage(JObject result) => ControlActionResult.Message(result);
     }
 }

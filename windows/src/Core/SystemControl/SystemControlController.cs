@@ -193,20 +193,30 @@ namespace YTray.Core.SystemControl
             return NativeControlSchema.Catalog();
         }
         internal JArray ReferenceTools() => PublicTools();
-        internal Task<JObject> CallAsync(string name, JObject arguments, string? expectedGeneration = null, CancellationToken cancellation = default,
+        internal async Task<JObject> CallAsync(string name, JObject arguments, string? expectedGeneration = null, CancellationToken cancellation = default,
             ControlTraceCall? trace = null)
         {
-            // Existing clients may finish an in-flight v1 operation. New discovery exposes
-            // only the compact API; driver session bookkeeping stays behind this boundary.
-            return arguments["target_ref"] != null || arguments["request_id"] != null || arguments["observation_id"] != null
-                || name == "check_permissions" || name == "end_session" || name.StartsWith("ytray_", StringComparison.Ordinal)
-                ? CallLegacyAsync(name, arguments, expectedGeneration, cancellation: cancellation)
-                : CallSimpleAsync(name, arguments, expectedGeneration ?? _generation, cancellation, trace);
+            var generation = expectedGeneration ?? _generation;
+            var grant = _grant;
+            if (generation != _generation) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察");
+            if (!IsEnabled || grant == null) throw new ControlException("ControlDisabled", "电脑控制已关闭，请在本机开启");
+            var previous = _publicRequest.Value;
+            _publicRequest.Value = new ControlRequestScope(grant);
+            try {
+                RequirePublicGrant();
+                // Existing clients may finish an in-flight v1 operation. New discovery exposes
+                // only the compact API; driver session bookkeeping stays behind this boundary.
+                return arguments["target_ref"] != null || arguments["request_id"] != null || arguments["observation_id"] != null
+                    || name == "check_permissions" || name == "end_session" || name.StartsWith("ytray_", StringComparison.Ordinal)
+                    ? await CallLegacyAsync(name, arguments, generation, cancellation: cancellation).ConfigureAwait(false)
+                    : await CallSimpleAsync(name, arguments, generation, cancellation, trace).ConfigureAwait(false);
+            } finally { _publicRequest.Value = previous; }
         }
         private async Task<JObject> CallLegacyAsync(string name, JObject arguments, string? expectedGeneration = null, bool waitForOperation = false,
             JObject? compact = null, ControlTiming? timing = null, bool textOnlyDesktop = false, CancellationToken cancellation = default, bool inspection = false,
             WindowCaptureMode capture = WindowCaptureMode.Requested)
         {
+            RequirePublicGrant();
             ControlCancellation.Check(cancellation);
             if (expectedGeneration != null && expectedGeneration != _generation) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察");
             if (!IsEnabled || _grant == null) throw new ControlException("ControlDisabled", "电脑控制已关闭，请在本机开启");
@@ -362,7 +372,14 @@ namespace YTray.Core.SystemControl
                     throw new ControlException("KeyboardTargetUnavailable", "目标窗口设置为不自动激活。请观察当前焦点，选择接收键盘输入的窗口。");
                 var activateAt = timing?.Clock.ElapsedMilliseconds ?? 0;
                 EnterOperation(timing, "activate");
-                await WindowsApplicationControl.ActivateAsync(window, cancellation).ConfigureAwait(false);
+                await WindowsApplicationControl.ActivateAsync(window, cancellation,
+                    () => RequireGeneration(generation)).ConfigureAwait(false);
+                // Plain keys can use WPF's window input without reattaching its input queue.
+                if (name == "press_key" && (arguments["modifiers"] as JArray)?.Count is null or 0
+                    && WindowsApplicationControl.UsesWpfKeyboardMessages(window.Handle)) {
+                    arguments["delivery_mode"] = "background";
+                    arguments["_focus_before_key"] = true;
+                }
                 if (timing != null) timing.Activate += timing.Clock.ElapsedMilliseconds - activateAt;
             }
             var tryNative = action && target != null && (string?)arguments["delivery_mode"] == "foreground"
@@ -491,13 +508,20 @@ namespace YTray.Core.SystemControl
         }
         private bool AllowedApp(string executable) => _grant?.AllowDesktop == true || _grant?.Executables.Contains(executable, StringComparer.OrdinalIgnoreCase) == true;
         private bool Allowed(WindowsControlTarget target) => target.Pid != Process.GetCurrentProcess().Id && target.Pid != WorkerProcessId && AllowedApp(target.Executable);
-        private void RequireGeneration(string generation) { if (!IsEnabled || _generation != generation || _lifetime?.IsCancellationRequested != false) throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察，旧请求不会重放。"); }
+        private void RequireGeneration(string generation)
+        {
+            RequirePublicGrant();
+            if (!IsEnabled || _generation != generation || _lifetime?.IsCancellationRequested != false)
+                throw new ControlException("RuntimeGenerationMismatch", "连接已更新，请重新观察，旧请求不会重放。");
+        }
         internal Task<JObject> CallNativeAsync(string name, JObject args, CancellationToken lifetime, int timeout = 10000,
             CancellationToken cancellation = default, long operationId = 0)
         {
+            RequirePublicGrant();
             var connection = _connection ?? throw new ControlException("DriverUnavailable", "原生控制进程已停止");
             var parameters = new JObject { ["name"] = name, ["arguments"] = args };
             if (operationId != 0) parameters["_operation_id"] = operationId;
+            if (NativeControlSchema.Actions.Contains(name)) MarkPublicInput();
             return RequestNativeAsync(connection, "tools/call", parameters, lifetime, cancellation, timeout);
         }
         private static async Task<JObject> RequestNativeAsync(NativeControlConnection connection, string method, JObject parameters,

@@ -277,7 +277,11 @@ namespace YTray.Native
                 if (frame.IsEmpty || !frame.IntersectsWith(bounds)) throw new ControlException("ElementNotVisible", "控件当前不可见，请滚动或展开后继续");
             }
             var point = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
-            if (element != null && frame.Width > 0 && frame.Height > 0) point = new Point(frame.Left + frame.Width / 2, frame.Top + frame.Height / 2);
+            if (element != null && frame.Width > 0 && frame.Height > 0) {
+                if (frame.IntersectsWith(bounds) || foreground && (method == "click" || method == "scroll"))
+                    point = WindowsInputGeometry.VisibleCenter(frame, bounds);
+                else point = new Point(frame.Left + frame.Width / 2, frame.Top + frame.Height / 2);
+            }
             if (args["x"] != null && args["y"] != null) {
                 var dimensions = args["_image_size"] as JObject;
                 var width = (double?)dimensions?["width"] ?? bounds.Width; var height = (double?)dimensions?["height"] ?? bounds.Height;
@@ -325,7 +329,7 @@ namespace YTray.Native
                 Point LivePoint() {
                     var current = Rect(element.Current(30001));
                     if (current.IsEmpty || current.Width <= 0 || current.Height <= 0) throw new ControlException("ElementNotVisible", "控件已隐藏，请重新观察");
-                    return new Point(current.Left + current.Width / 2, current.Top + current.Height / 2);
+                    return WindowsInputGeometry.VisibleCenter(current, bounds);
                 }
                 try {
                     var live = LivePoint();
@@ -337,6 +341,8 @@ namespace YTray.Native
                     }
                 } catch (COMException) { throw new ControlException("ElementChanged", "控件已更新，请使用最新界面继续"); }
             }
+            // The feedback animation can outlast the geometry used to aim input.
+            if (foreground && target != null) target.Revalidate(requireGeometry: true);
             var watch = compact != null && target != null;
             string? verifiedCaret = null;
             try {
@@ -398,7 +404,9 @@ namespace YTray.Native
                         }
                         WindowsNativeInput.Text(foreground ? window : nativeHandle, text, foreground, cancellation, postCharacters); break;
                     case "press_key":
-                        if (foreground && element != null) {
+                        var focusBeforeKey = args["_focus_before_key"]?.Value<bool>() == true;
+                        if (focusBeforeKey) WindowsNativeInput.RequireForeground(window);
+                        if ((foreground || focusBeforeKey) && element != null) {
                             stage("focus");
                             ControlCancellation.Check(cancellation);
                             element.SetFocus();

@@ -1210,6 +1210,17 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertLessThanOrEqual(YTrayMain.browserProcessBootstrapDelay, 0.1)
     }
 
+    @MainActor
+    func testProcessMonitoringDoesNotRetainDiscardedStores() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ytray-store-lifetime-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var store: InstanceStore? = InstanceStore(applicationDirectory: directory, discoverSystemBrowsers: false)
+        weak var released = store
+        XCTAssertNotNil(released)
+        store = nil
+        XCTAssertNil(released, "The repeating process monitor must not retain a discarded store")
+    }
+
     func testModernChromeDefersPluginStartupInsteadOfRejectingTheRuntime() throws {
         let plugin = BrowserPlugin(name: "Local", version: "1", path: "/tmp/plugin", manifestVersion: 3)
         let arguments = try BrowserLauncher.buildArguments(
@@ -1218,8 +1229,17 @@ final class BrowserLauncherTests: XCTestCase {
             runtimeVersion: "152.0", deferExtensionStartup: true
         )
         XCTAssertEqual(arguments.last, "about:blank")
-        XCTAssertTrue(arguments.contains("--load-extension=/tmp/plugin"))
+        XCTAssertFalse(arguments.contains(where: { $0.hasPrefix("--load-extension") }))
         XCTAssertFalse(arguments.contains(where: { $0.hasPrefix("--disable-extensions-except") }))
+        for (kind, version) in [(BrowserKind.chrome, "136.0"), (.chromeForTesting, "151.0"), (.chromium, "152.0"), (.edge, "152.0")] {
+            let legacy = try BrowserLauncher.buildArguments(
+                mode: .quick, settings: LaunchSettings(), profilePath: "/tmp/profile",
+                debugPort: 9231, plugins: [plugin], runtimeKind: kind,
+                runtimeVersion: version, deferExtensionStartup: true
+            )
+            XCTAssertTrue(legacy.contains("--load-extension=/tmp/plugin"), "Retain supported CLI loading for \(kind)")
+            XCTAssertTrue(legacy.contains("--disable-extensions-except=/tmp/plugin"))
+        }
     }
 
     func testRealChromeForTestingUsesGeneratedProxyAuthenticationExtensionWhenConfigured() async throws {

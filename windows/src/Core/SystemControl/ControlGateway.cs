@@ -86,12 +86,13 @@ namespace YTray.Core.SystemControl
                 cors["Access-Control-Max-Age"] = "60";
             }
             if (request.Method == "OPTIONS") return new HttpResponse(origin == null ? 403 : 200, "", cors);
+            // Snapshot before authorization so a renewed grant cannot adopt an old request.
+            var generation = _controller.Generation;
             var authorization = request.Header("authorization");
             if (!_controller.Authorized(authorization, origin)) {
                 cors["WWW-Authenticate"] = "Bearer realm=\"YTray\"";
                 return Reject(401, "Authorization required", cors, string.IsNullOrEmpty(authorization) ? "Authorization header missing" : "Authorization header rejected");
             }
-            var generation = _controller.Generation;
             if (request.Method != "POST") return new HttpResponse(405, "Use POST", cors);
             var clientSession = request.Header("mcp-session-id") ?? "";
             if (clientSession.Length != 0 && !ValidSessionId(clientSession, authorization!))

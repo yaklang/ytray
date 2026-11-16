@@ -38,7 +38,7 @@ macOS 版本使用 Swift、AppKit 与 SwiftUI；Windows 版本使用 C# 与 WPF�
 - 内置 MCP 服务允许本机 agent 列出运行时与实例，并打开、聚焦或停止浏览器实例。
 - 历史记录可以恢复同一个身份环境、用户目录、插件、角标与最近页面。
 - 支持本机 Chrome、Chrome Beta、Chrome Canary、Chrome for Testing、Chromium 与 Edge。
-- 安装包构建时下载并校验最新 Yakit Browser Agent，再作为默认本地插件内置。
+- 安装包使用当前提交的 Yakit Browser Agent 源码构建默认内置插件，打包时校验版本、大小和 SHA-256。
 - YTray 会在后台检查正式版本；发现更新后可在应用内查看进度、校验并安装，不需要重新打开网站手动下载。
 
 YTray 不修改系统浏览器的名称、Bundle ID、签名或默认浏览器设置。它只用隔离参数启动用户明确选择的浏览器。
@@ -151,6 +151,17 @@ Windows 主线目前仍受官方 Chrome 命令行插件限制；对应的 CDP �
 
 ## 本地开发
 
+### 浏览器插件
+
+Yakit Browser Agent 源码位于 [browser-extension](browser-extension/README.md)。使用 Node.js 22 和 `browser-extension/package.json` 指定的 pnpm 版本。
+
+```bash
+pnpm --dir browser-extension install --frozen-lockfile
+pnpm --dir browser-extension dev
+```
+
+Windows 和 macOS 打包时也使用这套工具链构建内置插件。已打包的桌面应用可直接使用内置插件。
+
 ### macOS
 
 要求 macOS 14+ 和 Xcode Command Line Tools：
@@ -165,7 +176,7 @@ Windows 主线目前仍受官方 Chrome 命令行插件限制；对应的 CDP �
 swift test --package-path darwin
 ```
 
-构建带最新版插件的本机架构 DMG：
+构建本机架构的 DMG 时会内置当前源码的插件。
 
 ```bash
 ./script/package-macos.sh --dmg
@@ -190,7 +201,7 @@ open dist/darwin-arm64-dev/YTrayDev.app
 ./windows/build.ps1 -Release -Test -Package -Installer -Architecture amd64
 ```
 
-将 `-Architecture` 改为 `386` 可构建 32 位版本。`-Package` 会先从官方 OSS 清单解析并下载最新 Yakit Browser Agent，校验 SHA-256、大小和 ZIP 路径安全后才开始编译。
+将 `-Architecture` 改为 `386` 可构建 32 位版本。`-Package` 会先从 `browser-extension/` 构建企业版插件，校验并嵌入 EXE。
 
 ### 官方网站
 
@@ -224,10 +235,11 @@ React Bits Pro 授权只保存在本机的 `site/.env.local`；其授权信息�
 
 ## CI、Pages 与发版
 
-- `macOS`：在 macOS 15 和 Tahoe 26 上执行 Swift Release 构建、测试、真实 UI 渲染、更新器验证、最新版插件打包、通用 DMG 挂载及真实启动/窗口唤回检查；可指定已发布版本测试 Apple 芯片和 Intel 正式包。
+- `macOS` 在 macOS 15 和 Tahoe 26 上执行 Swift Release 构建、测试、真实 UI 渲染、更新器验证、本仓库插件打包、通用 DMG 挂载及真实启动检查。
 - `Windows`：WPF 构建、测试、独立 EXE 冒烟、真实设计截图和 Inno Setup 安装包。
 - `Pages`：安装锁定依赖、装配版本化真实截图、静态导出 Next.js 官网，发布后用 `deploy-meta.json` 验证线上 commit。
-- `Release`：仅由 `v*` tag 触发；分别构建 macOS arm64/amd64 与 Windows amd64/386，确认四个安装包使用同一最新插件版本，再发布到 GitHub 与 OSS。
+- `Browser extension` 在插件改动时运行测试、类型检查及四种构建变体的审计。
+- `Release` 为 macOS arm64/amd64 与 Windows amd64/386 构建安装包，核对四个包内置的插件与当前提交生成的企业版 ZIP 一致。桌面发布使用 `v*` 标签。
 
 OSS 版本产物使用不可变路径：
 

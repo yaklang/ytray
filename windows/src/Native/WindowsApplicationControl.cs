@@ -170,8 +170,10 @@ namespace YTray.Native
 
         internal static async Task<(WindowsControlTarget Target, bool Reused, bool RestoredFromTray)> LaunchAsync(App app, bool newWindow, string? url = null,
             CancellationToken cancellation = default, Action<string, WindowsControlTarget?>? progress = null,
-            Func<App, List<(int Pid, long Created)>, Task<(WindowsControlTarget Target, bool Invoked)>>? restoreTray = null)
+            Func<App, List<(int Pid, long Created)>, Task<(WindowsControlTarget Target, bool Invoked)>>? restoreTray = null,
+            Action? requireActive = null)
         {
+            requireActive?.Invoke();
             ControlCancellation.Check(cancellation);
             Uri? destination = null;
             if (url != null && (!app.IsBrowser || !Uri.TryCreate(url, UriKind.Absolute, out destination) || destination.UserInfo.Length != 0
@@ -182,7 +184,7 @@ namespace YTray.Native
                 var existing = OrderAppWindows(before).FirstOrDefault();
                 if (existing != null) {
                     progress?.Invoke("activate", existing);
-                    await ActivateAsync(existing, cancellation).ConfigureAwait(false);
+                    await ActivateAsync(existing, cancellation, requireActive).ConfigureAwait(false);
                     return (WindowsControlTarget.Resolve(existing.Handle), true, false);
                 }
                 if (restoreTray != null && RunningProcesses(new[] { app.Path }).TryGetValue(app.Path, out var running)) {
@@ -193,7 +195,7 @@ namespace YTray.Native
                     if (restored is { } result) try {
                         if (!IsForeground(result.Target.Handle)) {
                             progress?.Invoke("activate", result.Target);
-                            await ActivateAsync(result.Target, cancellation).ConfigureAwait(false);
+                            await ActivateAsync(result.Target, cancellation, requireActive).ConfigureAwait(false);
                         }
                         result.Target.Revalidate();
                         return (result.Target, true, result.Invoked);
@@ -209,6 +211,7 @@ namespace YTray.Native
             if (destination != null) start.Arguments += " \"" + destination.AbsoluteUri.Replace("\"", "%22") + "\"";
             ControlCancellation.Check(cancellation);
             progress?.Invoke("launch", null);
+            requireActive?.Invoke();
             using var launched = Process.Start(start);
             (int Pid, long Created, string Path)? redirected = null;
             if (launched != null) try {
@@ -218,6 +221,7 @@ namespace YTray.Native
             } catch (Exception error) when (error is Win32Exception or InvalidOperationException or ArgumentException or ControlException) { }
             var elapsed = Stopwatch.StartNew();
             try { while (elapsed.Elapsed < TimeSpan.FromSeconds(12)) {
+                requireActive?.Invoke();
                 ControlCancellation.Check(cancellation, "Unknown");
                 IEnumerable<WindowsControlTarget> candidates = WindowsControlTarget.Enumerate(app.Path);
                 if (redirected is { } instance)
@@ -232,7 +236,7 @@ namespace YTray.Native
                 var target = fresh ?? (reused ? windows.OrderByDescending(window => window.Handle == GetForegroundWindow()).FirstOrDefault() : null);
                 if (target != null) {
                     progress?.Invoke("activate", target);
-                    await ActivateAsync(target, cancellation).ConfigureAwait(false);
+                    await ActivateAsync(target, cancellation, requireActive).ConfigureAwait(false);
                     return (WindowsControlTarget.Resolve(target.Handle), existingHandles.Contains(target.Handle), false);
                 }
                 await Task.Delay(150, cancellation).ConfigureAwait(false);
@@ -261,8 +265,9 @@ namespace YTray.Native
             }
             return (long)(bounds.Right - bounds.Left) * (bounds.Bottom - bounds.Top);
         }
-        internal static async Task ActivateAsync(WindowsControlTarget target, CancellationToken cancellation = default)
+        internal static async Task ActivateAsync(WindowsControlTarget target, CancellationToken cancellation = default, Action? requireActive = null)
         {
+            requireActive?.Invoke();
             ControlCancellation.Check(cancellation);
             target.Revalidate();
             // Our topmost popover can cover a real target while window capture
@@ -276,14 +281,15 @@ namespace YTray.Native
             ControlCancellation.Check(cancellation);
             try
             {
-                if (await TryBringToForegroundAsync(target.Handle, cancellation).ConfigureAwait(false)) return;
+                if (await TryBringToForegroundAsync(target.Handle, cancellation, requireActive).ConfigureAwait(false)) return;
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { throw ControlCancellation.Error("Unknown"); }
-            throw new ControlException("WindowNotActive", "窗口未能切到前台，已返回当前窗口信息");
+            throw new ControlException("WindowNotActive", "窗口未能切到前台，已返回当前窗口信息", "Unknown");
         }
 
-        internal static async Task<bool> TryBringToForegroundAsync(IntPtr window, CancellationToken cancellation)
+        internal static async Task<bool> TryBringToForegroundAsync(IntPtr window, CancellationToken cancellation, Action? requireActive = null)
         {
+            requireActive?.Invoke();
             cancellation.ThrowIfCancellationRequested();
             if (IsIconic(window)) ShowWindowAsync(window, 9);
             if (IsForeground(window)) return true;
@@ -293,6 +299,7 @@ namespace YTray.Native
             try { BringWindowToTop(window); SetForegroundWindow(window); }
             finally { if (attached) AttachThreadInput(currentThread, foregroundThread, false); }
             for (var attempt = 0; attempt < 10; attempt++) {
+                requireActive?.Invoke();
                 if (IsForeground(window)) return true;
                 await Task.Delay(50, cancellation).ConfigureAwait(false);
             }
@@ -303,6 +310,12 @@ namespace YTray.Native
             var root = GetAncestor(window, 2);
             return root != IntPtr.Zero && GetAncestor(GetForegroundWindow(), 2) == root;
         }
+        internal static bool UsesWpfKeyboardMessages(IntPtr window)
+        {
+            var name = new StringBuilder(256);
+            GetClassName(window, name, name.Capacity);
+            return name.ToString().StartsWith("HwndWrapper", StringComparison.Ordinal);
+        }
         internal static bool IsMinimized(IntPtr window) => IsIconic(window);
         internal static long ForegroundWindow => GetForegroundWindow().ToInt64();
         internal static bool SamePath(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
@@ -311,6 +324,7 @@ namespace YTray.Native
             ["window_id"] = target.Handle.ToInt64(), ["pid"] = target.Pid, ["title"] = target.Title,
             ["app"] = System.IO.Path.GetFileNameWithoutExtension(target.Executable), ["executable"] = target.Executable
         };
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
         [DllImport("user32.dll")] private static extern bool GetWindowPlacement(IntPtr window, ref WindowPlacement placement);
