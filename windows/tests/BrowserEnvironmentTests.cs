@@ -67,6 +67,56 @@ namespace YTray.Tests
         }
 
         [TestMethod]
+        public void RandomEnvironmentKeepsRegionalAndDisplayPairsAndLeavesTheTemplateUntouched()
+        {
+            var template = new BrowserEnvironment
+            {
+                Name = "Random", RandomizeOnLaunch = true, RuntimeId = Guid.NewGuid(), ProxyPresetId = Guid.NewGuid(),
+                Network = BrowserEnvironmentNetwork.SavedProxy, PixelRatio = 1.5, Location = BrowserEnvironmentPermission.Block,
+            };
+            var launch = BrowserEnvironmentSettings.Randomized(template);
+            BrowserEnvironmentSettings.Validate(launch);
+            Assert.IsTrue(BrowserEnvironmentSettings.Regions.Any(region => region.Language == launch.Language && region.TimeZone == launch.TimeZone));
+            var sizeIndex = Array.FindIndex(BrowserEnvironmentSettings.Windows, size => size.Width == launch.WindowWidth && size.Height == launch.WindowHeight);
+            Assert.IsTrue(sizeIndex >= 0);
+            Assert.AreEqual(BrowserEnvironmentSettings.Viewports[sizeIndex].Width, launch.ViewportWidth);
+            Assert.AreEqual(BrowserEnvironmentSettings.Viewports[sizeIndex].Height, launch.ViewportHeight);
+            Assert.AreEqual(template.RuntimeId, launch.RuntimeId);
+            Assert.AreEqual(template.ProxyPresetId, launch.ProxyPresetId);
+            Assert.AreEqual(template.Network, launch.Network);
+            Assert.AreEqual(template.PixelRatio, launch.PixelRatio);
+            Assert.AreEqual(template.Location, launch.Location);
+            Assert.AreEqual("", template.Language);
+            Assert.IsNull(template.WindowWidth);
+        }
+
+        [TestMethod]
+        public void PrivacySettingsUpdateTheProfileWithoutClearingSiteExceptions()
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "ytray-environment-privacy-" + Guid.NewGuid())).FullName;
+            try
+            {
+                var preferences = Path.Combine(Directory.CreateDirectory(Path.Combine(directory, "Default")).FullName, "Preferences");
+                File.WriteAllText(preferences, "{\"profile\":{\"content_settings\":{\"exceptions\":{}},\"default_content_setting_values\":{\"notifications\":2}}}");
+                BrowserEnvironmentSettings.PrepareProfile(directory, new BrowserEnvironment
+                {
+                    WebRtc = BrowserEnvironmentWebRtc.DisableNonProxiedUdp, Cookies = BrowserEnvironmentCookies.BlockThirdParty,
+                    Location = BrowserEnvironmentPermission.Block, Microphone = BrowserEnvironmentPermission.Ask,
+                });
+                var result = JObject.Parse(File.ReadAllText(preferences));
+                Assert.AreEqual("disable_non_proxied_udp", (string?)result.SelectToken("webrtc.ip_handling_policy"));
+                Assert.AreEqual(1, (int?)result.SelectToken("profile.cookie_controls_mode"));
+                var permissions = result.SelectToken("profile.default_content_setting_values")!;
+                Assert.AreEqual(2, (int?)permissions["geolocation"]);
+                Assert.AreEqual(3, (int?)permissions["media_stream_mic"]);
+                Assert.AreEqual(2, (int?)permissions["notifications"]);
+                Assert.IsNull(permissions["media_stream_camera"]);
+                Assert.IsNotNull(result.SelectToken("profile.content_settings.exceptions"));
+            }
+            finally { Directory.Delete(directory, true); }
+        }
+
+        [TestMethod]
         public void EnvironmentIsAcceptedForNewInstancesOnly()
         {
             var environment = Guid.NewGuid().ToString("D");

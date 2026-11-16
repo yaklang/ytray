@@ -317,7 +317,9 @@ namespace YTray.Core.BrowserUse
                         "list_runtimes" => new JObject { ["runtimes"] = new JArray(store.Runtimes.Select(runtime => McpServer.RuntimeJson(runtime, store.DefaultRuntime?.Id))) },
                         "list_environments" => new JObject { ["environments"] = new JArray(store.BrowserEnvironments.Select(environment => new JObject {
                             ["environment_id"] = environment.Id, ["name"] = environment.Name, ["runtime_id"] = environment.RuntimeId,
-                            ["language"] = environment.Language, ["timezone"] = environment.TimeZone, ["network"] = environment.Network.ToString()
+                            ["language"] = environment.RandomizeOnLaunch ? null : environment.Language,
+                            ["timezone"] = environment.RandomizeOnLaunch ? null : environment.TimeZone,
+                            ["randomize_on_launch"] = environment.RandomizeOnLaunch, ["network"] = environment.Network.ToString()
                         })) },
                         _ => new JObject { ["instances"] = new JArray(store.RunningInstances.Select(DescribeInstance)) },
                     }, cancellation).ConfigureAwait(false);
@@ -402,6 +404,8 @@ namespace YTray.Core.BrowserUse
             ["runtime_id"] = instance.RuntimeID.ToString("D"),
             ["environment_id"] = instance.SettingsSnapshot?.Environment?.Id,
             ["environment_name"] = instance.SettingsSnapshot?.Environment?.Name,
+            ["environment_language"] = instance.SettingsSnapshot?.Environment?.Language,
+            ["environment_timezone"] = instance.SettingsSnapshot?.Environment?.TimeZone,
             ["environment_connected"] = _store?.IsBrowserEnvironmentConnected(instance),
             ["extension_ready"] = _instances.TryGetValue(instance.Id, out var connection) && connection.IsConnected,
         };

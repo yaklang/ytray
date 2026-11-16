@@ -37,6 +37,7 @@ namespace YTray.Views.Pages
         private bool _isRebindingRuntimeChoices;
         private string? _runtimeChoicesSignature;
         private List<RuntimeChoice> _runtimeChoices = new List<RuntimeChoice>();
+        private List<BrowserEnvironment> _environmentChoices = new List<BrowserEnvironment>();
         private string? _choiceSignature;
         private BrowserEnvironment? SelectedEnvironment => (EnvironmentCombo.SelectedItem as ComboBoxItem)?.Tag as BrowserEnvironment;
 
@@ -104,10 +105,11 @@ namespace YTray.Views.Pages
         private void RefreshLaunchChoices()
         {
             var settings = _store.Settings;
-            var signature = settings.PresetProxyServer + "|" + string.Join("|", settings.RecentProxyPresets.Select(item => $"{item.Id}:{item.Server}:{item.Remark}:{item.LastUsedAt.Ticks}"))
-                + "|" + string.Join("|", _store.BrowserEnvironments.Select(item => $"{item.Id}:{item.Name}:{item.RuntimeId}:{item.Network}:{item.ProxyPresetId}:{item.Language}:{item.TimeZone}:{item.WindowWidth}:{item.WindowHeight}:{item.ViewportWidth}:{item.ViewportHeight}"));
-            if (_choiceSignature == signature) return;
+            var signature = settings.PresetProxyServer + "|" + settings.PresetProxyUsername + "|"
+                + string.Join("|", settings.RecentProxyPresets.Select(item => $"{item.Id}:{item.Server}:{item.Remark}:{item.LastUsedAt.Ticks}"));
+            if (_choiceSignature == signature && _environmentChoices.SequenceEqual(_store.BrowserEnvironments)) return;
             _choiceSignature = signature;
+            _environmentChoices = _store.BrowserEnvironments.ToList();
             var selectedNetwork = NetworkCombo.SelectedItem as NetworkChoice;
             var networks = new List<NetworkChoice>
             {

@@ -836,6 +836,8 @@ namespace YTray.Core
             {
                 try
                 {
+                    if (restoring == null && configuration.Environment.RandomizeOnLaunch)
+                        configuration.Environment = BrowserEnvironmentSettings.Randomized(configuration.Environment);
                     BrowserEnvironmentSettings.Validate(configuration.Environment);
                     if (restoring == null) ApplyEnvironment(configuration);
                 }

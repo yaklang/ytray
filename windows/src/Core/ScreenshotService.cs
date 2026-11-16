@@ -174,7 +174,15 @@ namespace YTray.Core
             var command = new JObject {
                 ["id"] = 1, ["method"] = "Runtime.evaluate",
                 ["params"] = new JObject {
-                    ["expression"] = "({language:navigator.language, languages:navigator.languages, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone, window_width:outerWidth, window_height:outerHeight, viewport_width:innerWidth, viewport_height:innerHeight, user_agent:navigator.userAgent})",
+                    ["expression"] = @"(async () => {
+                        const permission = async name => { try { return (await navigator.permissions.query({name})).state; } catch { return null; } };
+                        const [location, camera, microphone] = await Promise.all(['geolocation', 'camera', 'microphone'].map(permission));
+                        return {language:navigator.language, languages:navigator.languages, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+                            window_width:outerWidth, window_height:outerHeight, viewport_width:innerWidth, viewport_height:innerHeight,
+                            pixel_ratio:devicePixelRatio, color_scheme:matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+                            reduced_motion:matchMedia('(prefers-reduced-motion: reduce)').matches, location, camera, microphone, user_agent:navigator.userAgent};
+                    })()",
+                    ["awaitPromise"] = true,
                     ["returnByValue"] = true
                 }
             };

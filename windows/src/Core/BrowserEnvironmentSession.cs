@@ -89,13 +89,20 @@ namespace YTray.Core
             {
                 // A link-created tab can keep renderer commands pending until it is
                 // resumed. Queue the settings before resume and then await all replies.
-                var setup = new List<Task<JObject>>(3);
+                var setup = new List<Task<JObject>>(4);
                 if (_environment.TimeZone.Length != 0)
                     setup.Add(CommandAsync("Emulation.setTimezoneOverride", new JObject { ["timezoneId"] = _environment.TimeZone }, token, sessionId));
-                if (_environment.ViewportWidth is int width && _environment.ViewportHeight is int height)
+                if (_environment.ViewportWidth != null || _environment.PixelRatio != null)
                     setup.Add(CommandAsync("Emulation.setDeviceMetricsOverride", new JObject {
-                        ["width"] = width, ["height"] = height, ["deviceScaleFactor"] = 0, ["mobile"] = false
+                        ["width"] = _environment.ViewportWidth ?? 0, ["height"] = _environment.ViewportHeight ?? 0,
+                        ["deviceScaleFactor"] = _environment.PixelRatio ?? 0, ["mobile"] = false
                     }, token, sessionId));
+                var media = new JArray();
+                if (_environment.ColorScheme != BrowserEnvironmentColorScheme.Default)
+                    media.Add(new JObject { ["name"] = "prefers-color-scheme", ["value"] = _environment.ColorScheme == BrowserEnvironmentColorScheme.Dark ? "dark" : "light" });
+                if (_environment.Motion != BrowserEnvironmentMotion.Default)
+                    media.Add(new JObject { ["name"] = "prefers-reduced-motion", ["value"] = _environment.Motion == BrowserEnvironmentMotion.Reduced ? "reduce" : "no-preference" });
+                if (media.Count > 0) setup.Add(CommandAsync("Emulation.setEmulatedMedia", new JObject { ["features"] = media }, token, sessionId));
                 if ((bool?)attached["waitingForDebugger"] == true)
                     setup.Add(CommandAsync("Runtime.runIfWaitingForDebugger", new JObject(), token, sessionId));
                 await Task.WhenAll(setup).ConfigureAwait(false);
