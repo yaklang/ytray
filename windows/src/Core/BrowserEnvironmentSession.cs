@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,7 +31,7 @@ namespace YTray.Core
             _token = _lifetime.Token;
         }
 
-        internal bool IsConnected => !_token.IsCancellationRequested;
+        internal bool IsConnected => !_token.IsCancellationRequested && _initialPage.Task.Status == TaskStatus.RanToCompletion;
 
         internal async Task StartAsync(int port)
         {
@@ -86,21 +87,25 @@ namespace YTray.Core
             var token = deadline.Token;
             try
             {
+                // A link-created tab can keep renderer commands pending until it is
+                // resumed. Queue the settings before resume and then await all replies.
+                var setup = new List<Task<JObject>>(3);
                 if (_environment.TimeZone.Length != 0)
-                    await CommandAsync("Emulation.setTimezoneOverride", new JObject { ["timezoneId"] = _environment.TimeZone }, token, sessionId).ConfigureAwait(false);
+                    setup.Add(CommandAsync("Emulation.setTimezoneOverride", new JObject { ["timezoneId"] = _environment.TimeZone }, token, sessionId));
                 if (_environment.ViewportWidth is int width && _environment.ViewportHeight is int height)
-                    await CommandAsync("Emulation.setDeviceMetricsOverride", new JObject {
+                    setup.Add(CommandAsync("Emulation.setDeviceMetricsOverride", new JObject {
                         ["width"] = width, ["height"] = height, ["deviceScaleFactor"] = 0, ["mobile"] = false
-                    }, token, sessionId).ConfigureAwait(false);
+                    }, token, sessionId));
                 if ((bool?)attached["waitingForDebugger"] == true)
-                    await CommandAsync("Runtime.runIfWaitingForDebugger", new JObject(), token, sessionId).ConfigureAwait(false);
+                    setup.Add(CommandAsync("Runtime.runIfWaitingForDebugger", new JObject(), token, sessionId));
+                await Task.WhenAll(setup).ConfigureAwait(false);
                 _initialPage.TrySetResult(true);
             }
             catch (Exception error)
             {
                 if (_token.IsCancellationRequested) return;
-                _initialPage.TrySetException(error);
                 if (error is DevToolsCommandException command && command.Code == -32001) return; // The tab was closed.
+                _initialPage.TrySetException(error);
                 DiagnosticLog.Error("browser.environment.page", error);
                 // Fail this navigation instead of sending the request with default environment values.
                 using var cleanup = CancellationTokenSource.CreateLinkedTokenSource(_token);
