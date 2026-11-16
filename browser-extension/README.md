@@ -190,7 +190,7 @@ Yak gRPC 进程内置 Browser Bridge v3，扩展无需额外启动桥接脚本�
 完整能力需要以下组件：
 
 - Chrome / Chromium / Edge，或受支持的 Firefox；
-- Node.js 与 pnpm；
+- Node.js 22 和 `package.json` 指定的 pnpm；
 - 包含 Browser Bridge v3 的 Yak 引擎；
 - 包含“浏览器集成”工作区的 Yakit。
 
@@ -199,9 +199,9 @@ Yak gRPC 进程内置 Browser Bridge v3，扩展无需额外启动桥接脚本�
 ### 安装依赖并启动开发模式
 
 ```bash
-git clone https://github.com/yaklang/yaklang-chrome-extension.git
-cd yaklang-chrome-extension
-pnpm install
+git clone https://github.com/yaklang/ytray.git
+cd ytray/browser-extension
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
@@ -317,6 +317,8 @@ Native Host 的构建与注册方式见 [native-host/README.md](./native-host/RE
 
 `verify:production` 会连续执行测试、类型检查和多个浏览器目标构建，资源占用明显高于单项命令。日常开发建议先运行与改动相关的测试和 `pnpm compile`，发布前再执行完整验证。
 
+Yak 集成测试使用本机 Yaklang checkout。`pnpm verify:native` 可通过 `YAK_REPO` 指定路径，`pnpm verify:agent-gateway` 可通过 `YAKLANG_ROOT` 指定路径。
+
 ### 构建差异
 
 | 构建 | 页面执行通道 | 适用场景 |
@@ -330,7 +332,7 @@ Chrome Store 构建声明 Chrome 138+。用户需要在扩展详情页开启“�
 
 ### 发布与下载
 
-发布由 GitHub Actions 的 **Build and Release** workflow（手动触发）完成：执行 `verify:production` 全量校验后，将四个变体打包为不可变的版本化产物上传到 OSS，再发布机器可读的 manifest，并从公网侧回读验证。CI 在每次 push / PR 时运行同一套构建与审计。
+在 YTray 仓库手动运行 **Browser extension release** 发布插件。工作流执行 `verify:production`，将四个变体打包为不可变的版本化产物上传到 OSS，再发布并回读验证 manifest。GitHub Release 使用 `extension-vX.Y.Z` 标签。YTray 的安装包从当前提交的企业版源码构建。
 
 **下载入口**（不要硬编码版本号）：
 

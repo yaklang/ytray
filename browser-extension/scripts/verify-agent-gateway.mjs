@@ -12,7 +12,7 @@ function decrypt(envelope) {
 
 const targetURL = process.env.LOGIN_TARGET || 'http://localhost:8080/crypto/sqli/aes-ecb/encrypt/login'
 const engine = spawn('go', ['test', './common/yakgrpc', '-run', '^TestBrowserAgentLiveGateway$', '-count=1', '-v'], {
-  cwd: process.env.YAKLANG_ROOT || resolve(import.meta.dirname, '../../../go/yaklang'),
+  cwd: process.env.YAKLANG_ROOT || resolve(import.meta.dirname, '../../../yaklang'),
   env: { ...process.env, YAK_BROWSER_AGENT_E2E: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
 })
 let output = ''

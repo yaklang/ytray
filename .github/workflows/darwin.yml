@@ -92,7 +92,9 @@ jobs:
       - name: Ensure ImageMagick
         run: command -v magick >/dev/null 2>&1 || brew install imagemagick
 
-      - name: Exercise universal package with latest plugin
+      - uses: ./.github/actions/setup-browser-extension
+
+      - name: Exercise universal package with the bundled plugin
         run: ./script/package-macos.sh --arch universal --dmg
 
       - name: Test packaged application startup

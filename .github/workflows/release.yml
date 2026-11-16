@@ -14,11 +14,13 @@ concurrency:
 
 jobs:
   version:
-    name: Resolve release version
+    name: Resolve version and bundle browser extension
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      extension_version: ${{ steps.bundle.outputs.version }}
+      extension_sha256: ${{ steps.bundle.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
       - id: version
@@ -34,6 +36,21 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           python3 -m unittest discover -s script/tests -v
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup-browser-extension
+      - name: Build Chromium extension for all desktop packages
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          node script/prepare-yakit-browser-agent.mjs "$RUNNER_TEMP/browser-extension"
+          jq -r '"version=\(.version)", "sha256=\(.sha256)"' \
+            "$RUNNER_TEMP/browser-extension/bundled-extension.json" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundled-browser-extension
+          path: ${{ runner.temp }}/browser-extension/
+          if-no-files-found: error
 
   macos:
     name: macOS ${{ matrix.arch }} DMG
@@ -52,6 +69,13 @@ jobs:
         arch: [arm64, amd64]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundled-browser-extension
+          path: ${{ runner.temp }}/browser-extension
       - name: Select OpenSSL 3 for native updater tests
         run: |
           brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
@@ -60,6 +84,8 @@ jobs:
         run: command -v magick >/dev/null 2>&1 || brew install imagemagick
       - name: Test and package
         shell: bash
+        env:
+          YTRAY_EXTENSION_BUNDLE_DIRECTORY: ${{ runner.temp }}/browser-extension
         run: |
           set -euo pipefail
           swift test --package-path darwin
@@ -138,6 +164,13 @@ jobs:
         arch: [amd64, "386"]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundled-browser-extension
+          path: ${{ runner.temp }}/browser-extension
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -145,6 +178,8 @@ jobs:
         run: choco install innosetup -y --no-progress
       - name: Build, test, and package
         shell: pwsh
+        env:
+          YTRAY_EXTENSION_BUNDLE_DIRECTORY: ${{ runner.temp }}/browser-extension
         run: |
           ./windows/build.ps1 -Release -Test -Package -Installer `
             -Architecture '${{ matrix.arch }}' -Version '${{ needs.version.outputs.version }}'
@@ -217,21 +252,20 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Validate latest bundled plugin and create manifest
+      - name: Verify the same bundled plugin across packages and create manifest
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          PLUGIN_VERSION: ${{ needs.version.outputs.extension_version }}
+          PLUGIN_SHA256: ${{ needs.version.outputs.extension_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t plugin_versions < <(jq -r '.version' dist/plugin-*.json | sort -u)
-          test "${#plugin_versions[@]}" = 1
-          plugin_version="${plugin_versions[0]}"
-          latest_plugin="$(curl --compressed --retry 4 --retry-all-errors -fsSL \
-            https://aliyun-oss.yaklang.com/chrome-extension/manifest.json | jq -r '.latest')"
-          test "$plugin_version" = "$latest_plugin"
-          rm dist/plugin-*.json
+          descriptors=(dist/plugin-darwin-{amd64,arm64}.json dist/plugin-windows-{amd64,386}.json)
+          jq -es --arg version "$PLUGIN_VERSION" --arg sha256 "$PLUGIN_SHA256" --arg commit "$GITHUB_SHA" \
+            'all(.[]; .version == $version and .sha256 == $sha256 and .sourceCommit == $commit)' "${descriptors[@]}" >/dev/null
+          rm "${descriptors[@]}"
 
-          PLUGIN_VERSION="$plugin_version" python3 script/prepare-release-assets.py dist
+          python3 script/prepare-release-assets.py dist
 
       - name: Sign and verify all native update feeds
         env:

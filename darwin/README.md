@@ -62,7 +62,7 @@ YTray 提供工具和执行能力，模型由 MCP 客户端选择和调用。使
 
 ### 插件与 Yakit 协作
 
-安装包内置经过下载校验的 Yakit Browser Agent，也支持导入已解压的本地插件。启动时检查实际加载状态，必要时尝试通过 CDP 加载扩展，完成检查后再打开目标页面。
+安装包内置由本仓库源码构建并校验的 Yakit Browser Agent，也支持导入已解压的本地插件。启动时检查实际加载状态，必要时尝试通过 CDP 加载扩展，完成检查后再打开目标页面。
 
 插件实际加载失败时，可以选择本次不加载插件继续启动；该选择不会关闭全局默认插件。带用户名或密码的代理依赖认证插件，不能跳过认证插件继续启动。旧浏览器保留其支持的命令行加载方式，兼容边界见 [Chrome 插件验证](docs/chrome-extension-verification.md)。
 
@@ -347,7 +347,7 @@ state.json      配置与实例历史
 
 ## 从源码构建与验证
 
-需要 macOS 14+、Xcode Command Line Tools。打包还需要 ImageMagick（提供 `magick`）；Swift Package Manager 会解析项目依赖，打包脚本会准备内置浏览器扩展。
+需要 macOS 14+、Xcode Command Line Tools。打包还需要 ImageMagick、Node.js 22 和 pnpm。Swift Package Manager 解析桌面依赖，打包脚本从 `browser-extension/` 构建内置插件。
 
 在仓库根目录执行：
 

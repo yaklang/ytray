@@ -43,4 +43,3 @@ export function algorithmSummary(
   if (algorithm.salt !== undefined) parts.push(`saltBytes=${byteLength(algorithm.salt) || 0}`);
   return parts.join(' ').slice(0, 240);
 }
-

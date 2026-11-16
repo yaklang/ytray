@@ -9,6 +9,7 @@
  *
  * Usage:
  *   node scripts/package-release.mjs --public-base-url=https://aliyun-oss.yaklang.com/chrome-extension [--dist=dist]
+ *   Add --variant=chrome-enterprise to package only the desktop bundle.
  */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -57,6 +58,8 @@ async function sha256File(path) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+const variants = args.variant === undefined ? VARIANTS : VARIANTS.filter((target) => target.variant === args.variant);
+if (variants.length === 0) throw new Error(`Unknown release variant: ${args.variant}`);
 if (!args['public-base-url']) {
   throw new Error('--public-base-url is required (e.g. https://aliyun-oss.yaklang.com/chrome-extension)');
 }
@@ -104,7 +107,7 @@ const versionDir = resolve(distDir, version);
 await mkdir(versionDir, { recursive: true });
 
 const artifacts = [];
-for (const target of VARIANTS) {
+for (const target of variants) {
   const outputDir = resolve(root, target.dir);
   if (!(await exists(resolve(outputDir, 'manifest.json')))) {
     throw new Error(`${target.variant}: ${target.dir}/manifest.json missing — run the build first (pnpm verify:production)`);

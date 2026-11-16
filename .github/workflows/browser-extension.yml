@@ -1,0 +1,42 @@
+name: Browser extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'browser-extension/**'
+      - '.github/actions/setup-browser-extension/**'
+      - '.github/workflows/browser-extension*.yml'
+  pull_request:
+    paths:
+      - 'browser-extension/**'
+      - '.github/actions/setup-browser-extension/**'
+      - '.github/workflows/browser-extension*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: browser-extension
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-browser-extension
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test, compile, build and audit all variants
+        run: pnpm verify:production

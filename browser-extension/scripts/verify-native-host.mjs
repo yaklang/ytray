@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws';
 import { resolveChromiumPath } from './resolve-chromium.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const yakRoot = resolve(process.env.YAK_REPO || root, process.env.YAK_REPO ? '.' : '../../go/yaklang');
+const yakRoot = resolve(process.env.YAK_REPO || resolve(root, '../../yaklang'));
 const extensionPath = resolve(root, process.env.EXTENSION_PATH || '.output/chrome-mv3-store');
 const executablePath = await resolveChromiumPath();
 const temporary = await mkdtemp(join(tmpdir(), 'yakit-native-host-e2e-'));
