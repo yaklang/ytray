@@ -1,0 +1,71 @@
+import { browser } from 'wxt/browser';
+import type { HandoffReason } from '@/types/models';
+import type { CapabilityDomainHandler } from '../capability-context';
+import { allowedTarget } from '../capability-context';
+import { getTab } from '@/platform/browser/targets';
+import { getState, updateState } from '@/platform/storage/state';
+import { setAgentRuntimeState } from '@/features/agent-runtime/service';
+import { ExtensionError } from '@/shared/errors';
+import { HANDOFF_CAPABILITY_DOMAIN } from '../capability-domains';
+import { focusHandoff, getHandoffPresentation, resolveHandoff } from '@/features/handoff/service';
+
+export const handoffCapabilityHandler: CapabilityDomainHandler = {
+  ...HANDOFF_CAPABILITY_DOMAIN,
+  async handle({ method, input, grant }) {
+    if (method === 'browser.handoff.presentation.get') {
+      return getHandoffPresentation(String(input.handoffId || ''), grant);
+    }
+    if (method === 'browser.handoff.focus') {
+      return focusHandoff(String(input.handoffId || ''), grant);
+    }
+    if (method === 'browser.handoff.resolve') {
+      return resolveHandoff(
+        String(input.handoffId || ''),
+        input.outcome === 'cancelled' ? 'cancelled' : 'completed',
+        grant,
+      );
+    }
+    if (method === 'browser.handoff.status') {
+      const handoff = (await getState()).handoff;
+      return handoff?.taskId === grant.taskId ? handoff : { state: 'idle' };
+    }
+    const resolvedTarget = await allowedTarget(grant, input);
+    const [tab, frame] = await Promise.all([
+      getTab(resolvedTarget.tabId),
+      browser.webNavigation.getFrame(resolvedTarget),
+    ]);
+    if (!frame?.url || !/^https?:/i.test(frame.url)) {
+      throw new ExtensionError('target_unavailable', '目标 frame 不是可接管的 HTTP(S) 页面');
+    }
+    const grantTarget = {
+      ...resolvedTarget,
+      isolationContextId: tab.isolationContextId || `browser-profile:tab-${tab.id}`,
+      cookieStoreId: tab.cookieStoreId,
+      origin: new URL(frame.url).origin,
+      grantedUrl: frame.url,
+      title: tab.title,
+    };
+    const now = Date.now();
+    const state = await updateState((current) => {
+      if (current.handoff?.state === 'waiting_for_user') {
+        throw new ExtensionError('handoff_in_progress', '已有人工接管请求正在等待处理');
+      }
+      return {
+        ...current,
+        handoff: {
+          id: crypto.randomUUID(),
+          taskId: grant.taskId,
+          target: grantTarget,
+          reason: input.reason as HandoffReason,
+          message: typeof input.message === 'string' ? input.message : '',
+          state: 'waiting_for_user' as const,
+          requestedAt: now,
+        },
+      };
+    });
+    await browser.action.setBadgeBackgroundColor({ color: '#ee7815' });
+    await browser.action.setBadgeText({ text: '待确认', tabId: resolvedTarget.tabId });
+    await setAgentRuntimeState('waiting_for_human', grant);
+    return state.handoff;
+  },
+};

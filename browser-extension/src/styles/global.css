@@ -1,0 +1,6 @@
+@import './tokens.css';
+@import './ui.css';
+
+html { color-scheme: light; background: var(--background); }
+html[data-theme='dark'] { color-scheme: dark; }
+body { margin: 0; font-family: var(--font-sans); font-size: var(--text-md); color: var(--foreground); background: var(--background); }
