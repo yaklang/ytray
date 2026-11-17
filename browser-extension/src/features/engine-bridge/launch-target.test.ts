@@ -62,6 +62,15 @@ describe('YTray selected frontend', () => {
     expect(() => selectLaunchTarget(target, [restarted, { ...restarted, engineInstanceId: 'another-process' }])).toThrow('多个');
     expect(selectLaunchTarget(target, [memfit, restarted])).toEqual(memfit);
   });
+  it('waits for YTray to verify a replacement when legacy owners may advertise the same identity', () => {
+    const pinned = { ...target, frontendId: 'yakit', ownerFrontendId: 'memfit', exactInstance: true };
+    const old = { ...memfit, frontendId: 'yakit' };
+    const other = { ...old, engineInstanceId: 'another-product' };
+    expect(() => selectLaunchTarget(pinned, [other])).toThrow('等待');
+    expect(selectLaunchTarget(pinned, [other, old])).toBe(old);
+    expect(normalizeLaunchTarget(pinned)).toEqual(pinned);
+  });
+
   it('never turns a malformed or remote stored target into unrestricted discovery', () => {
     expect(normalizeLaunchTarget(undefined)).toBeUndefined();
     expect(normalizeLaunchTarget({ ...target, endpoint: 'ws://example.com/extension' })).toEqual({ mode: 'none' });

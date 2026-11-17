@@ -485,6 +485,33 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
       }
       return ok(engineBridge.getStatus());
     }
+    case 'bridge.managed-connection.get':
+    case 'bridge.managed-connection.set': {
+      const controlURL = browser.runtime.getURL('/ytray-bootstrap.html?connectionOnly=1');
+      const config = (await getState()).bridge;
+      if (sender.url !== controlURL || config.managedInstance?.manager !== 'ytray'
+        || config.managedInstance.instanceId !== request.payload.instanceId) {
+        throw new ExtensionError('forbidden', '接入请求与当前 YTray 实例不匹配');
+      }
+      if (request.action === 'bridge.managed-connection.set') {
+        const target = request.payload.launchTarget;
+        const policy = (await getEnterprisePolicy()).policy;
+        if (target.mode === 'engine' && (policy.disableWebSocket || policy.bridgeTransport === 'native'
+          || policy.bridgeEndpoint && policy.bridgeEndpoint !== target.endpoint)) {
+          throw new ExtensionError('forbidden', '企业连接策略与 YTray 所选接入目标不一致');
+        }
+        engineBridge.cancelPairing();
+        engineBridge.disconnect();
+        await stopPairedBrowserTasks();
+        const state = await updateState((current) => ({ ...current, bridge: bindLaunchTarget(current.bridge, target) }));
+        if (target.mode === 'engine') void engineBridge.connectManaged(state.bridge).catch(console.error);
+        else if (target.mode === 'legacy' && state.bridge.autoConnect && state.bridge.pairedEngine) {
+          void engineBridge.connect(state.bridge).catch(console.error);
+        }
+      }
+      const { state, message } = engineBridge.getPairingStatus();
+      return ok({ status: engineBridge.getStatus(), pairing: { state, message } });
+    }
     case 'bridge.pair': {
       const startedAt = Date.now();
       try {

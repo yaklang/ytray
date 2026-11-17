@@ -24,7 +24,7 @@ import {
   pairingVerificationCode, publicKeysEqual, randomBridgeNonce, signBridgePayload, verifyBridgePayload,
 } from './identity';
 import { bridgeDiscoveryEndpoints } from './discovery';
-import { selectLaunchTarget } from './launch-target';
+import { launchFrontendId, selectLaunchTarget } from './launch-target';
 
 const STATUS_EVENT = 'bridge.status.changed';
 const PAIRING_STATUS_EVENT = 'bridge.pairing.status.changed';
@@ -153,7 +153,7 @@ export class EngineBridge {
     if (config.transport !== 'websocket' || !isLoopbackEndpoint(config.endpoint)) return [];
     const policy = (await getEnterprisePolicy()).policy;
     if (policy.disableWebSocket || policy.bridgeTransport === 'native') return [];
-    const candidates = policy.bridgeEndpoint
+    const candidates = policy.bridgeEndpoint || config.launchTarget?.exactInstance
       ? [new URL('/discovery', config.endpoint).toString()]
       : bridgeDiscoveryEndpoints(config.endpoint);
     const results = await Promise.all(candidates.map((url) => new Promise<DiscoveredYakEngine | undefined>((resolve) => {
@@ -233,16 +233,20 @@ export class EngineBridge {
     if (config.pairedEngine) return this.connect(config);
     if (config.launchTarget?.mode !== 'engine') return;
     this.manuallyClosed = false;
+    const generation = this.connectionGeneration;
     try {
       await this.startPairing();
     } catch (error) {
+      if (generation !== this.connectionGeneration || this.manuallyClosed) return;
       this.setStatus({ state: 'error', message: error instanceof Error ? error.message : String(error) });
       const expected = config.launchTarget;
       if (this.reconnectTimer) globalThis.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = globalThis.setTimeout(() => {
         void getState().then(({ bridge }) => {
-          if (!this.manuallyClosed && bridge.autoConnect && bridge.launchTarget?.mode === 'engine'
-            && bridge.launchTarget.engineIdentityId === expected.engineIdentityId && bridge.launchTarget.frontendId === expected.frontendId) {
+          if (generation === this.connectionGeneration && !this.manuallyClosed && bridge.autoConnect && bridge.launchTarget?.mode === 'engine'
+            && bridge.launchTarget.engineIdentityId === expected.engineIdentityId
+            && launchFrontendId(bridge.launchTarget) === launchFrontendId(expected)
+            && bridge.launchTarget.engineInstanceId === expected.engineInstanceId) {
             return this.connectManaged(bridge);
           }
         }).catch(() => undefined);
@@ -267,11 +271,12 @@ export class EngineBridge {
     }
     if (!effectiveConfig.pairedEngine) throw new Error('浏览器插件尚未与 Yak 引擎配对');
     this.manuallyClosed = false;
+    const generation = this.connectionGeneration;
     const attempt = (effectiveConfig.transport === 'native'
       ? this.connectNative(effectiveConfig)
       : this.connectWebSocketWithDiscovery(effectiveConfig)).catch((error) => {
       const failure = error instanceof Error ? error : new Error(String(error));
-      if (!this.manuallyClosed) this.setStatus({ state: 'error', message: failure.message });
+      if (!this.manuallyClosed && generation === this.connectionGeneration) this.setStatus({ state: 'error', message: failure.message });
       throw failure;
     });
     const tracked = attempt.finally(() => {
@@ -283,6 +288,7 @@ export class EngineBridge {
 
   disconnect(): void {
     this.connectionGeneration++;
+    this.connectPromise = undefined;
     this.manuallyClosed = true;
     this.transportFailureMessage = undefined;
     if (this.reconnectTimer) globalThis.clearTimeout(this.reconnectTimer);
@@ -1118,7 +1124,7 @@ export class EngineBridge {
             autoConnect: true,
             pairedEngine: {
               engineIdentityId: message.engineIdentityId!, deviceId: message.deviceId!,
-              frontendId: context.config.launchTarget?.frontendId,
+              frontendId: launchFrontendId(context.config.launchTarget),
               publicKey: message.publicKey!, pairedAt: Date.now(),
             },
           },

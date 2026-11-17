@@ -21,7 +21,7 @@ namespace YTray.Views
         private List<Guid> _pluginIDs;
         private bool _usePresetProxy;
 
-        public CustomLaunchWizard(InstanceStore store, BrowserEnvironment? environment = null)
+        public CustomLaunchWizard(InstanceStore store, BrowserEnvironment? environment = null, BrowserEngineTarget? engineTarget = null)
         {
             InitializeComponent();
             _store = store;
@@ -29,6 +29,7 @@ namespace YTray.Views
             {
                 HomeURL = store.Settings.HomeURL,
                 Environment = environment?.Clone(),
+                EngineTarget = engineTarget?.Clone() ?? store.DefaultBrowserEngine,
                 DebugPort = store.Settings.DebugPort,
                 RestrictWebRTC = store.Settings.RestrictWebRTC,
                 DisableNotifications = store.Settings.DisableNotifications,
@@ -110,6 +111,15 @@ namespace YTray.Views
                 Dispatcher.BeginInvoke(new Action(() => { if (_step == 0) ShowStep(); }));
             };
             sp.Children.Add(environment);
+            sp.Children.Add(new TextBlock { Text = "接入应用", Margin = new Thickness(0, 0, 0, 5) });
+            var engine = new BrowserEnginePicker { Margin = new Thickness(0, 0, 0, 12) };
+            AutomationProperties.SetName(engine, "接入应用");
+            engine.Configure(_draft.EngineTarget);
+            engine.SelectionChanged += (_, __) =>
+            {
+                if (engine.Target is BrowserEngineTarget selected) _draft.EngineTarget = selected;
+            };
+            sp.Children.Add(engine);
             foreach (var rt in _store.Runtimes)
             {
                 var content = new Grid();
@@ -438,7 +448,7 @@ namespace YTray.Views
             sp.Children.Add(new TextBlock { Text = "确认本次启动配置", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 18) });
             var rt = _store.Runtimes.FirstOrDefault(r => r.Id == (_draft.Environment?.RuntimeId ?? _draft.DefaultRuntimeID));
             var grid = new Grid { Margin = new Thickness(18) };
-            for (int i = 0; i < 10; i++) grid.RowDefinitions.Add(new RowDefinition());
+            for (int i = 0; i < 11; i++) grid.RowDefinitions.Add(new RowDefinition());
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             AddReviewRow(grid, 0, "浏览器", rt != null ? $"{rt.DisplayTitle} {rt.VersionLabel} · {rt.Source.Title()}" : "未选择");
@@ -454,6 +464,7 @@ namespace YTray.Views
             AddReviewRow(grid, 7, "Profile 主题", _draft.ColorizeBrowserInstances ? "按角标分配独立主题色" : "使用浏览器默认主题");
             AddReviewRow(grid, 8, "实例数据", _store.ResolveProfileRoot(_draft));
             AddReviewRow(grid, 9, "浏览器环境", _draft.Environment?.Name ?? "默认启动设置");
+            AddReviewRow(grid, 10, "接入应用", _draft.EngineTarget?.DisplayName ?? "自动选择");
             sp.Children.Add(grid);
             return sp;
         }

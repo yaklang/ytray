@@ -200,6 +200,8 @@ export interface UserAgentResolution {
 export interface BridgeLaunchTarget {
   mode: 'engine' | 'none' | 'legacy';
   frontendId?: string;
+  ownerFrontendId?: string;
+  exactInstance?: boolean;
   frontendName?: string;
   engineIdentityId?: string;
   engineInstanceId?: string;

@@ -8,6 +8,7 @@ const fail = (message: string) => {
 
 async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(location.search);
+  if (query.get('connectionOnly') === '1') return;
   const manager = query.get('manager');
   const instanceId = query.get('instanceId') || '';
   const badge = query.get('badge') || '';

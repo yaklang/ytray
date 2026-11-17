@@ -1,6 +1,7 @@
 <Page x:Class="YTray.Views.Pages.InstancesPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:views="clr-namespace:YTray.Views"
       Background="{DynamicResource AppBackgroundBrush}">
     <Page.Resources>
         <Style x:Key="InstanceSectionTitle" TargetType="TextBlock" BasedOn="{StaticResource SectionTitle}">
@@ -260,7 +261,14 @@
                                         <TextBlock Text="{Binding DockBadge, StringFormat=Profile {0}}" Foreground="{Binding IdentityForegroundBrush}" FontWeight="SemiBold"/>
                                     </Border>
                                 </DockPanel>
-                                <TextBlock Text="{Binding Tag.Instance.EngineTargetSummary, ElementName=DetailContent}" Margin="0,0,0,12" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <StackPanel Margin="0,0,0,12">
+                                    <TextBlock Text="接入应用" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBlock x:Name="EngineConnectionStatus" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,7"/>
+                                    <DockPanel x:Name="EngineConnectionActions">
+                                        <Button DockPanel.Dock="Right" Content="应用" x:Name="ApplyEngineButton" Click="ApplyEngine_Click" Margin="6,0,0,0"/>
+                                        <views:BrowserEnginePicker x:Name="EnginePicker" AutomationProperties.Name="实例接入应用"/>
+                                    </DockPanel>
+                                </StackPanel>
                                 <Border x:Name="DetailPreviewFrame" Height="155" CornerRadius="7" ClipToBounds="True"
                                         SizeChanged="RoundedPreview_SizeChanged" SnapsToDevicePixels="True"
                                         Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
@@ -313,7 +321,6 @@
                                         Style="{StaticResource OutlinedAccentButton}" FontSize="12.5" Visibility="Collapsed">
                                     <StackPanel Orientation="Horizontal"><Viewbox Width="15" Height="15" Margin="0,0,7,0"><Path Data="M 3.3 5.2 L 1 5.2 L 1 2.9 M 1.4 5 C 2.6 2.3 5.9 1.1 8.8 2.1 C 12 3.2 13.7 6.8 12.6 10 C 11.5 13.2 7.9 14.9 4.7 13.8 C 3 13.2 1.7 12 1 10.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.25" Fill="Transparent"/></Viewbox><TextBlock Text="恢复实例"/></StackPanel>
                                 </Button>
-                                <Button x:Name="ChooseTargetRestoreButton" Content="选择接入目标后恢复" Click="ChooseTargetRestore_Click" Margin="0,8,0,0" Visibility="Collapsed"/>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>

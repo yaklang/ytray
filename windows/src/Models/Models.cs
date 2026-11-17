@@ -442,7 +442,8 @@ namespace YTray.Models
     {
         [JsonIgnore]
         public string EngineTargetSummary => SettingsSnapshot?.EngineTarget == null || SettingsSnapshot.EngineTarget.Mode == "legacy" ? "接入：原有连接设置"
-            : SettingsSnapshot.EngineTarget.Mode == "none" ? "仅启动浏览器"
+            : SettingsSnapshot.EngineTarget.Mode == "auto" ? "待选择接入应用"
+            : SettingsSnapshot.EngineTarget.Mode == "none" ? "仅浏览器"
             : "接入：" + SettingsSnapshot.EngineTarget.FrontendName;
         public Guid Id { get; set; } = Guid.NewGuid();
         public string Name { get; set; } = "";

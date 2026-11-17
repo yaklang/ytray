@@ -269,9 +269,8 @@ namespace YTray.Core
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
                 $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
                 browserIdentity + (browserUseTicket == null ? "" : "&browserUseTicket=" + Uri.EscapeDataString(browserUseTicket)) +
-                "&engineTarget=" + Uri.EscapeDataString(Newtonsoft.Json.JsonConvert.SerializeObject(
-                    engineTarget ?? new BrowserEngineTarget { Mode = "legacy" },
-                    new Newtonsoft.Json.JsonSerializerSettings { ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver() }));
+                "&engineTarget=" + Uri.EscapeDataString((engineTarget ?? new BrowserEngineTarget { Mode = "legacy" })
+                    .ToWire().ToString(Newtonsoft.Json.Formatting.None));
         }
 
         internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,

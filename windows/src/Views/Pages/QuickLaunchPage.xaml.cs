@@ -45,6 +45,8 @@ namespace YTray.Views.Pages
         {
             InitializeComponent();
             _store = store;
+            EngineCombo.Configure(store.DefaultBrowserEngine);
+            EngineCombo.SelectionChanged += (_, __) => EngineDefaultButton.Content = "设为默认";
             EnvironmentCombo.SelectionChanged += (_, __) => ApplyEnvironmentSelection();
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
@@ -221,8 +223,15 @@ namespace YTray.Views.Pages
             _store.Settings.HomeURL = HomeUrlBox.Text.Trim();
             _store.SaveSettings();
             var network = NetworkCombo.SelectedItem as NetworkChoice;
-            if (!_store.LaunchConfigured(network?.UsesProxy == true, network?.Preset, SelectedEnvironment) && !_store.LaunchWasCancelled)
+            if (!_store.LaunchConfigured(network?.UsesProxy == true, network?.Preset, SelectedEnvironment, EngineCombo.Target) && !_store.LaunchWasCancelled)
                 ShowLaunchError();
+        }
+
+        private void SaveEngineDefault_Click(object sender, RoutedEventArgs e)
+        {
+            if (EngineCombo.Target is not BrowserEngineTarget target) return;
+            _store.SetDefaultBrowserEngine(target);
+            if (sender is Button button) button.Content = "已设为默认";
         }
 
         private void ShowLaunchError() => MessageBox.Show(
@@ -238,7 +247,7 @@ namespace YTray.Views.Pages
         private void ClearAll_Click(object sender, RoutedEventArgs e) => _store.RemoveAllHistory();
         private void Wizard_Click(object sender, RoutedEventArgs e)
         {
-            var wizard = new CustomLaunchWizard(_store, SelectedEnvironment) { Owner = Window.GetWindow(this) };
+            var wizard = new CustomLaunchWizard(_store, SelectedEnvironment, EngineCombo.Target) { Owner = Window.GetWindow(this) };
             wizard.ShowDialog();
         }
     }

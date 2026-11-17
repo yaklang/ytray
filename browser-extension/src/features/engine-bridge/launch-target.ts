@@ -1,19 +1,21 @@
 import type { BridgeConfig, BridgeLaunchTarget, DiscoveredYakEngine } from '@/types/models';
 
+export const launchFrontendId = (target?: BridgeLaunchTarget) => target?.ownerFrontendId || target?.frontendId;
+
 export function bindLaunchTarget(config: BridgeConfig, target: BridgeLaunchTarget): BridgeConfig {
   // A launcher without discovery support must preserve the user's existing connection and credentials.
   if (target.mode === 'legacy') return { ...config, launchTarget: { mode: 'legacy' },
     autoConnect: config.launchTarget?.mode === 'none' ? true : config.autoConnect };
   const previous = config.pairedEngine && { ...config.pairedEngine,
-    frontendId: config.pairedEngine.frontendId || config.launchTarget?.frontendId
-      || (target.mode === 'engine' && config.endpoint === target.endpoint ? target.frontendId : undefined) };
+    frontendId: config.pairedEngine.frontendId || launchFrontendId(config.launchTarget)
+      || (target.mode === 'engine' && config.endpoint === target.endpoint ? launchFrontendId(target) : undefined) };
   const records = [...new Map([...(config.trustedEngines || []), ...(previous ? [previous] : [])]
     .map((engine) => [`${engine.engineIdentityId}:${engine.frontendId || ''}`, engine])).values()].slice(-32);
   return { ...config, launchTarget: target, transport: target.mode === 'engine' ? 'websocket' : config.transport, autoConnect: target.mode === 'engine',
     endpoint: target.mode === 'engine' ? target.endpoint! : config.endpoint,
     trustedEngines: records,
     pairedEngine: target.mode === 'engine' ? records.find((engine) => engine.engineIdentityId === target.engineIdentityId
-      && engine.frontendId === target.frontendId) : previous,
+      && engine.frontendId === launchFrontendId(target)) : previous,
   };
 }
 
@@ -34,7 +36,10 @@ export function normalizeLaunchTarget(value: unknown): BridgeLaunchTarget | unde
   } catch { return { mode: 'none' }; }
   return {
     mode: 'engine', engineIdentityId: target.engineIdentityId as string, engineInstanceId: target.engineInstanceId as string,
-    frontendId: target.frontendId as string, frontendName: target.frontendName as string, endpoint: target.endpoint as string,
+    frontendId: target.frontendId as string,
+    ...(target.exactInstance === true ? { exactInstance: true } : {}),
+    ...(target.ownerFrontendId === 'memfit' || target.ownerFrontendId === 'yakit' ? { ownerFrontendId: target.ownerFrontendId } : {}),
+    frontendName: target.frontendName as string, endpoint: target.endpoint as string,
   };
 }
 
@@ -43,7 +48,7 @@ export function selectLaunchTarget(target: BridgeLaunchTarget, engines: Discover
     && (engine.frontendId || 'yak') === target.frontendId);
   const exact = matches.find((engine) => engine.engineInstanceId === target.engineInstanceId);
   if (exact) return exact;
-  if (matches.length === 1) return matches[0];
+  if (matches.length === 1 && !target.exactInstance && !target.ownerFrontendId) return matches[0];
   throw new Error(matches.length > 1
     ? `${target.frontendName} 有多个引擎实例，请在 YTray 中重新选择接入目标`
     : `等待所选的 ${target.frontendName} 引擎启动；不会自动连接其他引擎`);

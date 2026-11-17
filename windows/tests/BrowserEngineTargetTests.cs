@@ -46,13 +46,13 @@ namespace YTray.Tests
         }
 
         [TestMethod]
-        public void MissingDiscoveryKeepsLegacyConnectionAndExplicitOptOutRemainsSeparate()
+        public void MissingDiscoveryStartsDisconnectedAndExistingProfilesKeepLegacyConnections()
         {
             var legacy = BrowserEngineDiscovery.ResolveForLaunch(null, new BrowserEngineTarget[0], false);
-            Assert.AreEqual("legacy", legacy.Mode);
+            Assert.AreEqual("auto", legacy.Mode);
             var restoredLegacy = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target() }, true);
             Assert.AreEqual("legacy", restoredLegacy.Mode);
-            var savedLegacy = BrowserEngineDiscovery.ResolveForLaunch(legacy, new[] { Target() }, false);
+            var savedLegacy = BrowserEngineDiscovery.ResolveForLaunch(restoredLegacy, new[] { Target() }, false);
             Assert.AreEqual("legacy", savedLegacy.Mode);
             var optedOut = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "none" }, new[] { Target() }, false);
             Assert.AreEqual("none", optedOut.Mode);
@@ -70,7 +70,24 @@ namespace YTray.Tests
             Assert.AreEqual("stable-key", resolved.EngineIdentityId);
             Assert.AreEqual("process-a", resolved.EngineInstanceId);
             Assert.AreEqual("memfit", resolved.FrontendId);
-            Assert.IsNull(BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target(), Target("other", "yakit") }, false));
+            var ambiguous = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target(), Target("other", "yakit") }, false);
+            Assert.AreEqual("auto", ambiguous.Mode);
+            Assert.AreEqual("none", (string)ambiguous.ToWire()["mode"]);
+            Assert.AreEqual("auto", BrowserEngineDiscovery.ResolveForLaunch(ambiguous, new[] { Target() }, true).Mode);
+        }
+
+        [TestMethod]
+        public void LegacyMemfitRemainsBoundToTheVerifiedOwnerEvenWhenBothEnginesSayYakit()
+        {
+            var legacy = Target(frontend: "yakit");
+            legacy.FrontendOwnerId = "memfit";
+            var other = Target("other-process", "yakit");
+            var restarted = Target("memfit-restarted", "memfit");
+            Assert.AreEqual(legacy.EngineInstanceId, BrowserEngineDiscovery.ResolveRemembered(legacy, new[] { other })!.EngineInstanceId);
+            Assert.AreSame(restarted, BrowserEngineDiscovery.ResolveRemembered(legacy, new[] { other, restarted }));
+            Assert.AreEqual("yakit", (string)legacy.ToWire()["frontendId"]);
+            Assert.AreEqual("memfit", (string)legacy.ToWire()["ownerFrontendId"]);
+            Assert.IsTrue((bool)legacy.ToWire()["exactInstance"]);
         }
 
         [TestMethod]

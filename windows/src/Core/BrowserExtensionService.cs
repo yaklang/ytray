@@ -45,10 +45,12 @@ namespace YTray.Core
             await _socket.ConnectAsync(address, token);
         }
 
-        internal async Task<JObject> SendAsync(string method, JObject parameters, CancellationToken token)
+        internal async Task<JObject> SendAsync(string method, JObject parameters, CancellationToken token, string? sessionId = null)
         {
             var id = ++_id;
-            await SendMessageAsync(new JObject { ["id"] = id, ["method"] = method, ["params"] = parameters }, token);
+            var request = new JObject { ["id"] = id, ["method"] = method, ["params"] = parameters };
+            if (sessionId != null) request["sessionId"] = sessionId;
+            await SendMessageAsync(request, token);
             while (true)
             {
                 var reply = await ReceiveMessageAsync(token);

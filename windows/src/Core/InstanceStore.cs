@@ -55,6 +55,9 @@ namespace YTray.Core
             await SystemControl.RepairAsync();
         }
         private readonly DispatcherTimer _timer;
+        private DateTime _nextEngineDiscovery;
+        private bool _refreshingEngineTargets;
+        private readonly HashSet<Guid> _engineSwitches = new HashSet<Guid>();
         private readonly DispatcherTimer _persistenceTimer;
         private readonly McpServer _mcpServer;
         private BrowserUse.BrowserUseServer? _browserUse;
@@ -84,7 +87,6 @@ namespace YTray.Core
         public ObservableCollection<BrowserRuntime> Runtimes { get; } = new ObservableCollection<BrowserRuntime>();
         public ObservableCollection<BrowserPlugin> Plugins { get; } = new ObservableCollection<BrowserPlugin>();
         public ObservableCollection<BrowserInstance> Instances { get; } = new ObservableCollection<BrowserInstance>();
-        public Func<IReadOnlyList<BrowserEngineTarget>, BrowserEngineTarget?>? ChooseBrowserEngine { get; set; }
         public LaunchSettings Settings { get; private set; } = new LaunchSettings();
         public List<MirrorVersion> AvailableVersions { get; private set; } = new List<MirrorVersion>();
 
@@ -294,6 +296,11 @@ namespace YTray.Core
             RefreshProcessStates();
             CrashGuard.Observe(RefreshRunningPageTitlesAsync(), "refresh-page-state");
             ScheduleAutomaticThumbnailRefresh();
+            if (!_refreshingEngineTargets && DateTime.UtcNow >= _nextEngineDiscovery)
+            {
+                _nextEngineDiscovery = DateTime.UtcNow.AddSeconds(5);
+                CrashGuard.Observe(RefreshBrowserEngineTargetsAsync(), "refresh-engine-targets");
+            }
         }
 
         private void OnPersistenceTick(object? sender, EventArgs e)
@@ -743,6 +750,72 @@ namespace YTray.Core
 
         public void SaveSettings() => Save();
 
+        public BrowserEngineTarget DefaultBrowserEngine => Settings.EngineTarget?.Clone()
+            ?? new BrowserEngineTarget { Mode = Settings.AutoConnectYakit ? "auto" : "none" };
+
+        internal void SetDefaultBrowserEngine(BrowserEngineTarget target)
+        {
+            Settings.EngineTarget = target.Clone();
+            Save();
+            OnPropertyChanged(nameof(DefaultBrowserEngine));
+        }
+
+        internal bool CanManageBrowserEngine(BrowserInstance instance) => RunningInstances.Contains(instance) && !instance.IsStopping
+            && instance.PluginIDs?.Any(id => id == ManagedExtension?.Id) == true;
+
+        internal async Task<JObject> BrowserEngineConnectionAsync(BrowserInstance instance, BrowserEngineTarget? target = null)
+        {
+            if (!CanManageBrowserEngine(instance) || !IsExpectedInstanceProcess(instance)
+                || TcpListenerProcess.FindOwnerProcessId(instance.DebugPort) != instance.ProcessID)
+                throw new InvalidOperationException("找不到该实例的 YTray 浏览器插件。");
+            var extensionId = ExtensionInstaller.ChromiumExtensionId(ManagedExtension!)
+                ?? throw new InvalidOperationException("无法验证 YTray 浏览器插件。");
+            if (target != null && !_engineSwitches.Add(instance.Id))
+                throw new InvalidOperationException("正在更新这个实例的引擎连接，请稍后再试。");
+            var processId = instance.ProcessID;
+            try
+            {
+                var result = await BrowserEngineControl.CallAsync(instance.DebugPort, extensionId, instance.Id, target);
+                if (!CanManageBrowserEngine(instance) || instance.ProcessID != processId)
+                    throw new InvalidOperationException("浏览器实例连接已变化。");
+                if (target != null)
+                {
+                    instance.SettingsSnapshot ??= new LaunchSettings(instance.RuntimeID);
+                    instance.SettingsSnapshot.EngineTarget = target.Clone();
+                    Save();
+                    OnPropertyChanged(nameof(Instances));
+                }
+                return result;
+            }
+            finally { if (target != null) _engineSwitches.Remove(instance.Id); }
+        }
+
+        // Rediscovery verifies the app and stable engine identity before the plugin
+        // learns the replacement process ID. A nearby engine can never take over.
+        internal async Task RefreshBrowserEngineTargetsAsync()
+        {
+            if (_refreshingEngineTargets || _disposed) return;
+            var instances = RunningInstances.Where(instance => instance.SettingsSnapshot?.EngineTarget?.Mode == "engine"
+                && CanManageBrowserEngine(instance)).ToArray();
+            if (instances.Length == 0) return;
+            _refreshingEngineTargets = true;
+            try
+            {
+                var entries = instances.Select(instance => (Instance: instance, Target: instance.SettingsSnapshot!.EngineTarget!)).ToArray();
+                var online = await BrowserEngineDiscovery.FindForTargetsAsync(entries.Select(entry => entry.Target));
+                foreach (var (instance, selected) in entries)
+                {
+                    if (_disposed || _engineSwitches.Contains(instance.Id) || !ReferenceEquals(instance.SettingsSnapshot?.EngineTarget, selected)) continue;
+                    var current = BrowserEngineDiscovery.ResolveRemembered(selected, online);
+                    if (current == null || (current.EngineInstanceId == selected.EngineInstanceId
+                        && current.Endpoint == selected.Endpoint && current.FrontendId == selected.FrontendId)) continue;
+                    try { await BrowserEngineConnectionAsync(instance, current); }
+                    catch (Exception error) { DiagnosticLog.Error("browser.engine.reconnect", error); }
+                }
+            }
+            finally { _refreshingEngineTargets = false; }
+        }
+
         public string DefaultProfileRoot => Path.GetFullPath(Path.Combine(ApplicationDirectory, "Profiles"));
 
         public string ResolveProfileRoot(LaunchSettings? settings = null)
@@ -797,11 +870,11 @@ namespace YTray.Core
         }
 
         public bool Launch(LaunchMode mode, LaunchSettings? customSettings = null, List<Guid>? customPluginIDs = null,
-            BrowserInstance? restoring = null, bool? launchUsesProxy = null, bool chooseEngine = false)
-            => LaunchCore(mode, customSettings, customPluginIDs, restoring, launchUsesProxy, chooseEngine, browserUse: false);
+            BrowserInstance? restoring = null, bool? launchUsesProxy = null)
+            => LaunchCore(mode, customSettings, customPluginIDs, restoring, launchUsesProxy, browserUse: false);
 
         private bool LaunchCore(LaunchMode mode, LaunchSettings? customSettings, List<Guid>? customPluginIDs,
-            BrowserInstance? restoring, bool? launchUsesProxy, bool chooseEngine, bool browserUse)
+            BrowserInstance? restoring, bool? launchUsesProxy, bool browserUse)
         {
             if (IsLaunching) return false;
             LaunchWasCancelled = false;
@@ -863,31 +936,11 @@ namespace YTray.Core
 
             try
             {
-                if (browserUse || !Settings.AutoConnectYakit)
-                    configuration.EngineTarget = new BrowserEngineTarget { Mode = "none" };
-                else
-                {
-                    var engines = BrowserEngineDiscovery.Find(configuration.EngineTarget);
-                    var remembered = chooseEngine ? null : BrowserEngineDiscovery.ResolveForLaunch(configuration.EngineTarget, engines, restoring != null);
-                    if (remembered != null) configuration.EngineTarget = remembered.Clone();
-                    else
-                    {
-                        var selected = ChooseBrowserEngine?.Invoke(engines);
-                        if (selected == null)
-                        {
-                            LaunchWasCancelled = true;
-                            LaunchPhase = BrowserLaunchPhase.Idle;
-                            LaunchMessage = "";
-                            LaunchingMode = null;
-                            LaunchingUsesProxy = null;
-                            RestoringInstanceID = null;
-                            LaunchToken = null;
-                            OnPropertyChanged(string.Empty);
-                            return false;
-                        }
-                        configuration.EngineTarget = selected.Clone();
-                    }
-                }
+                var target = browserUse ? new BrowserEngineTarget { Mode = "none" }
+                    : configuration.EngineTarget ?? (restoring == null ? DefaultBrowserEngine : null);
+                var engines = target?.Mode == "none" || target?.Mode == "legacy" || (restoring != null && target?.Mode == "auto")
+                    ? Array.Empty<BrowserEngineTarget>() : BrowserEngineDiscovery.Find(target);
+                configuration.EngineTarget = BrowserEngineDiscovery.ResolveForLaunch(target, engines, restoring != null);
                 var requestedBadge = (restoring?.DockBadge ?? configuration.DockBadge ?? "").Trim();
                 var badge = string.IsNullOrEmpty(requestedBadge) ? NextAvailableDockBadge() : DockBadgeLabel.Normalize(requestedBadge);
                 if (RunningInstances.Any(i => i.DockBadge == badge))
@@ -966,7 +1019,7 @@ namespace YTray.Core
             configuration.DockBadge = "";
             configuration.AdditionalFlags = BrowserLauncher.BrowserUseFlags(configuration.AdditionalFlags);
             if (!configuration.DefaultPluginIDs.Contains(plugin.Id)) configuration.DefaultPluginIDs.Add(plugin.Id);
-            if (!LaunchCore(LaunchMode.Quick, configuration, null, null, useProxy, chooseEngine: false, browserUse: true)
+            if (!LaunchCore(LaunchMode.Quick, configuration, null, null, useProxy, browserUse: true)
                 || LaunchingInstanceID is not Guid instanceId)
                 throw new BrowserUse.BrowserUseException("launch_failed", ErrorMessage ?? "YTray could not start the browser instance.");
             var instance = Instances.First(item => item.Id == instanceId);
@@ -978,12 +1031,13 @@ namespace YTray.Core
             return instance;
         }
 
-        public bool LaunchConfigured(bool usePresetProxy, ProxyPreset? proxy = null, BrowserEnvironment? environment = null)
+        public bool LaunchConfigured(bool usePresetProxy, ProxyPreset? proxy = null, BrowserEnvironment? environment = null, BrowserEngineTarget? engineTarget = null)
         {
             LaunchWasCancelled = false;
             var cfg = QuickLaunchConfiguration(usePresetProxy && (environment == null || environment.Network == BrowserEnvironmentNetwork.LaunchChoice), proxy);
             if (cfg == null) return false;
             cfg.Environment = environment?.Clone();
+            cfg.EngineTarget = engineTarget?.Clone();
             return Launch(LaunchMode.Quick, cfg, launchUsesProxy: usePresetProxy);
         }
 
@@ -1098,7 +1152,7 @@ namespace YTray.Core
             }
         }
 
-        public void RestoreHistory(BrowserInstance instance, bool chooseEngine = false)
+        public void RestoreHistory(BrowserInstance instance, BrowserEngineTarget? engineTarget = null)
         {
             if (instance == null) return;
             if (instance.Status == InstanceStatus.Running) return;
@@ -1116,9 +1170,10 @@ namespace YTray.Core
             cfg.DefaultRuntimeID = instance.RuntimeID;
             cfg.HomeURL = instance.StartURL;
             cfg.DockBadge = instance.DockBadge ?? "";
+            if (engineTarget != null) cfg.EngineTarget = engineTarget.Clone();
             var restoredPluginIDs = instance.PluginIDs ?? cfg.DefaultPluginIDs;
             Launch(instance.Mode, cfg, restoredPluginIDs, instance,
-                launchUsesProxy: !string.IsNullOrEmpty(cfg.ProxyServer?.Trim()), chooseEngine: chooseEngine);
+                launchUsesProxy: !string.IsNullOrEmpty(cfg.ProxyServer?.Trim()));
         }
 
         internal bool IsCurrentLaunch(BrowserLauncher.LaunchResult launch, Guid token) => !_disposed

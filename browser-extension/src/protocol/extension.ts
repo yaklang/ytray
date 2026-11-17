@@ -174,6 +174,8 @@ const managedInstance = v.strictObject({
 });
 
 const launchTarget = v.pipe(v.strictObject({
+  ownerFrontendId: v.optional(v.picklist(['memfit', 'yakit'])),
+  exactInstance: v.optional(v.boolean()),
   mode: v.picklist(['engine', 'none', 'legacy']),
   frontendId: v.optional(v.pipe(v.string(), v.maxLength(160))),
   frontendName: v.optional(v.pipe(v.string(), v.maxLength(160))),
@@ -516,6 +518,8 @@ const payloadSchemas = {
       return !parsed.username && !parsed.password && !parsed.search && !parsed.hash && parsed.pathname === '/';
     }, '启动代理只能包含协议、主机和端口'))])),
   }),
+  'bridge.managed-connection.get': v.strictObject({ instanceId: managedInstance.entries.instanceId }),
+  'bridge.managed-connection.set': v.strictObject({ instanceId: managedInstance.entries.instanceId, launchTarget }),
   'bridge.pair': noPayload,
   'bridge.discover': noPayload,
   'bridge.pair.cancel': noPayload,

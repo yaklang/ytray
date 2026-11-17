@@ -270,6 +270,14 @@ export interface ExtensionRequestMap {
     };
     output: BridgeStatus;
   };
+  'bridge.managed-connection.get': {
+    input: { instanceId: string };
+    output: { status: BridgeStatus; pairing: Pick<BridgePairingStatus, 'state' | 'message'> };
+  };
+  'bridge.managed-connection.set': {
+    input: { instanceId: string; launchTarget: NonNullable<BridgeConfig['launchTarget']> };
+    output: ExtensionRequestMap['bridge.managed-connection.get']['output'];
+  };
   'bridge.pair': { input: undefined; output: BridgePairingStatus };
   'bridge.discover': { input: undefined; output: DiscoveredYakEngine[] };
   'bridge.pair.cancel': { input: undefined; output: BridgePairingStatus };
