@@ -176,6 +176,7 @@ const managedInstance = v.strictObject({
 const launchTarget = v.pipe(v.strictObject({
   ownerFrontendId: v.optional(v.picklist(['memfit', 'yakit'])),
   exactInstance: v.optional(v.boolean()),
+  challengeOnly: v.optional(v.boolean()),
   mode: v.picklist(['engine', 'none', 'legacy']),
   frontendId: v.optional(v.pipe(v.string(), v.maxLength(160))),
   frontendName: v.optional(v.pipe(v.string(), v.maxLength(160))),
@@ -184,6 +185,7 @@ const launchTarget = v.pipe(v.strictObject({
   endpoint: v.optional(v.pipe(v.string(), v.maxLength(2048))),
 }), v.check((value) => {
   if (value.mode === 'none' || value.mode === 'legacy') return true;
+  if (value.challengeOnly && !value.exactInstance) return false;
   if (!value.frontendId || !value.frontendName || !value.engineIdentityId || !value.engineInstanceId || !value.endpoint) return false;
   try {
     const url = new URL(value.endpoint);

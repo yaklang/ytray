@@ -153,7 +153,10 @@ export class EngineBridge {
     if (config.transport !== 'websocket' || !isLoopbackEndpoint(config.endpoint)) return [];
     const policy = (await getEnterprisePolicy()).policy;
     if (policy.disableWebSocket || policy.bridgeTransport === 'native') return [];
-    const candidates = policy.bridgeEndpoint || config.launchTarget?.exactInstance
+    const target = config.launchTarget;
+    const legacy = target?.mode === 'engine' && target.exactInstance && target.challengeOnly ? target : undefined;
+    const candidates = legacy ? [config.endpoint]
+      : policy.bridgeEndpoint || target?.exactInstance
       ? [new URL('/discovery', config.endpoint).toString()]
       : bridgeDiscoveryEndpoints(config.endpoint);
     const results = await Promise.all(candidates.map((url) => new Promise<DiscoveredYakEngine | undefined>((resolve) => {
@@ -170,6 +173,17 @@ export class EngineBridge {
       const timer = globalThis.setTimeout(() => finish(), DISCOVERY_TIMEOUT);
       socket.addEventListener('message', (event) => {
         try {
+          if (legacy) {
+            const challenge = parseBridgeEnvelope(String(event.data));
+            if (challenge.type === 'challenge' && challenge.protocolVersion === BRIDGE_PROTOCOL_VERSION
+              && challenge.engineIdentityId && challenge.engineInstanceId
+              && challenge.publicKey && challenge.signature) {
+              finish({ protocolVersion: BRIDGE_PROTOCOL_VERSION, engineIdentityId: challenge.engineIdentityId,
+                engineInstanceId: challenge.engineInstanceId, endpoint: url, frontendId: legacy.frontendId,
+                frontendName: legacy.frontendName });
+            } else finish();
+            return;
+          }
           const engine = parseBridgeDiscoveryEnvelope(String(event.data));
           const probed = new URL(url);
           const advertised = new URL(engine.endpoint);

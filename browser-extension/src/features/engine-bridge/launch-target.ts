@@ -38,6 +38,7 @@ export function normalizeLaunchTarget(value: unknown): BridgeLaunchTarget | unde
     mode: 'engine', engineIdentityId: target.engineIdentityId as string, engineInstanceId: target.engineInstanceId as string,
     frontendId: target.frontendId as string,
     ...(target.exactInstance === true ? { exactInstance: true } : {}),
+    ...(target.exactInstance === true && target.challengeOnly === true ? { challengeOnly: true } : {}),
     ...(target.ownerFrontendId === 'memfit' || target.ownerFrontendId === 'yakit' ? { ownerFrontendId: target.ownerFrontendId } : {}),
     frontendName: target.frontendName as string, endpoint: target.endpoint as string,
   };

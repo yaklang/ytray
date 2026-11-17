@@ -2,7 +2,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Net.WebSockets;
+using System.IO;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -16,6 +21,7 @@ namespace YTray.Core
         public string FrontendId { get; set; } = "";
         public string FrontendName { get; set; } = "";
         public string? FrontendOwnerId { get; set; }
+        public bool ChallengeOnly { get; set; }
         public string EngineIdentityId { get; set; } = "";
         public string EngineInstanceId { get; set; } = "";
         public string Endpoint { get; set; } = "";
@@ -38,6 +44,7 @@ namespace YTray.Core
             payload["engineInstanceId"] = EngineInstanceId;
             payload["endpoint"] = Endpoint;
             payload["exactInstance"] = true;
+            if (ChallengeOnly) payload["challengeOnly"] = true;
             if (RequiresExactInstance) payload["ownerFrontendId"] = EffectiveFrontendId;
             return payload;
         }
@@ -74,6 +81,12 @@ namespace YTray.Core
             {
                 var pid = TcpListenerProcess.FindOwnerProcessId(port);
                 using var response = await Client.GetAsync($"http://127.0.0.1:{port}/discovery").ConfigureAwait(false);
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    var owner = BrowserEngineOwner.Find(pid);
+                    return owner != null && pid == TcpListenerProcess.FindOwnerProcessId(port)
+                        ? await ProbeChallengeAsync(port, pid, owner).ConfigureAwait(false) : null;
+                }
                 if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 32768) return null;
                 var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 if (body.Length > 32768) return null;
@@ -90,6 +103,36 @@ namespace YTray.Core
                 return target;
             }
             catch { return null; }
+        }
+
+        internal static async Task<BrowserEngineTarget?> ProbeChallengeAsync(int port, int pid, string owner)
+        {
+            // Older Yakit engines expose a signed challenge, but have no discovery route.
+            using var socket = new ClientWebSocket();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(650));
+            socket.Options.Proxy = new WebProxy();
+            socket.Options.SetRequestHeader("Origin", BrowserUse.BrowserUseNativeHost.AllowedOrigin.TrimEnd('/'));
+            var address = $"ws://127.0.0.1:{port}/extension";
+            await socket.ConnectAsync(new Uri(address), timeout.Token).ConfigureAwait(false);
+            var buffer = new byte[4096];
+            using var body = new MemoryStream();
+            WebSocketReceiveResult part;
+            do
+            {
+                part = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token).ConfigureAwait(false);
+                if (part.MessageType != WebSocketMessageType.Text || body.Length + part.Count > 32768) return null;
+                body.Write(buffer, 0, part.Count);
+            } while (!part.EndOfMessage);
+
+            if (pid != TcpListenerProcess.FindOwnerProcessId(port)) return null;
+            var challenge = JObject.Parse(Encoding.UTF8.GetString(body.ToArray()));
+            if ((string?)challenge["type"] != "challenge" || challenge["publicKey"] is not JObject
+                || string.IsNullOrEmpty((string?)challenge["signature"])) return null;
+            challenge["type"] = "engine";
+            challenge["frontendId"] = owner;
+            var target = Parse(challenge.ToString(Formatting.None), port);
+            if (target != null) target.ChallengeOnly = true;
+            return target;
         }
 
         internal static BrowserEngineTarget? Parse(string body, int port)

@@ -202,6 +202,7 @@ export interface BridgeLaunchTarget {
   frontendId?: string;
   ownerFrontendId?: string;
   exactInstance?: boolean;
+  challengeOnly?: boolean;
   frontendName?: string;
   engineIdentityId?: string;
   engineInstanceId?: string;

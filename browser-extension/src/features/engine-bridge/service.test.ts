@@ -564,6 +564,37 @@ describe('Engine Bridge transport lifecycle', () => {
     await pending;
   });
 
+  it.each([true, false])('checks the older Yakit handshake before pairing when the process match is %s', async (matches) => {
+    const endpoint = 'ws://127.0.0.1:14333/extension';
+    fixture.state.bridge = { ...bridgeConfig(false), endpoint, launchTarget: {
+      mode: 'engine', frontendId: 'yakit', frontendName: 'Yakit', engineIdentityId: 'engine-identity-1',
+      engineInstanceId: 'engine-instance-1', endpoint, exactInstance: true, challengeOnly: true,
+    } };
+    vi.mocked(EngineBridge.prototype.discoverLocalEngines).mockRestore();
+    const bridge = new EngineBridge();
+    const pairing = bridge.startPairing();
+    const rejected = matches ? undefined : expect(pairing).rejects.toThrow('等待所选');
+    await vi.advanceTimersByTimeAsync(0);
+    const probe = FakeWebSocket.instances[0];
+    expect(probe.url).toBe(endpoint);
+    probe.open();
+    probe.receive({ type: 'challenge', protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      engineIdentityId: 'engine-identity-1', engineInstanceId: matches ? 'engine-instance-1' : 'other-process',
+      challenge: 'engine-challenge-0123456789', signature: 'engine-signature', timestamp: NOW, publicKey: enginePublicKey });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(probe.sent).toEqual([]);
+    if (!matches) {
+      await rejected;
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      return;
+    }
+    const socket = FakeWebSocket.instances[1];
+    expect(socket.url).toBe('ws://127.0.0.1:14333/pairing');
+    socket.open();
+    socket.receive({ type: 'pair_rejected', requestId: 'pairing-1', message: '用户拒绝' });
+    await expect(pairing).resolves.toMatchObject({ state: 'rejected' });
+  });
+
   it('does not open a pairing connection to another frontend when the selected engine is offline', async () => {
     fixture.state.bridge = { ...bridgeConfig(false), launchTarget: {
       mode: 'engine', frontendId: 'memfit', frontendName: 'Memfit AI', engineIdentityId: 'memfit-key',
