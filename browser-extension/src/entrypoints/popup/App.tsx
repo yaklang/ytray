@@ -26,8 +26,25 @@ const FULL_VIEW_TARGETS: Record<PopupView, { section: string; label: string }> =
   'user-agent': { section: 'user-agent', label: '打开 User-Agent 管理' },
 };
 
+function connectedEngineName(state: ExtensionState, bridge: BridgeStatus): string {
+  const target = state.bridge.launchTarget;
+  if (target?.mode === 'engine') {
+    const matches = target.engineIdentityId === bridge.engineIdentityId
+      && (!target.exactInstance || target.engineInstanceId === bridge.engineInstanceId);
+    return matches && target.frontendName ? target.frontendName : 'Yak 引擎';
+  }
+  const paired = state.bridge.pairedEngine;
+  if (paired?.engineIdentityId === bridge.engineIdentityId) {
+    if (paired?.frontendId === 'memfit') return 'Memfit AI';
+    if (paired?.frontendId === 'yakit') return 'Yakit';
+    if (paired?.frontendId === 'yakit-enterprise') return 'Yakit 企业版';
+    if (paired?.frontendId === 'irify') return 'IRify';
+  }
+  return 'Yak 引擎';
+}
+
 function engineStatusLabel(state: ExtensionState, bridge: BridgeStatus): string {
-  if (bridge.state === 'connected') return '引擎在线';
+  if (bridge.state === 'connected') return connectedEngineName(state, bridge) + ' 在线';
   if (bridge.state === 'connecting') return '正在连接引擎';
   if (bridge.state === 'negotiating') return '正在验证引擎身份';
   if (bridge.state === 'error') return bridge.message || '引擎连接失败';
@@ -198,7 +215,7 @@ function App() {
               <Tooltip label={statusActionLabel} side="bottom">
                 <button className={`popup-engine-status ${bridge.state}`} aria-label={statusLabel} disabled={busy || engineBusy} onClick={() => void toggleEngine()}>
                   <i aria-hidden="true" />
-                  <span>{bridge.state === 'connected' ? '在线' : engineBusy ? '连接中' : state.bridge.pairedEngine ? '离线' : '配对'}</span>
+                  <span>{bridge.state === 'connected' ? statusLabel : engineBusy ? '连接中' : state.bridge.pairedEngine ? '离线' : '配对'}</span>
                 </button>
               </Tooltip>
               <Tooltip label={fullViewTarget.label} side="bottom">

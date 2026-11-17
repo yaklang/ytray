@@ -1,6 +1,12 @@
 import type { BridgeConfig, BridgeLaunchTarget, DiscoveredYakEngine } from '@/types/models';
+export const YTRAY_ENGINE_HOST = 'com.yaklang.ytray_engine';
 
 export const launchFrontendId = (target?: BridgeLaunchTarget) => target?.ownerFrontendId || target?.frontendId;
+
+export function validEnginePipe(pipe: unknown, instanceId: unknown): pipe is string {
+  return typeof instanceId === 'string' && /^engine-[a-f0-9]{32}$/.test(instanceId)
+    && pipe === 'yak-browser-bridge-v1-' + instanceId;
+}
 
 export function bindLaunchTarget(config: BridgeConfig, target: BridgeLaunchTarget): BridgeConfig {
   // A launcher without discovery support must preserve the user's existing connection and credentials.
@@ -11,8 +17,11 @@ export function bindLaunchTarget(config: BridgeConfig, target: BridgeLaunchTarge
       || (target.mode === 'engine' && config.endpoint === target.endpoint ? launchFrontendId(target) : undefined) };
   const records = [...new Map([...(config.trustedEngines || []), ...(previous ? [previous] : [])]
     .map((engine) => [`${engine.engineIdentityId}:${engine.frontendId || ''}`, engine])).values()].slice(-32);
-  return { ...config, launchTarget: target, transport: target.mode === 'engine' ? 'websocket' : config.transport, autoConnect: target.mode === 'engine',
-    endpoint: target.mode === 'engine' ? target.endpoint! : config.endpoint,
+  return { ...config, launchTarget: target,
+    transport: target.mode === 'engine' ? target.pipeName ? 'native' : 'websocket' : config.transport,
+    autoConnect: target.mode === 'engine',
+    nativeHost: target.mode === 'engine' && target.pipeName ? YTRAY_ENGINE_HOST : config.nativeHost,
+    endpoint: target.mode === 'engine' && target.endpoint ? target.endpoint : config.endpoint,
     trustedEngines: records,
     pairedEngine: target.mode === 'engine' ? records.find((engine) => engine.engineIdentityId === target.engineIdentityId
       && engine.frontendId === launchFrontendId(target)) : previous,
@@ -26,21 +35,28 @@ export function normalizeLaunchTarget(value: unknown): BridgeLaunchTarget | unde
   if (target.mode === 'legacy') return { mode: 'legacy' };
   if (target.mode === 'none') return { mode: 'none' };
   if (target.mode !== 'engine') return { mode: 'none' };
-  for (const key of ['engineIdentityId', 'engineInstanceId', 'frontendId', 'frontendName', 'endpoint']) {
-    if (typeof target[key] !== 'string' || !target[key] || (target[key] as string).length > (key === 'endpoint' ? 2048 : 160)) return { mode: 'none' };
+  for (const key of ['engineIdentityId', 'engineInstanceId', 'frontendId', 'frontendName']) {
+    if (typeof target[key] !== 'string' || !target[key] || (target[key] as string).length > 160) return { mode: 'none' };
   }
-  try {
-    const url = new URL(target.endpoint as string);
-    if (!['ws:', 'wss:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
-      || url.pathname !== '/extension' || url.username || url.password || url.search || url.hash) return { mode: 'none' };
-  } catch { return { mode: 'none' }; }
+  const pipe = validEnginePipe(target.pipeName, target.engineInstanceId) && target.exactInstance === true;
+  if (target.pipeName !== undefined) {
+    if (!pipe || target.endpoint !== undefined) return { mode: 'none' };
+  } else {
+    if (typeof target.endpoint !== 'string' || target.endpoint.length > 2048) return { mode: 'none' };
+    try {
+      const url = new URL(target.endpoint);
+      if (!['ws:', 'wss:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
+        || url.pathname !== '/extension' || url.username || url.password || url.search || url.hash) return { mode: 'none' };
+    } catch { return { mode: 'none' }; }
+  }
   return {
     mode: 'engine', engineIdentityId: target.engineIdentityId as string, engineInstanceId: target.engineInstanceId as string,
     frontendId: target.frontendId as string,
     ...(target.exactInstance === true ? { exactInstance: true } : {}),
     ...(target.exactInstance === true && target.challengeOnly === true ? { challengeOnly: true } : {}),
     ...(target.ownerFrontendId === 'memfit' || target.ownerFrontendId === 'yakit' ? { ownerFrontendId: target.ownerFrontendId } : {}),
-    frontendName: target.frontendName as string, endpoint: target.endpoint as string,
+    frontendName: target.frontendName as string,
+    ...(pipe ? { pipeName: target.pipeName as string } : { endpoint: target.endpoint as string }),
   };
 }
 

@@ -1,3 +1,4 @@
+import { normalizeLaunchTarget } from '@/features/engine-bridge/launch-target';
 import * as v from 'valibot';
 import type { ExtensionAction, ExtensionRequest } from '@/types/messages';
 import type { CapabilityScope } from '@/types/models';
@@ -177,6 +178,7 @@ const launchTarget = v.pipe(v.strictObject({
   ownerFrontendId: v.optional(v.picklist(['memfit', 'yakit'])),
   exactInstance: v.optional(v.boolean()),
   challengeOnly: v.optional(v.boolean()),
+  pipeName: v.optional(v.pipe(v.string(), v.maxLength(128))),
   mode: v.picklist(['engine', 'none', 'legacy']),
   frontendId: v.optional(v.pipe(v.string(), v.maxLength(160))),
   frontendName: v.optional(v.pipe(v.string(), v.maxLength(160))),
@@ -185,13 +187,8 @@ const launchTarget = v.pipe(v.strictObject({
   endpoint: v.optional(v.pipe(v.string(), v.maxLength(2048))),
 }), v.check((value) => {
   if (value.mode === 'none' || value.mode === 'legacy') return true;
-  if (value.challengeOnly && !value.exactInstance) return false;
-  if (!value.frontendId || !value.frontendName || !value.engineIdentityId || !value.engineInstanceId || !value.endpoint) return false;
-  try {
-    const url = new URL(value.endpoint);
-    return ['ws:', 'wss:'].includes(url.protocol) && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
-      && url.pathname === '/extension' && !url.username && !url.password && !url.search && !url.hash;
-  } catch { return false; }
+  if (value.challengeOnly && (!value.exactInstance || value.pipeName)) return false;
+  return normalizeLaunchTarget(value)?.mode === 'engine';
 }, 'YTray 接入目标必须包含完整引擎身份及本机地址'));
 
 const pairedEngine = v.strictObject({

@@ -808,7 +808,7 @@ namespace YTray.Core
                     if (_disposed || _engineSwitches.Contains(instance.Id) || !ReferenceEquals(instance.SettingsSnapshot?.EngineTarget, selected)) continue;
                     var current = BrowserEngineDiscovery.ResolveRemembered(selected, online);
                     if (current == null || (current.EngineInstanceId == selected.EngineInstanceId
-                        && current.Endpoint == selected.Endpoint && current.FrontendId == selected.FrontendId)) continue;
+                        && current.Endpoint == selected.Endpoint && current.PipeName == selected.PipeName && current.FrontendId == selected.FrontendId)) continue;
                     try { await BrowserEngineConnectionAsync(instance, current); }
                     catch (Exception error) { DiagnosticLog.Error("browser.engine.reconnect", error); }
                 }

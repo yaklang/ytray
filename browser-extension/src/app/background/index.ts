@@ -444,8 +444,9 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
       const launchTarget = request.payload.launchTarget;
       if (launchTarget !== undefined) {
         const policy = (await getEnterprisePolicy()).policy;
-        if (launchTarget.mode === 'engine' && (policy.disableWebSocket || policy.bridgeTransport === 'native'
-          || policy.bridgeEndpoint && policy.bridgeEndpoint !== launchTarget.endpoint)) {
+        if (launchTarget.mode === 'engine' && (launchTarget.pipeName
+          ? policy.bridgeTransport === 'websocket' || !!policy.bridgeEndpoint || policy.nativeHost && policy.nativeHost !== 'com.yaklang.ytray_engine'
+          : policy.disableWebSocket || policy.bridgeTransport === 'native' || policy.bridgeEndpoint && policy.bridgeEndpoint !== launchTarget.endpoint)) {
           throw new ExtensionError('forbidden', '企业连接策略与 YTray 所选接入目标不一致');
         }
         engineBridge.cancelPairing(false);
@@ -496,8 +497,9 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
       if (request.action === 'bridge.managed-connection.set') {
         const target = request.payload.launchTarget;
         const policy = (await getEnterprisePolicy()).policy;
-        if (target.mode === 'engine' && (policy.disableWebSocket || policy.bridgeTransport === 'native'
-          || policy.bridgeEndpoint && policy.bridgeEndpoint !== target.endpoint)) {
+        if (target.mode === 'engine' && (target.pipeName
+          ? policy.bridgeTransport === 'websocket' || !!policy.bridgeEndpoint || policy.nativeHost && policy.nativeHost !== 'com.yaklang.ytray_engine'
+          : policy.disableWebSocket || policy.bridgeTransport === 'native' || policy.bridgeEndpoint && policy.bridgeEndpoint !== target.endpoint)) {
           throw new ExtensionError('forbidden', '企业连接策略与 YTray 所选接入目标不一致');
         }
         engineBridge.cancelPairing();

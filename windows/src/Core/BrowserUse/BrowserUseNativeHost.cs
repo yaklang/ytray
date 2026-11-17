@@ -30,9 +30,9 @@ namespace YTray.Core.BrowserUse
         private readonly string _name;
         private readonly string _executable;
 
-        internal BrowserUseNativeHost(string directory, string executable, int port)
+        internal BrowserUseNativeHost(string directory, string executable, int port, string? name = null)
         {
-            _name = port == BrowserUseServer.Port ? Name : Name + ".test_" + port;
+            _name = name ?? (port == BrowserUseServer.Port ? Name : Name + ".test_" + port);
             _executable = executable;
             Directory.CreateDirectory(directory);
             _manifest = Path.Combine(directory, _name + "." + Guid.NewGuid().ToString("N") + ".json");
@@ -45,7 +45,7 @@ namespace YTray.Core.BrowserUse
             var manifest = new JObject
             {
                 ["name"] = _name,
-                ["description"] = "YTray Browser Use",
+                ["description"] = _name == BrowserEngineNative.HostName ? "YTray Browser Engine" : "YTray Browser Use",
                 ["path"] = _executable,
                 ["type"] = "stdio",
                 ["allowed_origins"] = new JArray(AllowedOrigin),
@@ -81,23 +81,27 @@ namespace YTray.Core.BrowserUse
             {
                 using var input = Console.OpenStandardInput();
                 using var output = Console.OpenStandardOutput();
+                var first = BrowserUseWire.ReadAsync(input, CancellationToken.None).GetAwaiter().GetResult();
+                if ((string?)first["type"] == "yak_engine_open")
+                {
+                    BrowserEngineNative.RelayAsync(input, output, first).GetAwaiter().GetResult();
+                    return 0;
+                }
                 var port = BrowserUseServer.Port;
 #if DEBUG
-                var first = BrowserUseWire.ReadAsync(input, CancellationToken.None).GetAwaiter().GetResult();
                 if (first["host_port"]?.Type == JTokenType.Integer && (int?)first["host_port"] is int requested
                     && requested >= 1 && requested <= 65535) port = requested;
 #endif
                 using var pipe = new NamedPipeClientStream(".", PipeName(port), PipeDirection.InOut, PipeOptions.Asynchronous);
                 pipe.Connect(2_000);
-#if DEBUG
                 BrowserUseWire.WriteAsync(pipe, first, CancellationToken.None).GetAwaiter().GetResult();
-#endif
                 var toYTray = Task.Run(() => input.CopyToAsync(pipe));
                 var toBrowser = pipe.CopyToAsync(output);
                 Task.WhenAny(toYTray, toBrowser).GetAwaiter().GetResult().GetAwaiter().GetResult();
                 return 0;
             }
             catch (IOException) { return 1; }
+            catch (OperationCanceledException) { return 1; }
             catch (TimeoutException) { return 1; }
             catch (ObjectDisposedException) { return 1; }
             catch (JsonException) { return 1; }

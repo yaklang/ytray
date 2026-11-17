@@ -22,6 +22,7 @@ namespace YTray.Core
         public string FrontendName { get; set; } = "";
         public string? FrontendOwnerId { get; set; }
         public bool ChallengeOnly { get; set; }
+        public string? PipeName { get; set; }
         public string EngineIdentityId { get; set; } = "";
         public string EngineInstanceId { get; set; } = "";
         public string Endpoint { get; set; } = "";
@@ -29,6 +30,7 @@ namespace YTray.Core
             : Mode == "legacy" ? "使用原有连接设置" : FrontendName;
         [JsonIgnore] public string Detail => Mode == "none" ? "稍后可重新选择接入目标"
             : Mode == "legacy" ? "沿用插件中的引擎地址、配对与连接方式"
+            : PipeName != null ? "本机管道"
             : Uri.TryCreate(Endpoint, UriKind.Absolute, out var address) ? address.Authority : "等待目标引擎";
         public BrowserEngineTarget Clone() => (BrowserEngineTarget)MemberwiseClone();
         [JsonIgnore] public string EffectiveFrontendId => FrontendOwnerId ?? FrontendId;
@@ -42,7 +44,8 @@ namespace YTray.Core
             payload["frontendName"] = FrontendName;
             payload["engineIdentityId"] = EngineIdentityId;
             payload["engineInstanceId"] = EngineInstanceId;
-            payload["endpoint"] = Endpoint;
+            if (PipeName != null) payload["pipeName"] = PipeName;
+            else payload["endpoint"] = Endpoint;
             payload["exactInstance"] = true;
             if (ChallengeOnly) payload["challengeOnly"] = true;
             if (RequiresExactInstance) payload["ownerFrontendId"] = EffectiveFrontendId;
@@ -69,8 +72,9 @@ namespace YTray.Core
             foreach (var target in remembered)
                 if (Uri.TryCreate(target.Endpoint, UriKind.Absolute, out var previous) && previous.IsLoopback)
                     ports.Add(previous.Port);
+            var native = BrowserEngineNative.DiscoverAsync();
             var values = await Task.WhenAll(ports.Select(ProbeAsync)).ConfigureAwait(false);
-            return values.Where(value => value != null).Select(value => value!)
+            return (await native.ConfigureAwait(false)).Concat(values.OfType<BrowserEngineTarget>())
                 .GroupBy(value => (value.EffectiveFrontendId, value.EngineIdentityId, value.EngineInstanceId)).Select(group => group.First())
                 .OrderBy(value => value.FrontendName).ThenBy(value => value.Endpoint).ToArray();
         }

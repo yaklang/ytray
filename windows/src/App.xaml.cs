@@ -32,6 +32,7 @@ namespace YTray
         private NativeControlServer? _nativeControl;
         private Core.SystemControl.ControlElevation? _controlElevation;
         private TrayInstance? _trayInstance;
+        private Core.BrowserUse.BrowserUseNativeHost? _engineHost;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -142,6 +143,14 @@ namespace YTray
             }
 
             _store = new InstanceStore();
+            try
+            {
+                var executable = System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName;
+                _engineHost = new Core.BrowserUse.BrowserUseNativeHost(_store.ApplicationDirectory, executable,
+                    Core.BrowserUse.BrowserUseServer.Port, BrowserEngineNative.HostName);
+                _engineHost.Register();
+            }
+            catch (Exception error) { DiagnosticLog.Error("browser-engine.host.register", error); }
             _controlElevation = new Core.SystemControl.ControlElevation(Dispatcher, () => Shutdown());
             _store.ConfirmLaunchWithoutPlugins = Views.ExtensionLaunchDialog.Confirm;
             _nativeControl = new NativeControlServer(_store);
@@ -301,6 +310,7 @@ namespace YTray
         {
             DiagnosticLog.Info("app.exit", $"application exiting; code={e.ApplicationExitCode}");
             _nativeControl?.Dispose();
+            _engineHost?.Dispose();
             _controlElevation?.Dispose();
             _tray?.Dispose();
             _launchAtLogin = null;
