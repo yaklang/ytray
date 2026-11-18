@@ -19,6 +19,7 @@ namespace YTray.Core.BrowserUse
         {
             ["url"] = String("HTTP or HTTPS URL to open."),
             ["instance_id"] = String("Running YTray browser instance ID from browser_list_instances."),
+            ["environment_id"] = String("Saved environment ID from browser_list_environments. Applies only when creating an instance."),
             ["runtime_id"] = String("Browser runtime ID from browser_list_runtimes. Starts a new profile."),
             ["use_proxy"] = new JObject { ["type"] = "boolean", ["description"] = "Use the YTray preset proxy when starting a new instance. Defaults to false." },
         };
@@ -47,6 +48,7 @@ namespace YTray.Core.BrowserUse
 
         internal static readonly JArray Definitions = new JArray(
             Define("list_runtimes", "List browsers installed or configured in YTray. Use a runtime ID to start a new browser instance.", new JObject(), true),
+            Define("list_environments", "List saved browser environments for opening a new browser instance.", new JObject(), true),
             Define("list_instances", "List running YTray instances, their browser runtimes, A/B badges, and whether their extensions are ready.", new JObject(), true),
             DefineOpen(),
             Define("list_pages", "List available tabs from YTray-managed instances and tabs shared manually. Use the instance label, title, or URL to match the user's target.", new JObject { ["instance_id"] = Open["instance_id"]!.DeepClone() }, true),
@@ -82,8 +84,8 @@ namespace YTray.Core.BrowserUse
         {
             var tool = Define("open", "Open a URL in a new tab of the specified running instance, or start a new instance of the specified runtime. Wait for the extension and return the exact page_id to observe. Use only for an explicit request to open a page or start a browser.", Open, false, "url");
             tool["inputSchema"]!["oneOf"] = new JArray(
-                new JObject { ["required"] = new JArray("instance_id"), ["not"] = new JObject { ["anyOf"] = new JArray(Requires("runtime_id"), Requires("use_proxy")) } },
-                new JObject { ["required"] = new JArray("runtime_id"), ["not"] = Requires("instance_id") });
+                new JObject { ["required"] = new JArray("instance_id"), ["not"] = new JObject { ["anyOf"] = new JArray(Requires("runtime_id"), Requires("environment_id"), Requires("use_proxy")) } },
+                new JObject { ["anyOf"] = new JArray(Requires("runtime_id"), Requires("environment_id")), ["not"] = Requires("instance_id") });
             return tool;
         }
 
@@ -121,14 +123,16 @@ namespace YTray.Core.BrowserUse
                 || schema["required"]!.Values<string>().Any(field => arguments[field!] == null))
                 throw new BrowserUseException("invalid_arguments", "Check the tool's required and accepted fields.");
             ValidateId(arguments, "instance_id");
-            if (name == Prefix + "list_pages" || name == Prefix + "list_instances" || name == Prefix + "list_runtimes")
+            if (name == Prefix + "list_pages" || name == Prefix + "list_instances" || name == Prefix + "list_runtimes" || name == Prefix + "list_environments")
                 return (name.Substring(Prefix.Length), arguments);
             if (name == Prefix + "open")
             {
                 ValidateId(arguments, "runtime_id");
-                if ((arguments["instance_id"] == null) == (arguments["runtime_id"] == null)
-                    || (arguments["use_proxy"] is JToken proxy && (arguments["runtime_id"] == null || proxy.Type != JTokenType.Boolean)))
-                    throw new BrowserUseException("invalid_arguments", "Provide exactly one instance_id or runtime_id. use_proxy is only available with runtime_id.");
+                ValidateId(arguments, "environment_id");
+                var newInstance = arguments["runtime_id"] != null || arguments["environment_id"] != null;
+                if ((arguments["instance_id"] != null) == newInstance
+                    || (arguments["use_proxy"] is JToken proxy && (!newInstance || proxy.Type != JTokenType.Boolean)))
+                    throw new BrowserUseException("invalid_arguments", "Use instance_id for a running instance, or runtime_id and/or environment_id to create one.");
                 if (arguments["url"]?.Type != JTokenType.String || !TryPageUrl((string?)arguments["url"], out _))
                     throw new BrowserUseException("invalid_arguments", "Use an absolute HTTP(S) URL without credentials.");
                 return ("open", arguments);

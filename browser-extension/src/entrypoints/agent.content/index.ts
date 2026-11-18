@@ -296,6 +296,10 @@ export default defineContentScript({
     browser.storage.onChanged.addListener(onStorageChange);
     browser.runtime.onMessage.addListener(onRuntimeMessage);
     globalThis.addEventListener('message', onFrameMessage);
+    const onOutsidePointer = (event: PointerEvent) => {
+      if (expanded && !event.composedPath().includes(host)) collapse();
+    };
+    window.addEventListener('pointerdown', onOutsidePointer, true);
     globalThis.addEventListener('keydown', onKeyDown, true);
     globalThis.addEventListener('popstate', syncDocumentMetadata);
     globalThis.addEventListener('hashchange', syncDocumentMetadata);
@@ -308,6 +312,7 @@ export default defineContentScript({
       browser.storage.onChanged.removeListener(onStorageChange);
       browser.runtime.onMessage.removeListener(onRuntimeMessage);
       globalThis.removeEventListener('message', onFrameMessage);
+      window.removeEventListener('pointerdown', onOutsidePointer, true);
       globalThis.removeEventListener('keydown', onKeyDown, true);
       globalThis.removeEventListener('popstate', syncDocumentMetadata);
       globalThis.removeEventListener('hashchange', syncDocumentMetadata);

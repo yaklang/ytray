@@ -62,6 +62,46 @@ describe('YTray selected frontend', () => {
     expect(() => selectLaunchTarget(target, [restarted, { ...restarted, engineInstanceId: 'another-process' }])).toThrow('多个');
     expect(selectLaunchTarget(target, [memfit, restarted])).toEqual(memfit);
   });
+  it('waits for YTray to verify a replacement when legacy owners may advertise the same identity', () => {
+    const pinned = { ...target, frontendId: 'yakit', ownerFrontendId: 'memfit', exactInstance: true };
+    const old = { ...memfit, frontendId: 'yakit' };
+    const other = { ...old, engineInstanceId: 'another-product' };
+    expect(() => selectLaunchTarget(pinned, [other])).toThrow('等待');
+    expect(selectLaunchTarget(pinned, [other, old])).toBe(old);
+    expect(normalizeLaunchTarget(pinned)).toEqual(pinned);
+  });
+
+  it('only accepts an exact native target whose pipe name follows the engine instance', () => {
+    const engineInstanceId = 'engine-' + 'a'.repeat(32);
+    const pipeName = 'yak-browser-bridge-v1-' + engineInstanceId;
+    const { endpoint: _endpoint, ...base } = target;
+    const native = { ...base, engineInstanceId, pipeName, exactInstance: true };
+    expect(normalizeLaunchTarget(native)).toEqual(native);
+    expect(normalizeLaunchTarget({ ...native, pipeName: pipeName + '-other' })).toEqual({ mode: 'none' });
+    expect(normalizeLaunchTarget({ ...native, exactInstance: false })).toEqual({ mode: 'none' });
+    const config: BridgeConfig = { transport: 'websocket', nativeHost: '', endpoint: target.endpoint!,
+      autoConnect: false, installationId: 'browser' };
+    expect(bindLaunchTarget(config, native)).toMatchObject({ transport: 'native', nativeHost: 'com.yaklang.ytray_engine' });
+  });
+
+  it('enables automatic discovery through the YTray Native Messaging host', () => {
+    const config: BridgeConfig = { transport: 'websocket', nativeHost: '', endpoint: target.endpoint!,
+      autoConnect: false, installationId: 'browser' };
+    const automatic = bindLaunchTarget(config, { mode: 'auto' });
+    expect(automatic).toMatchObject({ autoConnect: true, transport: 'native', nativeHost: 'com.yaklang.ytray_engine' });
+    expect(normalizeLaunchTarget(automatic.launchTarget)).toEqual({ mode: 'auto' });
+  });
+
+  it('accepts only the Unix socket name derived from the selected process', () => {
+    const engineInstanceId = 'engine-' + 'a'.repeat(32);
+    const pipeName = 'yak-browser-bridge-v1-' + engineInstanceId;
+    const { endpoint: _endpoint, ...base } = target;
+    const native = { ...base, engineInstanceId, socketName: pipeName + '.sock', exactInstance: true };
+    expect(normalizeLaunchTarget(native)).toEqual(native);
+    expect(normalizeLaunchTarget({ ...native, pipeName })).toEqual({ mode: 'none' });
+    expect(normalizeLaunchTarget({ ...native, socketName: '/tmp/' + native.socketName })).toEqual({ mode: 'none' });
+  });
+
   it('never turns a malformed or remote stored target into unrestricted discovery', () => {
     expect(normalizeLaunchTarget(undefined)).toBeUndefined();
     expect(normalizeLaunchTarget({ ...target, endpoint: 'ws://example.com/extension' })).toEqual({ mode: 'none' });

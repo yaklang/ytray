@@ -45,29 +45,41 @@ namespace YTray.Core
             await _socket.ConnectAsync(address, token);
         }
 
-        internal async Task<JObject> SendAsync(string method, JObject parameters, CancellationToken token)
+        internal async Task<JObject> SendAsync(string method, JObject parameters, CancellationToken token, string? sessionId = null)
         {
             var id = ++_id;
-            var bytes = Encoding.UTF8.GetBytes(new JObject { ["id"] = id, ["method"] = method, ["params"] = parameters }.ToString(Formatting.None));
-            await _socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
-            var buffer = new byte[16384];
+            var request = new JObject { ["id"] = id, ["method"] = method, ["params"] = parameters };
+            if (sessionId != null) request["sessionId"] = sessionId;
+            await SendMessageAsync(request, token);
             while (true)
             {
-                using var message = new MemoryStream();
-                WebSocketReceiveResult received;
-                do
-                {
-                    received = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-                    if (received.MessageType == WebSocketMessageType.Close) throw new IOException("浏览器调试连接已关闭");
-                    message.Write(buffer, 0, received.Count);
-                    if (message.Length > 4 * 1024 * 1024) throw new IOException("浏览器扩展响应过大");
-                } while (!received.EndOfMessage);
-                var reply = JObject.Parse(Encoding.UTF8.GetString(message.ToArray()));
+                var reply = await ReceiveMessageAsync(token);
                 if (reply["id"]?.Value<int>() != id) continue;
                 if (reply["error"] is JObject error)
                     throw new DevToolsCommandException(error["code"]?.Value<int>() ?? 0, error["message"]?.Value<string>() ?? "扩展接口返回错误");
                 return reply["result"] as JObject ?? throw new IOException("浏览器没有返回扩展操作结果");
             }
+        }
+
+        internal Task SendMessageAsync(JObject request, CancellationToken token)
+        {
+            var bytes = Encoding.UTF8.GetBytes(request.ToString(Formatting.None));
+            return _socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+        }
+
+        internal async Task<JObject> ReceiveMessageAsync(CancellationToken token)
+        {
+            var buffer = new byte[16384];
+            using var message = new MemoryStream();
+            WebSocketReceiveResult received;
+            do
+            {
+                received = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                if (received.MessageType == WebSocketMessageType.Close) throw new IOException("浏览器调试连接已关闭");
+                message.Write(buffer, 0, received.Count);
+                if (message.Length > 4 * 1024 * 1024) throw new IOException("浏览器扩展响应过大");
+            } while (!received.EndOfMessage);
+            return JObject.Parse(Encoding.UTF8.GetString(message.ToArray()));
         }
 
         public void Dispose() => _socket.Dispose();
@@ -81,7 +93,7 @@ namespace YTray.Core
             return int.TryParse((runtime.Version ?? "").Split('.')[0], out var major) && major > 0 && major < 137;
         }
 
-        internal static async Task EnsureLoadedAsync(int port, IEnumerable<string> paths, bool legacyLoadingExpected, CancellationToken token)
+        internal static async Task EnsureLoadedAsync(int port, IEnumerable<string> paths, bool legacyLoadingExpected, CancellationToken token, bool suppressInstallOptions = false)
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
             deadline.CancelAfter(TimeSpan.FromSeconds(25));
@@ -91,10 +103,73 @@ namespace YTray.Core
                 await connection.ConnectAsync(port, deadline.Token);
                 await EnsureLoadedAsync(paths, legacyLoadingExpected,
                     (method, parameters) => connection.SendAsync(method, parameters, deadline.Token));
+                if (suppressInstallOptions)
+                {
+                    try
+                    {
+                        await CloseInstallOptionsAsync(paths, (method, parameters) => connection.SendAsync(method, parameters, deadline.Token), deadline.Token);
+                    }
+                    catch (Exception error) when (!token.IsCancellationRequested)
+                    {
+                        DiagnosticLog.Error("extension.startup-options", error);
+                    }
+                }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (ExtensionLoadingException) { throw; }
             catch (Exception ex) { throw new ExtensionLoadingException("无法完成插件加载验证：" + ex.Message, ex); }
+        }
+
+        internal static HashSet<string> InstallOptionsUrls(IEnumerable<string> paths)
+        {
+            var urls = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var directory in paths)
+            {
+                try
+                {
+                    var manifest = JObject.Parse(File.ReadAllText(Path.Combine(directory, "manifest.json")));
+                    var page = (string?)(manifest["options_ui"] as JObject)?["page"] ?? (string?)manifest["options_page"];
+                    if (string.IsNullOrWhiteSpace(page)) continue;
+                    var id = ExtensionInstaller.ChromiumExtensionId(directory, (string?)manifest["key"]);
+                    var origin = new Uri("chrome-extension://" + id + "/");
+                    if (Uri.TryCreate(origin, page, out var url) && url.Scheme == origin.Scheme && url.Host == id)
+                    {
+                        urls.Add(url.GetLeftPart(UriPartial.Path));
+                        urls.Add("chrome://extensions/?options=" + id);
+                    }
+                }
+                catch (Exception error) when (error is IOException || error is JsonException || error is FormatException || error is UnauthorizedAccessException)
+                {
+                    DiagnosticLog.Error("extension.startup-options.metadata", error);
+                }
+            }
+            return urls;
+        }
+
+        internal static async Task CloseInstallOptionsAsync(IEnumerable<string> paths,
+            Func<string, JObject, Task<JObject>> send, CancellationToken cancellation)
+        {
+            var urls = InstallOptionsUrls(paths);
+            if (urls.Count == 0) return;
+            // Installation can schedule a tab while its quick-start page is loading.
+            // Close only declared options pages in the new profile's startup window.
+            for (var pass = 0; pass < 3; pass++)
+            {
+                var reply = await send("Target.getTargets", new JObject());
+                foreach (var target in (reply["targetInfos"] as JArray ?? new JArray()).OfType<JObject>())
+                {
+                    if ((string?)target["type"] != "page" || !Uri.TryCreate((string?)target["url"], UriKind.Absolute, out var url)
+                        || !urls.Contains(url.Scheme == "chrome-extension" ? url.GetLeftPart(UriPartial.Path) : url.AbsoluteUri)
+                        || target["targetId"]?.Type != JTokenType.String) continue;
+                    try
+                    {
+                        await send("Target.closeTarget", new JObject { ["targetId"] = target["targetId"] });
+                        DiagnosticLog.Info("extension.startup-options", "已收起安装时打开的配置页；extension=" + url.Host);
+                    }
+                    catch (DevToolsCommandException error) when (error.Code == -32000) { /* The extension closed its own tab. */ }
+                }
+                if (pass < 2) await Task.Delay(180, cancellation);
+            }
         }
 
         // The command seam exercises protocol failures and legacy fallback without a real browser.

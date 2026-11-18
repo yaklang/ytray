@@ -31,6 +31,8 @@ namespace YTray
         private LaunchAtLoginManager? _launchAtLogin;
         private NativeControlServer? _nativeControl;
         private Core.SystemControl.ControlElevation? _controlElevation;
+        private TrayInstance? _trayInstance;
+        private Core.BrowserUse.BrowserUseNativeHost? _engineHost;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -129,7 +131,26 @@ namespace YTray
                 CrashGuard.Observe(RunDesignCaptureAsync(designCaptureDirectory!, captureSitePreviewOnly), "design-capture");
                 return;
             }
+
+            var target = repairControl || openSystemControl ? TrayOpenTarget.ComputerControl :
+                openWidget ? TrayOpenTarget.Widget : openMcp ? TrayOpenTarget.Mcp : TrayOpenTarget.Manager;
+            _trayInstance = new TrayInstance();
+            if (!_trayInstance.IsPrimary)
+            {
+                if (!startupLaunch || target != TrayOpenTarget.Manager) _trayInstance.RequestOpen(target);
+                Shutdown();
+                return;
+            }
+
             _store = new InstanceStore();
+            try
+            {
+                var executable = System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName;
+                _engineHost = new Core.BrowserUse.BrowserUseNativeHost(_store.ApplicationDirectory, executable,
+                    Core.BrowserUse.BrowserUseServer.Port, BrowserEngineNative.HostName);
+                _engineHost.Register();
+            }
+            catch (Exception error) { DiagnosticLog.Error("browser-engine.host.register", error); }
             _controlElevation = new Core.SystemControl.ControlElevation(Dispatcher, () => Shutdown());
             _store.ConfirmLaunchWithoutPlugins = Views.ExtensionLaunchDialog.Confirm;
             _nativeControl = new NativeControlServer(_store);
@@ -151,6 +172,7 @@ namespace YTray
             ThemeManager.Initialize(initialTheme);
             _launchAtLogin = new LaunchAtLoginManager();
             _tray = new TrayApp(_store, _launchAtLogin);
+            _trayInstance.Listen(Dispatcher, ShowTrayTarget);
             var firstLaunchOutcome = _launchAtLogin.EnableOnFirstLaunchIfNeeded(
                 _store.Settings,
                 _store.SaveSettings
@@ -175,12 +197,17 @@ namespace YTray
                 );
             }
             // A login launch stays in the tray. A normal launch opens the manager immediately.
-            if (openWidget && !repairControl) _tray.ShowWidget();
-            else if (!startupLaunch || repairControl) _tray.ShowManager(repairControl || openSystemControl ? "system" : openMcp ? "mcp" : null);
+            if (!startupLaunch || target != TrayOpenTarget.Manager) ShowTrayTarget(target);
             CrashGuard.Observe(repairControl ? RepairControlAndRestoreAsync() : _store.RestoreComputerControlAsync(), "computer-control-startup");
             _store.RestoreBrowserUse();
             if (_store.Settings.McpAutoStart) _store.StartMcpService();
             else _store.SetMcpStatus(false, "自动启动已关闭，可在 MCP 页面手动启动");
+        }
+
+        private void ShowTrayTarget(TrayOpenTarget target)
+        {
+            if (target == TrayOpenTarget.Widget) _tray?.ShowWidget();
+            else _tray?.ShowManager(target == TrayOpenTarget.ComputerControl ? "system" : target == TrayOpenTarget.Mcp ? "mcp" : null);
         }
 
         private async Task RepairControlAndRestoreAsync()
@@ -283,11 +310,13 @@ namespace YTray
         {
             DiagnosticLog.Info("app.exit", $"application exiting; code={e.ApplicationExitCode}");
             _nativeControl?.Dispose();
+            _engineHost?.Dispose();
             _controlElevation?.Dispose();
             _tray?.Dispose();
             _launchAtLogin = null;
             _store?.Dispose();
             ThemeManager.Shutdown();
+            _trayInstance?.Dispose();
             base.OnExit(e);
         }
     }

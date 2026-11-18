@@ -153,6 +153,7 @@ enum BrowserLauncher {
         components.path = "/ytray-bootstrap.html"
         var queryItems = [
             URLQueryItem(name: "manager", value: "ytray"),
+            URLQueryItem(name: "engineTarget", value: #"{"mode":"auto"}"#),
             URLQueryItem(name: "instanceId", value: instanceID.uuidString),
             URLQueryItem(name: "badge", value: try DockBadgeLabel.normalize(badge)),
             URLQueryItem(name: "target", value: target),
@@ -212,6 +213,9 @@ enum BrowserLauncher {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw YTrayError.invalidExecutable(executable.path)
         }
+        guard let launcher = launcherExecutable ?? Bundle.main.executableURL else {
+            throw YTrayError.launchFailed("找不到 YTray 启动器")
+        }
         let id = history?.id ?? UUID()
         let normalizedBadge = try DockBadgeLabel.normalize(dockBadge)
         let profile = history.map { URL(fileURLWithPath: $0.profilePath, isDirectory: true) }
@@ -261,6 +265,13 @@ enum BrowserLauncher {
                 try preparePinnedExtensions(
                     profile: profile, loadedPlugins: plugins, configuredPlugins: configuredPlugins
                 )
+                if plugins.contains(where: {
+                    $0.enabled && $0.name == ExtensionInstaller.extensionName
+                        && ExtensionInstaller.chromiumExtensionID(for: $0) == BrowserEngineNativeHost.extensionID
+                }) {
+                    do { try BrowserEngineNativeHost.register(in: profile, executable: launcher) }
+                    catch { DiagnosticLog.error("browser.engine-native", error) }
+                }
             }
         } catch {
             ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
@@ -292,12 +303,6 @@ enum BrowserLauncher {
             throw error
         }
         let process = Process()
-        guard let launcher = launcherExecutable ?? Bundle.main.executableURL else {
-            try? log.close()
-            BrowserProcessIcon.remove(instanceID: id, applicationDirectory: applicationDirectory)
-            ProxyAuthenticationExtension.remove(instanceID: id, applicationDirectory: applicationDirectory)
-            throw YTrayError.launchFailed("找不到 YTray 启动器")
-        }
         process.executableURL = launcher
         process.arguments = buildProcessArguments(
             iconURL: iconURL,

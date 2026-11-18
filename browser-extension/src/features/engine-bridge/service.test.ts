@@ -60,6 +60,8 @@ const fixture = vi.hoisted(() => ({
   setRuntimeSession: vi.fn(async (_value: unknown) => undefined),
   appendAudit: vi.fn(async (_value: unknown) => undefined),
   pairingCode: vi.fn(async () => '123456'),
+  platformInfo: vi.fn(async () => ({ os: 'win' })),
+  sendNativeMessage: vi.fn<(host: string, message: unknown) => Promise<unknown>>(),
 }));
 
 vi.mock('wxt/browser', () => ({
@@ -69,6 +71,9 @@ vi.mock('wxt/browser', () => ({
       getURL: (path = '') => `chrome-extension://fixture-id/${path}`,
       sendMessage: vi.fn(async () => undefined),
       connectNative: vi.fn(),
+      getPlatformInfo: fixture.platformInfo,
+      sendNativeMessage: fixture.sendNativeMessage,
+
       lastError: undefined,
     },
   },
@@ -151,6 +156,7 @@ import {
   EngineBridge,
   browserClientIdentity,
 } from './service';
+import { browser } from 'wxt/browser';
 import { beginAgentAction } from '@/features/agent-runtime/service';
 import { getEnterprisePolicy } from '@/platform/policy/managed';
 import { bindLaunchTarget } from './launch-target';
@@ -231,6 +237,74 @@ describe('Engine Bridge transport lifecycle', () => {
   });
 
   afterEach(() => vi.useRealTimers());
+
+  it('reports the authenticated WebSocket transport and clears it on disconnect', async () => {
+    const bridge = new EngineBridge();
+    await connect(bridge);
+    expect(bridge.getStatus()).toMatchObject({ state: 'connected', transport: 'websocket' });
+    bridge.disconnect();
+    expect(bridge.getStatus().transport).toBeUndefined();
+  });
+
+  it('waits for Native Messaging in a managed browser without probing WebSocket ports', async () => {
+    const bridge = new EngineBridge();
+    fixture.state.bridge = bindLaunchTarget(bridgeConfig(false), { mode: 'auto' });
+    fixture.sendNativeMessage.mockResolvedValueOnce({ targets: [] });
+    await bridge.connectManaged(fixture.state.bridge);
+
+    expect(bridge.getStatus()).toMatchObject({
+      state: 'error', message: expect.stringContaining('Native Messaging'),
+    });
+    expect(bridge.discoverLocalEngines).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    bridge.disconnect();
+  });
+
+  it('reconnects the selected macOS engine while ignoring another frontend', async () => {
+    const bridge = new EngineBridge();
+    const previous = 'engine-' + 'a'.repeat(32);
+    const restarted = 'engine-' + 'b'.repeat(32);
+    const native = {
+      mode: 'engine' as const, frontendId: 'memfit', frontendName: 'Memfit AI',
+      engineIdentityId: 'engine-identity-1', engineInstanceId: previous, exactInstance: true,
+      socketName: 'yak-browser-bridge-v1-' + previous + '.sock',
+    };
+    const next = { ...native, engineInstanceId: restarted, socketName: 'yak-browser-bridge-v1-' + restarted + '.sock' };
+    const otherInstance = 'engine-' + 'c'.repeat(32);
+    const other = { ...native, frontendId: 'yakit', engineInstanceId: otherInstance,
+      socketName: 'yak-browser-bridge-v1-' + otherInstance + '.sock' };
+    fixture.state.bridge = bindLaunchTarget({
+      ...bridgeConfig(), pairedEngine: { ...bridgeConfig().pairedEngine!, frontendId: 'memfit' },
+    }, native);
+    fixture.platformInfo.mockResolvedValueOnce({ os: 'mac' });
+    fixture.sendNativeMessage.mockResolvedValueOnce({ targets: [other, next] });
+
+    let receive: (json: unknown) => void = () => undefined;
+    const port = { postMessage: vi.fn(), disconnect: vi.fn(),
+      onDisconnect: { addListener: vi.fn() },
+      onMessage: { addListener(listener: typeof receive) { receive = listener; } } };
+    vi.mocked(browser.runtime.connectNative).mockReturnValueOnce(port as unknown as ReturnType<typeof browser.runtime.connectNative>);
+    const pending = bridge.connect(fixture.state.bridge);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bridge.getStatus()).toMatchObject({ state: 'negotiating' });
+    expect(bridge.getStatus().transport).toBeUndefined();
+    expect(port.postMessage).toHaveBeenCalledWith({
+      type: 'yak_engine_open', purpose: 'connect', socketName: next.socketName,
+      engineInstanceId: restarted, engineIdentityId: next.engineIdentityId,
+    });
+    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    receive({ type: 'challenge', protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      engineInstanceId: restarted, engineIdentityId: next.engineIdentityId,
+      challenge: 'engine-challenge-0123456789', signature: 'engine-signature',
+      timestamp: Date.now(), publicKey: enginePublicKey });
+    await vi.advanceTimersByTimeAsync(0);
+    receive({ ...helloAck(), engineInstanceId: restarted });
+    await pending;
+    expect(bridge.getStatus()).toMatchObject({ state: 'connected', transport: 'unix-socket', engineInstanceId: restarted });
+    expect(fixture.state.bridge.launchTarget).toEqual(next);
+    bridge.disconnect();
+  });
 
   it('rejects an outgoing request immediately when send races with socket failure', async () => {
     const bridge = new EngineBridge();
@@ -562,6 +636,37 @@ describe('Engine Bridge transport lifecycle', () => {
     socket.open();
     socket.receive({ type: 'pair_rejected', requestId: 'pairing-1', message: '用户拒绝' });
     await pending;
+  });
+
+  it.each([true, false])('checks the older Yakit handshake before pairing when the process match is %s', async (matches) => {
+    const endpoint = 'ws://127.0.0.1:14333/extension';
+    fixture.state.bridge = { ...bridgeConfig(false), endpoint, launchTarget: {
+      mode: 'engine', frontendId: 'yakit', frontendName: 'Yakit', engineIdentityId: 'engine-identity-1',
+      engineInstanceId: 'engine-instance-1', endpoint, exactInstance: true, challengeOnly: true,
+    } };
+    vi.mocked(EngineBridge.prototype.discoverLocalEngines).mockRestore();
+    const bridge = new EngineBridge();
+    const pairing = bridge.startPairing();
+    const rejected = matches ? undefined : expect(pairing).rejects.toThrow('等待所选');
+    await vi.advanceTimersByTimeAsync(0);
+    const probe = FakeWebSocket.instances[0];
+    expect(probe.url).toBe(endpoint);
+    probe.open();
+    probe.receive({ type: 'challenge', protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      engineIdentityId: 'engine-identity-1', engineInstanceId: matches ? 'engine-instance-1' : 'other-process',
+      challenge: 'engine-challenge-0123456789', signature: 'engine-signature', timestamp: NOW, publicKey: enginePublicKey });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(probe.sent).toEqual([]);
+    if (!matches) {
+      await rejected;
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      return;
+    }
+    const socket = FakeWebSocket.instances[1];
+    expect(socket.url).toBe('ws://127.0.0.1:14333/pairing');
+    socket.open();
+    socket.receive({ type: 'pair_rejected', requestId: 'pairing-1', message: '用户拒绝' });
+    await expect(pairing).resolves.toMatchObject({ state: 'rejected' });
   });
 
   it('does not open a pairing connection to another frontend when the selected engine is offline', async () => {

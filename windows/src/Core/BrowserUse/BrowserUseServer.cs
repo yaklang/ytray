@@ -308,13 +308,21 @@ namespace YTray.Core.BrowserUse
                             : null,
                     });
                 }
-                if (method == "list_runtimes" || method == "list_instances" || method == "open")
+                if (method == "list_runtimes" || method == "list_instances" || method == "list_environments" || method == "open")
                 {
                     var store = _store ?? throw new BrowserUseException("instance_management_unavailable", "This MCP server is not attached to YTray instance management.");
                     if (method == "open") return BrowserUseTools.Result(await OpenPageAsync(store, arguments, cancellation).ConfigureAwait(false));
-                    var list = await OnDispatcherAsync(() => method == "list_runtimes"
-                        ? new JObject { ["runtimes"] = new JArray(store.Runtimes.Select(runtime => McpServer.RuntimeJson(runtime, store.DefaultRuntime?.Id))) }
-                        : new JObject { ["instances"] = new JArray(store.RunningInstances.Select(DescribeInstance)) }, cancellation).ConfigureAwait(false);
+                    var list = await OnDispatcherAsync(() => method switch
+                    {
+                        "list_runtimes" => new JObject { ["runtimes"] = new JArray(store.Runtimes.Select(runtime => McpServer.RuntimeJson(runtime, store.DefaultRuntime?.Id))) },
+                        "list_environments" => new JObject { ["environments"] = new JArray(store.BrowserEnvironments.Select(environment => new JObject {
+                            ["environment_id"] = environment.Id, ["name"] = environment.Name, ["runtime_id"] = environment.RuntimeId,
+                            ["language"] = environment.RandomizeOnLaunch ? null : environment.Language,
+                            ["timezone"] = environment.RandomizeOnLaunch ? null : environment.TimeZone,
+                            ["randomize_on_launch"] = environment.RandomizeOnLaunch, ["network"] = environment.Network.ToString()
+                        })) },
+                        _ => new JObject { ["instances"] = new JArray(store.RunningInstances.Select(DescribeInstance)) },
+                    }, cancellation).ConfigureAwait(false);
                     return BrowserUseTools.Result(list);
                 }
                 var pageId = (string)arguments["page_id"]!;
@@ -394,6 +402,11 @@ namespace YTray.Core.BrowserUse
             ["name"] = instance.Name,
             ["runtime"] = instance.RuntimeName,
             ["runtime_id"] = instance.RuntimeID.ToString("D"),
+            ["environment_id"] = instance.SettingsSnapshot?.Environment?.Id,
+            ["environment_name"] = instance.SettingsSnapshot?.Environment?.Name,
+            ["environment_language"] = instance.SettingsSnapshot?.Environment?.Language,
+            ["environment_timezone"] = instance.SettingsSnapshot?.Environment?.TimeZone,
+            ["environment_connected"] = _store?.IsBrowserEnvironmentConnected(instance),
             ["extension_ready"] = _instances.TryGetValue(instance.Id, out var connection) && connection.IsConnected,
         };
 
@@ -406,15 +419,23 @@ namespace YTray.Core.BrowserUse
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             deadline.CancelAfter(TimeSpan.FromSeconds(65));
             var runtimeId = (string?)arguments["runtime_id"];
-            var instanceId = runtimeId == null ? Guid.Parse((string)arguments["instance_id"]!) : (Guid?)null;
-            var created = runtimeId != null;
+            var environmentId = (string?)arguments["environment_id"];
+            var created = runtimeId != null || environmentId != null;
+            var instanceId = created ? (Guid?)null : Guid.Parse((string)arguments["instance_id"]!);
             var url = new Uri((string)arguments["url"]!);
             try
             {
                 var id = await OnDispatcherAsync(() =>
                 {
-                    if (runtimeId != null) return store.LaunchForBrowserUse(Guid.Parse(runtimeId), url, (bool?)arguments["use_proxy"] == true).Id;
-                    if (store.RunningInstances.Any(instance => instance.Id == instanceId && !instance.IsStopping)) return instanceId!.Value;
+                    if (created) return store.LaunchForBrowserUse(runtimeId == null ? (Guid?)null : Guid.Parse(runtimeId), url,
+                        (bool?)arguments["use_proxy"] == true, environmentId == null ? (Guid?)null : Guid.Parse(environmentId)).Id;
+                    var instance = store.RunningInstances.FirstOrDefault(item => item.Id == instanceId && !item.IsStopping);
+                    if (instance != null)
+                    {
+                        if (!store.IsBrowserEnvironmentConnected(instance))
+                            throw new BrowserUseException("environment_disconnected", "Restart this instance to restore its saved browser environment.", instanceId);
+                        return instance.Id;
+                    }
                     throw new BrowserUseException("instance_not_found", "Choose a running instance from browser_list_instances.");
                 }, deadline.Token).ConfigureAwait(false);
                 instanceId = id;

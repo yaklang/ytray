@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Threading.Tasks;
 using YTray.Core;
 using YTray.Models;
 
@@ -22,11 +23,18 @@ namespace YTray.Views.Pages
         private BrowserInstancePresentation? _selected;
         private string _activeTab = "all";
         private bool _refreshingSelection;
+        private readonly DispatcherTimer _engineStatusTimer;
+        private Guid? _engineInstance;
+        private bool _readingEngine;
+        private bool _changingEngine;
+        private bool _hasActiveEngineTask;
 
         public InstancesPage(InstanceStore store)
         {
             InitializeComponent();
             _store = store;
+            _engineStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _engineStatusTimer.Tick += async (_, __) => await RefreshEngineStatusAsync();
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
             Refresh();
@@ -41,10 +49,12 @@ namespace YTray.Views.Pages
                 _subscribed = true;
             }
             Refresh();
+            _engineStatusTimer.Start();
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
+            _engineStatusTimer.Stop();
             if (!_subscribed) return;
             _store.PropertyChanged -= OnStorePropertyChanged;
             InstanceThumbnailImageSource.ImageLoaded -= OnThumbnailImageLoaded;
@@ -243,7 +253,18 @@ namespace YTray.Views.Pages
             StopDetailButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
             RestoreDetailButton.IsEnabled = !running;
             RestoreDetailButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-            ChooseTargetRestoreButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+            var instance = selected.Instance;
+            EngineConnectionActions.Visibility = running && !_store.CanManageBrowserEngine(instance) ? Visibility.Collapsed : Visibility.Visible;
+            ApplyEngineButton.Content = running ? "应用" : "接入并恢复";
+            if (_engineInstance != instance.Id)
+            {
+                _engineInstance = instance.Id;
+                _hasActiveEngineTask = false;
+                var saved = instance.SettingsSnapshot?.EngineTarget;
+                EnginePicker.Configure(saved?.Mode == "auto" ? null : saved, allowAuto: false);
+                EngineConnectionStatus.Text = instance.EngineTargetSummary;
+                if (running) _ = RefreshEngineStatusAsync();
+            }
         }
 
         private void RoundedPreview_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -287,7 +308,65 @@ namespace YTray.Views.Pages
             }
         }
         private void RestoreDetail_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.RestoreHistory(_selected.Instance); }
-        private void ChooseTargetRestore_Click(object sender, RoutedEventArgs e) { if (_selected != null) _store.RestoreHistory(_selected.Instance, chooseEngine: true); }
+        private async Task RefreshEngineStatusAsync()
+        {
+            var instance = _selected?.Instance;
+            if (instance == null || _readingEngine || _changingEngine || !_store.CanManageBrowserEngine(instance)) return;
+            var selected = instance.SettingsSnapshot?.EngineTarget;
+            if (selected?.Mode == "none" || selected?.Mode == "auto")
+            {
+                EngineConnectionStatus.Text = instance.EngineTargetSummary;
+                return;
+            }
+            _readingEngine = true;
+            try
+            {
+                var result = await _store.BrowserEngineConnectionAsync(instance);
+                if (_selected?.Instance != instance || _changingEngine) return;
+                var status = result["status"];
+                var pairing = result["pairing"];
+                var state = (string?)status?["state"];
+                _hasActiveEngineTask = !string.IsNullOrEmpty((string?)status?["taskId"]);
+                var name = selected?.DisplayName ?? "原有连接设置";
+                EngineConnectionStatus.Text = state == "connected" ? "已接入 " + name
+                    : (string?)pairing?["state"] == "pending" ? "请在 " + name + " 中确认配对"
+                    : state == "connecting" ? "正在连接 " + name
+                    : (string?)status?["message"] ?? instance.EngineTargetSummary;
+            }
+            catch (Exception error)
+            {
+                if (_selected?.Instance == instance && !_changingEngine) EngineConnectionStatus.Text = error.Message;
+            }
+            finally { _readingEngine = false; }
+        }
+
+        private async void ApplyEngine_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selected?.Instance is not BrowserInstance instance || EnginePicker.Target is not BrowserEngineTarget target || _changingEngine) return;
+            if (instance.Status != InstanceStatus.Running)
+            {
+                _store.RestoreHistory(instance, target);
+                return;
+            }
+            if (_hasActiveEngineTask && MessageBox.Show(Window.GetWindow(this), "切换将结束此浏览器在原应用中的连接任务。",
+                "切换接入应用", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
+            _changingEngine = true;
+            ApplyEngineButton.IsEnabled = false;
+            try
+            {
+                await _store.BrowserEngineConnectionAsync(instance, target);
+                if (_selected?.Instance == instance) EngineConnectionStatus.Text = target.Mode == "none" ? "仅浏览器" : "正在连接 " + target.DisplayName;
+            }
+            catch (Exception error)
+            {
+                if (_selected?.Instance == instance) EngineConnectionStatus.Text = error.Message;
+            }
+            finally
+            {
+                _changingEngine = false;
+                ApplyEngineButton.IsEnabled = true;
+            }
+        }
         private void NewInstance_Click(object sender, RoutedEventArgs e)
         {
             var wizard = new CustomLaunchWizard(_store) { Owner = Window.GetWindow(this) };

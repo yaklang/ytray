@@ -6,6 +6,7 @@ import { browser } from 'wxt/browser';
 import { YakMark } from '@/components/brand/Brand';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
+import { connectedEngineName, connectedTransportLabel } from '@/features/engine-bridge/presentation';
 import { HANDOFF_REASON_LABELS, waitingHandoff } from '@/features/handoff/presentation';
 import { isStateStorageChange } from '@/protocol/storage';
 import type { ActiveTabInfo, BridgeStatus, ExtensionState, UserAgentResolution } from '@/types/models';
@@ -27,7 +28,7 @@ const FULL_VIEW_TARGETS: Record<PopupView, { section: string; label: string }> =
 };
 
 function engineStatusLabel(state: ExtensionState, bridge: BridgeStatus): string {
-  if (bridge.state === 'connected') return '引擎在线';
+  if (bridge.state === 'connected') return connectedEngineName(state, bridge) + ' 在线';
   if (bridge.state === 'connecting') return '正在连接引擎';
   if (bridge.state === 'negotiating') return '正在验证引擎身份';
   if (bridge.state === 'error') return bridge.message || '引擎连接失败';
@@ -172,8 +173,9 @@ function App() {
   const engineBusy = bridge.state === 'connecting' || bridge.state === 'negotiating';
   const currentHost = (() => { try { return tab?.url ? new URL(tab.url).host : ''; } catch { return ''; } })();
   const statusLabel = engineStatusLabel(state, bridge);
+  const transportLabel = connectedTransportLabel(bridge);
   const statusActionLabel = bridge.state === 'connected'
-    ? `${statusLabel}，点击断开`
+    ? `${statusLabel}${transportLabel ? `，${transportLabel}` : ''}，点击断开`
     : state.bridge.pairedEngine ? `${statusLabel}，点击连接` : `${statusLabel}，点击配对`;
   const fullViewTarget = FULL_VIEW_TARGETS[view];
 
@@ -196,9 +198,9 @@ function App() {
             </div>
             <div className="popup-brand-actions">
               <Tooltip label={statusActionLabel} side="bottom">
-                <button className={`popup-engine-status ${bridge.state}`} aria-label={statusLabel} disabled={busy || engineBusy} onClick={() => void toggleEngine()}>
+                <button className={`popup-engine-status ${bridge.state}`} aria-label={transportLabel ? `${statusLabel}，${transportLabel}` : statusLabel} disabled={busy || engineBusy} onClick={() => void toggleEngine()}>
                   <i aria-hidden="true" />
-                  <span>{bridge.state === 'connected' ? '在线' : engineBusy ? '连接中' : state.bridge.pairedEngine ? '离线' : '配对'}</span>
+                  <span className="popup-engine-status-label"><strong>{bridge.state === 'connected' ? statusLabel : engineBusy ? '连接中' : state.bridge.pairedEngine ? '离线' : '配对'}</strong>{transportLabel && <small>{transportLabel}</small>}</span>
                 </button>
               </Tooltip>
               <Tooltip label={fullViewTarget.label} side="bottom">

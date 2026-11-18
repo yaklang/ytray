@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -70,6 +71,7 @@ namespace YTray.Tests
                         widget.SchemeCombo.IsDropDownOpen = false;
                     }
                     Assert.AreEqual(4, Descendants(widget).OfType<Button>().Count(b => Equals(b.ToolTip, "聚焦窗口")));
+                    VerifyComboBoxHitArea(settingsWindow);
                     settingsWindow.Hide();
                     widget.Hide();
                     WidgetLayoutVerification.Run(directory);
@@ -97,6 +99,22 @@ namespace YTray.Tests
                 var child = VisualTreeHelper.GetChild(parent, index);
                 yield return child;
                 foreach (var descendant in Descendants(child)) yield return descendant;
+            }
+        }
+
+        private static void VerifyComboBoxHitArea(Window host)
+        {
+            var combo = new ComboBox { Width = 240, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+            combo.Items.Add(new ComboBoxItem { Content = "浏览器默认" });
+            combo.SelectedIndex = 0;
+            host.Content = combo;
+            host.UpdateLayout();
+            var toggle = Descendants(combo).OfType<ToggleButton>().Single();
+            foreach (var x in new[] { 14, 120, 224 })
+            {
+                var hit = combo.InputHitTest(new Point(x, 18)) as DependencyObject;
+                Assert.IsNotNull(hit);
+                Assert.IsTrue(ReferenceEquals(hit, toggle) || toggle.IsAncestorOf(hit), "The value and arrow must both open the dropdown");
             }
         }
 

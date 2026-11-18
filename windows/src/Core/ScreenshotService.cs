@@ -166,6 +166,45 @@ namespace YTray.Core
             throw new YTrayException(YTrayError.ScreenshotFailed, lastError);
         }
 
+        internal static async Task<JObject> ReadEnvironmentAsync(int debugPort)
+        {
+            var targets = await PageTargetsAsync(debugPort) ?? throw new IOException("无法读取浏览器标签页。");
+            var page = await VisiblePageAsync(debugPort, targets) ?? targets.Find(item => item.type == "page" && item.WebSocketDebuggerUrl != null);
+            if (page?.WebSocketDebuggerUrl == null) throw new IOException("浏览器当前没有可读取的标签页。");
+            var command = new JObject {
+                ["id"] = 1, ["method"] = "Runtime.evaluate",
+                ["params"] = new JObject {
+                    ["expression"] = @"(async () => {
+                        const permission = async name => { try { return (await navigator.permissions.query({name})).state; } catch { return null; } };
+                        const [location, camera, microphone] = await Promise.all(['geolocation', 'camera', 'microphone'].map(permission));
+                        return {language:navigator.language, languages:navigator.languages, timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+                            window_width:outerWidth, window_height:outerHeight, viewport_width:innerWidth, viewport_height:innerHeight,
+                            pixel_ratio:devicePixelRatio, color_scheme:matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+                            reduced_motion:matchMedia('(prefers-reduced-motion: reduce)').matches, location, camera, microphone, user_agent:navigator.userAgent};
+                    })()",
+                    ["awaitPromise"] = true,
+                    ["returnByValue"] = true
+                }
+            };
+            var replies = await WebSocketExchangeAsync(new Uri(page.WebSocketDebuggerUrl), command);
+            var values = replies.FirstOrDefault(reply => (int?)reply["id"] == 1)?["result"]?["result"]?["value"] as JObject
+                ?? throw new IOException("浏览器未返回环境值。");
+            values["url"] = PageUrlForHistory(page.url);
+            if (page.id != null)
+            {
+                using var browser = new BrowserDevTools();
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+                await browser.ConnectAsync(debugPort, deadline.Token);
+                var window = await browser.SendAsync("Browser.getWindowForTarget", new JObject { ["targetId"] = page.id }, deadline.Token);
+                if (window["bounds"] is JObject bounds)
+                {
+                    values["window_width"] = bounds["width"];
+                    values["window_height"] = bounds["height"];
+                }
+            }
+            return values;
+        }
+
         private static async Task<List<CdpTarget>?> PageTargetsAsync(int debugPort)
         {
             if (debugPort < 1 || debugPort > 65535) return null;

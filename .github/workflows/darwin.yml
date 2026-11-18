@@ -20,6 +20,9 @@ on:
         description: Run only the requested published UI investigation
         type: boolean
         default: false
+      native_engine_ref:
+        description: Optional Yaklang revision for a real Native Messaging regression
+        default: ''
 
 permissions:
   contents: read
@@ -115,6 +118,27 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
           unzip -t "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" >/dev/null
 
+      - uses: actions/checkout@v4
+        if: matrix.os == 'macos-15' && inputs.native_engine_ref != ''
+        with:
+          repository: yaklang/yaklang
+          ref: ${{ inputs.native_engine_ref }}
+          path: .native-yaklang
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        if: matrix.os == 'macos-15' && inputs.native_engine_ref != ''
+        with:
+          go-version-file: .native-yaklang/go.mod
+          cache-dependency-path: .native-yaklang/go.sum
+
+      - name: Build Yak for Native Messaging integration
+        if: matrix.os == 'macos-15' && inputs.native_engine_ref != ''
+        working-directory: .native-yaklang
+        run: |
+          command -v grpcurl >/dev/null || brew install grpcurl
+          CGO_ENABLED=1 go build -o "$RUNNER_TEMP/yak-native-smoke" common/yak/cmd/yak.go
+
       - name: Install real browser for integration tests
         if: matrix.os == 'macos-15'
         id: test-browser
@@ -127,6 +151,7 @@ jobs:
         env:
           YTRAY_CHROME_PATH: ${{ steps.test-browser.outputs.chrome-path }}
           YTRAY_CFT_PATH: ${{ steps.test-browser.outputs.chrome-path }}
+          NATIVE_ENGINE_REF: ${{ inputs.native_engine_ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -151,6 +176,12 @@ jobs:
             --filter 'BrowserExtensionIntegrationTests|testMCPReadsAndEvaluatesARealBrowserPageWhenAvailable|testRealChromeForTestingUsesGeneratedProxyAuthenticationExtensionWhenConfigured' \
             2>&1 | tee "$RUNNER_TEMP/browser-integration.log"
           ! grep -E 'Test Case .* skipped|[1-9][0-9]* tests skipped' "$RUNNER_TEMP/browser-integration.log"
+          if [[ -n "$NATIVE_ENGINE_REF" ]]; then
+            python3 script/test-macos-native-engine.py \
+              "$RUNNER_TEMP/yak-native-smoke" "$PWD/.native-yaklang/common/yakgrpc/yakgrpc.proto" \
+              swift test --package-path darwin --filter testRealBundledAgentReceivesManagedIdentityAfterCDPLoad \
+              2>&1 | tee "$RUNNER_TEMP/native-engine-integration.log"
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -161,6 +192,7 @@ jobs:
             ${{ runner.temp }}/ytray-*.png
             ${{ runner.temp }}/startup-evidence
             ${{ runner.temp }}/browser-integration.log
+            ${{ runner.temp }}/native-engine-integration.log
           if-no-files-found: error
           retention-days: 14
 

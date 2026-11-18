@@ -51,13 +51,26 @@ namespace YTray.Core
             private readonly FileStream _logStream;
             private readonly CancellationTokenSource _initialization = new CancellationTokenSource();
             private int _disposed;
+            private BrowserEnvironmentSession? _environmentSession;
             internal List<string> ExtensionPaths { get; set; } = new List<string>();
             internal bool LegacyExtensionLoadingExpected { get; set; }
+            internal bool SuppressInstallOptions { get; set; }
             internal string? DeferredStartupURL { get; set; }
 
             internal Task InitializeExtensionsAsync() => ExtensionPaths.Count == 0 ? Task.CompletedTask
                 : BrowserExtensionService.EnsureLoadedAsync(Instance.DebugPort, ExtensionPaths,
-                    LegacyExtensionLoadingExpected, _initialization.Token);
+                    LegacyExtensionLoadingExpected, _initialization.Token, SuppressInstallOptions);
+
+            internal bool EnvironmentConnected => Instance.SettingsSnapshot?.Environment?.RequiresPageEmulation != true
+                || _environmentSession?.IsConnected == true;
+
+            internal async Task InitializeEnvironmentAsync()
+            {
+                var environment = Instance.SettingsSnapshot?.Environment;
+                if (environment?.RequiresPageEmulation != true) return;
+                _environmentSession = new BrowserEnvironmentSession(environment, _initialization.Token);
+                await _environmentSession.StartAsync(Instance.DebugPort);
+            }
 
             internal void CancelInitialization() => _initialization.Cancel();
 
@@ -93,6 +106,7 @@ namespace YTray.Core
             {
                 if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
                 _initialization.Cancel();
+                _environmentSession?.Dispose();
                 _initialization.Dispose();
                 ReleaseTaskbarController();
                 try { Process.CancelOutputRead(); } catch { }
@@ -200,6 +214,18 @@ namespace YTray.Core
                 }
             }
 
+            var environment = settings.Environment;
+            if (environment?.Language is string language && language.Length != 0)
+            {
+                arguments.RemoveAll(argument => argument.Equals("--lang", StringComparison.Ordinal) || argument.StartsWith("--lang=", StringComparison.Ordinal));
+                arguments.Add("--lang=" + language);
+            }
+            if (environment?.WindowWidth is int width && environment.WindowHeight is int height)
+            {
+                arguments.RemoveAll(argument => argument.Equals("--window-size", StringComparison.Ordinal) || argument.StartsWith("--window-size=", StringComparison.Ordinal));
+                arguments.Add($"--window-size={width},{height}");
+            }
+
             var target = (settings.HomeURL ?? "").Trim();
             if (string.IsNullOrEmpty(target) || (!target.StartsWith("chrome://") && !Uri.IsWellFormedUriString(target, UriKind.Absolute)))
                 throw new YTrayException(YTrayError.InvalidURL, target);
@@ -243,9 +269,8 @@ namespace YTray.Core
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
                 $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
                 browserIdentity + (browserUseTicket == null ? "" : "&browserUseTicket=" + Uri.EscapeDataString(browserUseTicket)) +
-                "&engineTarget=" + Uri.EscapeDataString(Newtonsoft.Json.JsonConvert.SerializeObject(
-                    engineTarget ?? new BrowserEngineTarget { Mode = "legacy" },
-                    new Newtonsoft.Json.JsonSerializerSettings { ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver() }));
+                "&engineTarget=" + Uri.EscapeDataString((engineTarget ?? new BrowserEngineTarget { Mode = "auto" })
+                    .ToWire().ToString(Newtonsoft.Json.Formatting.None));
         }
 
         internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,
@@ -356,9 +381,10 @@ namespace YTray.Core
             List<string> arguments;
             try
             {
+                if (launchSettings.Environment != null) BrowserEnvironmentSettings.PrepareProfile(profile, launchSettings.Environment);
                 arguments = BuildArguments(mode, launchSettings, profile, port, plugins, runtime.Kind,
-                    internalPaths, restoring != null && !usesProxyAuth, id, normalizedBadge,
-                    isNewProfile: restoring == null, deferExtensionStartup: extensionPaths.Count > 0,
+                    internalPaths, restoring != null && !usesProxyAuth && launchSettings.Environment == null, id, normalizedBadge,
+                    isNewProfile: restoring == null, deferExtensionStartup: extensionPaths.Count > 0 || launchSettings.Environment != null,
                     runtimeVersion: runtime.Version);
                 // In branded Chrome 137+, this obsolete allowlist can discard a successful
                 // Extensions.loadUnpacked result. Keep it only for the supported legacy path.
@@ -507,7 +533,8 @@ namespace YTray.Core
             {
                 ExtensionPaths = extensionPaths,
                 LegacyExtensionLoadingExpected = BrowserExtensionService.LegacyLoadingExpected(runtime),
-                DeferredStartupURL = extensionPaths.Count == 0 ? null : managedID == null ? startupURL
+                SuppressInstallOptions = restoring == null,
+                DeferredStartupURL = extensionPaths.Count == 0 && launchSettings.Environment == null ? null : managedID == null ? startupURL
                     : ManagedBrowserBootstrapURL(managedID, id, normalizedBadge, startupURL, restoring != null,
                         settings.ProxyServer, runtime.Kind, runtime.Version, settings.EngineTarget, browserUseTicket),
             };

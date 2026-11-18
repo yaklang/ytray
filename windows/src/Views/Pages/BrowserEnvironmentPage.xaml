@@ -1,0 +1,150 @@
+<Page x:Class="YTray.Views.Pages.BrowserEnvironmentPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{DynamicResource AppBackgroundBrush}">
+    <Page.Resources>
+        <Style x:Key="EnvironmentCard" TargetType="Border" BasedOn="{StaticResource SurfaceBorder}">
+            <Setter Property="Padding" Value="17,14"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="EnvironmentField" TargetType="TextBlock" BasedOn="{StaticResource FieldLabel}">
+            <Setter Property="Margin" Value="0,0,0,5"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="EnvironmentSection" TargetType="TextBlock" BasedOn="{StaticResource SectionTitle}">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="EnvironmentChoice" TargetType="ComboBox" BasedOn="{StaticResource YTrayComboBox}">
+            <Setter Property="Height" Value="34"/>
+        </Style>
+        <Style TargetType="TextBox" BasedOn="{StaticResource YTrayTextBox}">
+            <Setter Property="Padding" Value="10,3"/>
+        </Style>
+    </Page.Resources>
+    <Grid Margin="24,20,24,20">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <DockPanel Margin="0,0,0,16">
+            <Button DockPanel.Dock="Right" Content="新建模板" Height="34" Click="New_Click" Style="{StaticResource YTrayPrimaryButton}"/>
+            <TextBlock Text="浏览器环境" Style="{StaticResource PageTitle}" FontSize="25" VerticalAlignment="Center"/>
+        </DockPanel>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Style="{StaticResource SurfaceBorder}" Padding="10">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="已保存的模板" Style="{StaticResource EnvironmentSection}" Margin="6,3,0,10"/>
+                    <Grid>
+                        <TextBlock x:Name="TemplatesEmpty" Text="还没有已保存的模板" FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}" Margin="6,9" Visibility="Collapsed"/>
+                        <ListBox x:Name="Templates" Style="{StaticResource YTraySurfaceListBox}" DisplayMemberPath="Name"
+                                 SelectionChanged="Templates_SelectionChanged" BorderThickness="0"/>
+                    </Grid>
+                </DockPanel>
+            </Border>
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="0,0,4,0">
+                        <Border Style="{StaticResource EnvironmentCard}">
+                            <StackPanel>
+                                <TextBlock Text="启动配置" Style="{StaticResource EnvironmentSection}"/>
+                                <TextBlock Text="模板名称" Style="{StaticResource EnvironmentField}"/>
+                                <TextBox x:Name="NameBox" MaxLength="80" Margin="0,0,0,12"/>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="浏览器" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="RuntimeBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <StackPanel Grid.Column="2"><TextBlock Text="网络" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="NetworkBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                </Grid>
+                                <DockPanel LastChildFill="True">
+                                    <Button x:Name="GenerateButton" DockPanel.Dock="Right" Content="随机填充" Height="34" Margin="10,0,0,0"
+                                            Click="Generate_Click" ToolTip="抽取一套常用的地区和尺寸组合。"/>
+                                    <ComboBox x:Name="ModeBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="Mode_SelectionChanged"/>
+                                </DockPanel>
+                                <TextBlock x:Name="RandomHint" Text="每次启动新实例时抽取地区与尺寸，恢复历史时沿用该实例的原值。"
+                                           Margin="0,7,0,0" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource EnvironmentCard}">
+                            <StackPanel>
+                                <TextBlock Text="地区与页面" Style="{StaticResource EnvironmentSection}"/>
+                                <StackPanel x:Name="RegionalDisplayFields">
+                                    <TextBlock Text="地区预设" Style="{StaticResource EnvironmentField}"/>
+                                    <ComboBox x:Name="RegionBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="Region_SelectionChanged" Margin="0,0,0,12"/>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="语言" Style="{StaticResource EnvironmentField}"/>
+                                            <ComboBox x:Name="LanguageBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
+                                            <TextBox x:Name="CustomLanguage" Visibility="Collapsed" ToolTip="例如 en-US" Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="时区" Style="{StaticResource EnvironmentField}"/>
+                                            <ComboBox x:Name="TimeZoneBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
+                                            <TextBox x:Name="CustomTimeZone" Visibility="Collapsed" ToolTip="例如 Asia/Shanghai" Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="窗口尺寸" Style="{StaticResource EnvironmentField}"/>
+                                            <ComboBox x:Name="WindowBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
+                                            <StackPanel x:Name="CustomWindow" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
+                                                <TextBox x:Name="WindowWidthBox" Width="82" AutomationProperties.Name="窗口宽度"/>
+                                                <TextBlock Text="×" Margin="8,0" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="WindowHeightBox" Width="82" AutomationProperties.Name="窗口高度"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="页面视口" Style="{StaticResource EnvironmentField}"/>
+                                            <ComboBox x:Name="ViewportBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
+                                            <StackPanel x:Name="CustomViewport" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
+                                                <TextBox x:Name="ViewportWidthBox" Width="82" AutomationProperties.Name="页面视口宽度"/>
+                                                <TextBlock Text="×" Margin="8,0" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="ViewportHeightBox" Width="82" AutomationProperties.Name="页面视口高度"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                                <UniformGrid Columns="3">
+                                    <StackPanel Margin="0,0,9,0"><TextBlock Text="设备像素比" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="PixelRatioBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <StackPanel Margin="4,0"><TextBlock Text="网页配色偏好" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="ColorSchemeBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <StackPanel Margin="9,0,0,0"><TextBlock Text="网页动画偏好" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="MotionBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource EnvironmentCard}">
+                            <StackPanel>
+                                <TextBlock Text="隐私与网站权限" Style="{StaticResource EnvironmentSection}"/>
+                                <UniformGrid Columns="2" Margin="0,0,0,12">
+                                    <StackPanel Margin="0,0,7,0"><TextBlock Text="第三方 Cookie" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="CookiesBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <StackPanel Margin="7,0,0,0"><TextBlock Text="WebRTC 网络接口" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="WebRtcBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                </UniformGrid>
+                                <UniformGrid Columns="3">
+                                    <StackPanel Margin="0,0,9,0"><TextBlock Text="网站定位" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="LocationBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <StackPanel Margin="4,0"><TextBlock Text="摄像头" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="CameraBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <StackPanel Margin="9,0,0,0"><TextBlock Text="麦克风" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="MicrophoneBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource EnvironmentCard}">
+                            <StackPanel>
+                                <TextBlock Text="实例生效值" Style="{StaticResource EnvironmentSection}"/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" x:Name="ReadButton" Content="读取当前标签页" Height="34" Margin="8,0,0,0" Click="Read_Click"/>
+                                    <ComboBox x:Name="InstanceBox" Style="{StaticResource EnvironmentChoice}" DropDownOpened="InstanceBox_DropDownOpened"/>
+                                </DockPanel>
+                                <TextBlock x:Name="Observed" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+                <Border Grid.Row="1" Style="{StaticResource SurfaceBorder}" Padding="12,8">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="保存模板" Height="34" Click="Save_Click" Style="{StaticResource YTrayPrimaryButton}"/>
+                        <Button x:Name="DeleteButton" DockPanel.Dock="Right" Content="删除" Height="34" Click="Delete_Click" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="SaveStatus" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

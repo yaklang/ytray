@@ -11,6 +11,7 @@ enum YTrayMain {
 
     @MainActor
     static func main() {
+        if BrowserEngineNativeHost.runIfRequested(arguments: CommandLine.arguments) { return }
         if ApplicationRelauncher.runHelperIfRequested(arguments: CommandLine.arguments) { return }
         if CommandLine.arguments.contains("--diagnose-environment") {
             print("name=\(AppEnvironment.displayName)")

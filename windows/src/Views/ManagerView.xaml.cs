@@ -294,6 +294,7 @@ namespace YTray.Views
                 switch (tag)
                 {
                     case "runtimes": page = new RuntimePage(_store); break;
+                    case "environments": page = new BrowserEnvironmentPage(_store); break;
                     case "settings": page = new SettingsPage(_store); break;
                     case "instances": page = new InstancesPage(_store); break;
                     case "launch": page = new ProxyLaunchPage(_store); break;
