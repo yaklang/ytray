@@ -200,8 +200,8 @@ function helloAck() {
   };
 }
 
-async function connect(bridge: EngineBridge): Promise<FakeWebSocket> {
-  const pending = bridge.connect(fixture.state.bridge);
+async function connect(bridge: EngineBridge, managed = false): Promise<FakeWebSocket> {
+  const pending = managed ? bridge.connectManaged(fixture.state.bridge) : bridge.connect(fixture.state.bridge);
   const socket = FakeWebSocket.instances.at(-1)!;
   socket.open();
   socket.receive({
@@ -246,8 +246,9 @@ describe('Engine Bridge transport lifecycle', () => {
     expect(bridge.getStatus().transport).toBeUndefined();
   });
 
-  it('waits for Native Messaging in a managed browser without probing WebSocket ports', async () => {
+  it.each(['win', 'mac'])('waits for Native Messaging on %s without probing WebSocket ports', async (os) => {
     const bridge = new EngineBridge();
+    fixture.platformInfo.mockResolvedValueOnce({ os });
     fixture.state.bridge = bindLaunchTarget(bridgeConfig(false), { mode: 'auto' });
     fixture.sendNativeMessage.mockResolvedValueOnce({ targets: [] });
     await bridge.connectManaged(fixture.state.bridge);
@@ -574,13 +575,15 @@ describe('Engine Bridge transport lifecycle', () => {
     await expect(pending).resolves.toMatchObject({ state: 'rejected' });
   });
 
-  it('reuses an existing pairing without discovery support on an old engine', async () => {
-    fixture.state.bridge = bindLaunchTarget(bridgeConfig(true), { mode: 'legacy' });
+  it.each(['win', 'mac'])('reconnects the old paired engine on %s after an automatic relaunch', async (os) => {
+    fixture.platformInfo.mockResolvedValueOnce({ os });
+    fixture.state.bridge = bindLaunchTarget({ ...bridgeConfig(true), autoConnect: true }, { mode: 'auto' });
     const original = structuredClone(fixture.state.bridge);
     const bridge = new EngineBridge();
-    const socket = await connect(bridge);
-    expect(bridge.getStatus().state).toBe('connected');
+    const socket = await connect(bridge, true);
+    expect(bridge.getStatus()).toMatchObject({ state: 'connected', transport: 'websocket' });
     expect(bridge.discoverLocalEngines).not.toHaveBeenCalled();
+    expect(fixture.sendNativeMessage).not.toHaveBeenCalled();
     expect(fixture.state.bridge).toEqual(original);
     expect(socket.url).toBe(original.endpoint);
     bridge.disconnect();

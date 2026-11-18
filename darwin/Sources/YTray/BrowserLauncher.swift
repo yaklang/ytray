@@ -153,7 +153,7 @@ enum BrowserLauncher {
         components.path = "/ytray-bootstrap.html"
         var queryItems = [
             URLQueryItem(name: "manager", value: "ytray"),
-            URLQueryItem(name: "engineTarget", value: #"{"mode":"auto"}"#),
+            URLQueryItem(name: "engineTargetV2", value: #"{"mode":"auto"}"#),
             URLQueryItem(name: "instanceId", value: instanceID.uuidString),
             URLQueryItem(name: "badge", value: try DockBadgeLabel.normalize(badge)),
             URLQueryItem(name: "target", value: target),

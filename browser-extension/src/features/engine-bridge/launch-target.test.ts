@@ -92,6 +92,24 @@ describe('YTray selected frontend', () => {
     expect(normalizeLaunchTarget(automatic.launchTarget)).toEqual({ mode: 'auto' });
   });
 
+  it('keeps a paired WebSocket engine on an automatic relaunch without changing the identity or address', () => {
+    const pair: BridgePairedEngine = { engineIdentityId: target.engineIdentityId!, frontendId: 'memfit', deviceId: 'old-device',
+      publicKey: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' }, pairedAt: 1 };
+    const config: BridgeConfig = { transport: 'websocket', nativeHost: '', endpoint: target.endpoint!,
+      autoConnect: true, installationId: 'existing-browser', pairedEngine: pair };
+    expect(bindLaunchTarget(config, { mode: 'auto' })).toEqual({ ...config, launchTarget: { mode: 'legacy' } });
+    const pinned = { ...config, launchTarget: target };
+    expect(bindLaunchTarget(pinned, { mode: 'auto' })).toEqual(pinned);
+    const paused = { ...config, autoConnect: false };
+    expect(bindLaunchTarget(paused, { mode: 'auto' })).toMatchObject({ pairedEngine: pair, autoConnect: false });
+  });
+
+  it('keeps a manually selected compatibility mode even before the first pairing', () => {
+    const config: BridgeConfig = { transport: 'websocket', nativeHost: '', endpoint: target.endpoint!,
+      autoConnect: true, installationId: 'browser', launchTarget: { mode: 'legacy' } };
+    expect(bindLaunchTarget(config, { mode: 'auto' })).toEqual(config);
+  });
+
   it('accepts only the Unix socket name derived from the selected process', () => {
     const engineInstanceId = 'engine-' + 'a'.repeat(32);
     const pipeName = 'yak-browser-bridge-v1-' + engineInstanceId;

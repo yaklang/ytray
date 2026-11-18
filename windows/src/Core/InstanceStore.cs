@@ -938,11 +938,10 @@ namespace YTray.Core
             {
                 var target = browserUse ? new BrowserEngineTarget { Mode = "none" }
                     : configuration.EngineTarget ?? (restoring == null ? DefaultBrowserEngine : null);
-                var engines = target?.Mode == "none" || target?.Mode == "legacy" || (restoring != null && target?.Mode == "auto")
-                    ? Array.Empty<BrowserEngineTarget>()
-                    : BrowserEngineDiscovery.FindForTargetsAsync(target == null ? Array.Empty<BrowserEngineTarget>() : new[] { target })
-                        .GetAwaiter().GetResult();
-                configuration.EngineTarget = BrowserEngineDiscovery.ResolveForLaunch(target, engines, restoring != null);
+                var engines = target?.Mode == "engine"
+                    ? BrowserEngineDiscovery.FindForTargetsAsync(new[] { target }).GetAwaiter().GetResult()
+                    : Array.Empty<BrowserEngineTarget>();
+                configuration.EngineTarget = BrowserEngineDiscovery.ResolveForLaunch(target, engines);
                 var requestedBadge = (restoring?.DockBadge ?? configuration.DockBadge ?? "").Trim();
                 var badge = string.IsNullOrEmpty(requestedBadge) ? NextAvailableDockBadge() : DockBadgeLabel.Normalize(requestedBadge);
                 if (RunningInstances.Any(i => i.DockBadge == badge))

@@ -180,13 +180,11 @@ namespace YTray.Core
         }
 
         internal static BrowserEngineTarget ResolveForLaunch(BrowserEngineTarget? remembered,
-            IReadOnlyList<BrowserEngineTarget> online, bool restoring)
+            IReadOnlyList<BrowserEngineTarget> online)
         {
             if (remembered != null && remembered.Mode != "auto")
                 return ResolveRemembered(remembered, online) ?? remembered.Clone();
-            if (restoring) return new BrowserEngineTarget { Mode = "auto" };
-            var native = online.Where(target => target.PipeName != null).ToArray();
-            return native.Length == 1 ? native[0].Clone() : new BrowserEngineTarget { Mode = "auto" };
+            return new BrowserEngineTarget { Mode = "auto" };
         }
     }
 }

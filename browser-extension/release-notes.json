@@ -1,4 +1,5 @@
 {
+  "0.2.19": ["YTray 托管浏览器升级后保留旧引擎配对和手动 WebSocket 设置，新实例默认通过 Native Messaging 接入。"],
   "0.2.18": ["YTray 托管实例默认通过 Native Messaging 查找本机引擎。WebSocket 保留为兼容选项。"],
   "0.2.17": ["连接页和弹窗显示实际传输方式。支持通过 macOS Native Messaging 与 Unix Socket 配对和连接。"],
   "0.2.16": ["插件状态显示实际接入的引擎。Windows 上可通过 YTray Native Host 和命名管道完成配对与连接。"],

@@ -21,8 +21,15 @@ export function bindLaunchTarget(config: BridgeConfig, target: BridgeLaunchTarge
   // A launcher without discovery support must preserve the user's existing connection and credentials.
   if (target.mode === 'legacy') return { ...config, launchTarget: { mode: 'legacy' },
     autoConnect: config.launchTarget?.mode === 'none' ? true : config.autoConnect };
-  // An automatic relaunch of this browser keeps an already selected native engine.
   if (target.mode === 'auto' && hasNativeEngineTarget(config.launchTarget)) return config;
+  if (target.mode === 'auto' && config.transport === 'websocket'
+    && (config.pairedEngine || config.launchTarget?.mode === 'legacy')) {
+    return {
+      ...config,
+      launchTarget: config.launchTarget?.mode === 'engine' ? config.launchTarget : { mode: 'legacy' },
+      autoConnect: config.launchTarget?.mode === 'none' ? true : config.autoConnect,
+    };
+  }
   const previous = config.pairedEngine && { ...config.pairedEngine,
     frontendId: config.pairedEngine.frontendId || launchFrontendId(config.launchTarget)
       || (target.mode === 'engine' && config.endpoint === target.endpoint ? launchFrontendId(target) : undefined) };

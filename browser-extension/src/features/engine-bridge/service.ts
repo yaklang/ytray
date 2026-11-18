@@ -246,7 +246,8 @@ export class EngineBridge {
     config ||= (await getState()).bridge;
     if (!config.autoConnect || config.launchTarget?.mode === 'none') return;
     if (config.pairedEngine) return this.connect(config);
-    if (config.launchTarget?.mode !== 'engine' && config.launchTarget?.mode !== 'auto') return;
+    if (config.launchTarget?.mode !== 'engine' && config.launchTarget?.mode !== 'auto'
+      && !(config.launchTarget?.mode === 'legacy' && config.transport === 'websocket')) return;
     this.manuallyClosed = false;
     const generation = this.connectionGeneration;
     try {
@@ -350,7 +351,9 @@ export class EngineBridge {
       const engines = await this.discoverLocalEngines(config);
       if (this.manuallyClosed || generation !== this.connectionGeneration) throw new Error('Bridge 连接已取消');
       const matches = engines.filter((engine) => engine.engineIdentityId === config.pairedEngine?.engineIdentityId
+        && (!config.pairedEngine?.frontendId || engine.frontendId === config.pairedEngine.frontendId)
         && engine.endpoint !== config.endpoint);
+      if (matches.length > 1) throw new Error('发现多个已配对的引擎实例，请选择要连接的实例');
       let failure = error;
       for (const engine of matches) {
         if (this.manuallyClosed || generation !== this.connectionGeneration) throw new Error('Bridge 连接已取消');
