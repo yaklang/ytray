@@ -174,7 +174,7 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
             status = try await page.request("bridge.status")
             if status["state"] as? String == "connected" {
                 // 0.2.12 reports a connected state without a transport field.
-                if transport == "native" || status["transport"] != nil {
+                if transport != "websocket" || status["transport"] != nil {
                     XCTAssertEqual(status["transport"] as? String, transport)
                 }
                 return
@@ -424,7 +424,7 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: connectionFile), "Browser did not authenticate over Native Messaging")
             let (page, bridge) = try await extensionPage(instance, plugin: plugin)
             XCTAssertEqual(bridge["transport"] as? String, "native")
-            try await connectedBridge(page, transport: "native")
+            try await connectedBridge(page, transport: "unix-socket")
             try await page.close()
         }
         var storage: [String: Any] = [:]

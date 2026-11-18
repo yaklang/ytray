@@ -204,15 +204,17 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/browser-integration.log"
           ! grep -E 'Test Case .* skipped|[1-9][0-9]* tests skipped' "$RUNNER_TEMP/browser-integration.log"
           if [[ -n "$NATIVE_ENGINE_REF" ]]; then
+            native_result=0
             python3 script/test-macos-native-engine.py \
               "$RUNNER_TEMP/yak-native-smoke" "$PWD/.native-yaklang/common/yakgrpc/yakgrpc.proto" \
               swift test --package-path darwin --filter testRealBundledAgentReceivesManagedIdentityAfterCDPLoad \
-              2>&1 | tee "$RUNNER_TEMP/native-engine-integration.log"
+              2>&1 | tee "$RUNNER_TEMP/native-engine-integration.log" || native_result=$?
             export YTRAY_TEST_LEGACY_EXTENSION_PATH="$RUNNER_TEMP/legacy-browser-agent"
             python3 script/test-macos-native-engine.py --websocket \
               "$RUNNER_TEMP/yak-legacy-smoke" "$PWD/.legacy-yaklang/common/yakgrpc/yakgrpc.proto" \
               swift test --package-path darwin --filter testRealLegacyEnginePairingAndManualWebSocketSurviveUpgrade \
               2>&1 | tee "$RUNNER_TEMP/legacy-engine-integration.log"
+            test "$native_result" -eq 0
           fi
 
       - uses: actions/upload-artifact@v4
