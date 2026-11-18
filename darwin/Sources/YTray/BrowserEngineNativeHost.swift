@@ -75,14 +75,14 @@ enum BrowserEngineNativeHost {
     private static func discover() -> [[String: Any]] {
         guard privatePath(directory, kind: S_IFDIR, permissions: 0o700),
               let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return [] }
-        return names.sorted().compactMap { name in
+        return names.sorted().compactMap { name -> [String: Any]? in
             guard name.hasPrefix(prefix), name.hasSuffix(".json") else { return nil }
             // O_NOFOLLOW and O_NONBLOCK rule out descriptors that are symlinks or named pipes.
             let fd = open(directory + "/" + name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
             guard fd >= 0 else { return nil }
             let file = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
             var info = stat()
-            guard fstat(fd, &info) == 0, Int32(info.st_mode) & S_IFMT == S_IFREG,
+            guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
                   info.st_uid == geteuid(), info.st_size > 0, info.st_size <= 4096,
                   let data = try? file.read(upToCount: 4096),
                   let hint = try? JSONDecoder().decode(Target.self, from: data), hint.valid,
@@ -127,10 +127,10 @@ enum BrowserEngineNativeHost {
         ended.wait()
     }
 
-    private static func privatePath(_ path: String, kind: Int32, permissions: Int32) -> Bool {
+    private static func privatePath(_ path: String, kind: mode_t, permissions: mode_t) -> Bool {
         var info = stat()
         return lstat(path, &info) == 0 && info.st_uid == geteuid()
-            && Int32(info.st_mode) & S_IFMT == kind && Int32(info.st_mode) & 0o777 == permissions
+            && info.st_mode & S_IFMT == kind && info.st_mode & 0o777 == permissions
     }
 
     private static func connect(_ name: String, timeout: Int32) throws -> (FileHandle, Int32) {
