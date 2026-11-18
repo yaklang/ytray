@@ -159,9 +159,8 @@ jobs:
           set -euo pipefail
           legacy_ref=51ea7d15ed5a453ad41f97229716fa13f0cbcb20
           git fetch --no-tags --depth=1 origin "$legacy_ref"
-          mkdir -p "$RUNNER_TEMP/legacy-extension-source" "$RUNNER_TEMP/legacy-browser-agent"
-          git archive "$legacy_ref" browser-extension script/prepare-yakit-browser-agent.mjs |
-            tar -x -C "$RUNNER_TEMP/legacy-extension-source"
+          mkdir -p "$RUNNER_TEMP/legacy-browser-agent"
+          git worktree add --detach "$RUNNER_TEMP/legacy-extension-source" "$legacy_ref"
           GITHUB_SHA="$legacy_ref" node "$RUNNER_TEMP/legacy-extension-source/script/prepare-yakit-browser-agent.mjs" \
             "$RUNNER_TEMP/legacy-extension-bundle"
           unzip -q "$RUNNER_TEMP/legacy-extension-bundle/yakit-browser-agent.zip" -d "$RUNNER_TEMP/legacy-browser-agent"
