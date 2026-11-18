@@ -5,6 +5,7 @@ import type {
   BrowserRequestAnalysisBundle,
   BridgeStatus,
   BridgeConfig,
+  BridgeLaunchTarget,
   BridgePairingStatus,
   DiscoveredYakEngine,
   BridgePublicKey,
@@ -280,6 +281,8 @@ export interface ExtensionRequestMap {
   };
   'bridge.pair': { input: undefined; output: BridgePairingStatus };
   'bridge.discover': { input: undefined; output: DiscoveredYakEngine[] };
+  'bridge.native.discover': { input: undefined; output: BridgeLaunchTarget[] };
+  'bridge.native.pair': { input: { engineInstanceId: string }; output: BridgePairingStatus };
   'bridge.pair.cancel': { input: undefined; output: BridgePairingStatus };
   'bridge.pair.status': { input: undefined; output: BridgePairingStatus };
   'bridge.unpair': { input: undefined; output: ExtensionState };

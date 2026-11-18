@@ -26,7 +26,7 @@ namespace YTray.Core
         public string EngineIdentityId { get; set; } = "";
         public string EngineInstanceId { get; set; } = "";
         public string Endpoint { get; set; } = "";
-        [JsonIgnore] public string DisplayName => Mode == "none" ? "仅浏览器" : Mode == "auto" ? "自动选择"
+        [JsonIgnore] public string DisplayName => Mode == "none" ? "仅浏览器" : Mode == "auto" ? "自动接入本机引擎"
             : Mode == "legacy" ? "使用原有连接设置" : FrontendName;
         [JsonIgnore] public string Detail => Mode == "none" ? "稍后可重新选择接入目标"
             : Mode == "legacy" ? "沿用插件中的引擎地址、配对与连接方式"
@@ -38,7 +38,7 @@ namespace YTray.Core
         public bool SameFrontend(BrowserEngineTarget other) => EngineIdentityId == other.EngineIdentityId && EffectiveFrontendId == other.EffectiveFrontendId;
         internal JObject ToWire()
         {
-            var payload = new JObject { ["mode"] = Mode == "auto" ? "none" : Mode };
+            var payload = new JObject { ["mode"] = Mode };
             if (Mode != "engine") return payload;
             payload["frontendId"] = FrontendId;
             payload["frontendName"] = FrontendName;
@@ -62,10 +62,14 @@ namespace YTray.Core
             => FindAsync(remembered).GetAwaiter().GetResult();
 
         internal static Task<IReadOnlyList<BrowserEngineTarget>> FindAsync(BrowserEngineTarget? remembered) =>
-            FindForTargetsAsync(remembered == null ? Enumerable.Empty<BrowserEngineTarget>() : new[] { remembered });
+            FindForTargetsAsync(remembered == null ? Enumerable.Empty<BrowserEngineTarget>() : new[] { remembered }, includeWebSocket: true);
 
-        internal static async Task<IReadOnlyList<BrowserEngineTarget>> FindForTargetsAsync(IEnumerable<BrowserEngineTarget> remembered)
+        internal static async Task<IReadOnlyList<BrowserEngineTarget>> FindForTargetsAsync(
+            IEnumerable<BrowserEngineTarget> rememberedTargets, bool includeWebSocket = false)
         {
+            var remembered = rememberedTargets.ToArray();
+            if (!includeWebSocket && !remembered.Any(target => target.Mode == "engine" && target.PipeName == null))
+                return await BrowserEngineNative.DiscoverAsync().ConfigureAwait(false);
             var ports = new HashSet<int>();
             foreach (var first in new[] { 64333, 14333, 24333, 34333 })
                 for (var port = first; port < first + 16; port++) ports.Add(port);
@@ -169,7 +173,8 @@ namespace YTray.Core
         {
             if (remembered == null) return null;
             if (remembered.Mode == "none" || remembered.Mode == "legacy") return remembered.Clone();
-            var matches = online.Where(remembered.SameFrontend).ToArray();
+            var matches = online.Where(value => remembered.SameFrontend(value)
+                && (remembered.PipeName == null || value.PipeName != null)).ToArray();
             return matches.FirstOrDefault(value => value.EngineInstanceId == remembered.EngineInstanceId)
                 ?? (matches.Length == 1 ? matches[0] : matches.Length == 0 ? remembered.Clone() : null);
         }
@@ -179,9 +184,9 @@ namespace YTray.Core
         {
             if (remembered != null && remembered.Mode != "auto")
                 return ResolveRemembered(remembered, online) ?? remembered.Clone();
-            if (restoring) return remembered?.Clone() ?? new BrowserEngineTarget { Mode = "legacy" };
-            // An unresolved automatic choice starts disconnected, including with an older engine.
-            return online.Count == 1 && online[0].EffectiveFrontendId != "yak" ? online[0].Clone() : new BrowserEngineTarget { Mode = "auto" };
+            if (restoring) return new BrowserEngineTarget { Mode = "auto" };
+            var native = online.Where(target => target.PipeName != null).ToArray();
+            return native.Length == 1 ? native[0].Clone() : new BrowserEngineTarget { Mode = "auto" };
         }
     }
 }

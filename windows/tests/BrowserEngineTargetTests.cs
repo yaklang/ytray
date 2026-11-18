@@ -46,19 +46,21 @@ namespace YTray.Tests
         }
 
         [TestMethod]
-        public void MissingDiscoveryStartsDisconnectedAndExistingProfilesKeepLegacyConnections()
+        public void AutomaticLaunchOnlyChoosesNativeTargetsAndPreservesExplicitLegacySettings()
         {
             var legacy = BrowserEngineDiscovery.ResolveForLaunch(null, new BrowserEngineTarget[0], false);
             Assert.AreEqual("auto", legacy.Mode);
             var restoredLegacy = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target() }, true);
-            Assert.AreEqual("legacy", restoredLegacy.Mode);
-            var savedLegacy = BrowserEngineDiscovery.ResolveForLaunch(restoredLegacy, new[] { Target() }, false);
+            Assert.AreEqual("auto", restoredLegacy.Mode);
+            var automatic = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target() }, false);
+            Assert.AreEqual("auto", automatic.Mode);
+            var savedLegacy = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "legacy" }, new[] { Target() }, false);
             Assert.AreEqual("legacy", savedLegacy.Mode);
             var optedOut = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "none" }, new[] { Target() }, false);
             Assert.AreEqual("none", optedOut.Mode);
 
             var url = BrowserLauncher.ManagedBrowserBootstrapURL("extension-id", Guid.NewGuid(), "A", "https://example.test", false);
-            StringAssert.Contains(Uri.UnescapeDataString(url), "\"mode\":\"legacy\"");
+            StringAssert.Contains(Uri.UnescapeDataString(url), "\"mode\":\"auto\"");
         }
 
         [TestMethod]
@@ -72,8 +74,19 @@ namespace YTray.Tests
             Assert.AreEqual("memfit", resolved.FrontendId);
             var ambiguous = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target(), Target("other", "yakit") }, false);
             Assert.AreEqual("auto", ambiguous.Mode);
-            Assert.AreEqual("none", (string)ambiguous.ToWire()["mode"]);
+            Assert.AreEqual("auto", (string)ambiguous.ToWire()["mode"]);
             Assert.AreEqual("auto", BrowserEngineDiscovery.ResolveForLaunch(ambiguous, new[] { Target() }, true).Mode);
+        }
+
+        [TestMethod]
+        public void AutomaticLaunchChoosesTheNativeEngineAndPinnedPipeNeverSwitchesToWebSocket()
+        {
+            var native = Target();
+            native.PipeName = "pipe";
+            native.Endpoint = "";
+            var legacy = Target("websocket-process");
+            Assert.AreEqual("pipe", BrowserEngineDiscovery.ResolveForLaunch(null, new[] { native, legacy }, false).PipeName);
+            Assert.AreEqual(native.EngineInstanceId, BrowserEngineDiscovery.ResolveRemembered(native, new[] { legacy })!.EngineInstanceId);
         }
 
         [TestMethod]

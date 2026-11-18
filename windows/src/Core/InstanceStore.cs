@@ -939,7 +939,9 @@ namespace YTray.Core
                 var target = browserUse ? new BrowserEngineTarget { Mode = "none" }
                     : configuration.EngineTarget ?? (restoring == null ? DefaultBrowserEngine : null);
                 var engines = target?.Mode == "none" || target?.Mode == "legacy" || (restoring != null && target?.Mode == "auto")
-                    ? Array.Empty<BrowserEngineTarget>() : BrowserEngineDiscovery.Find(target);
+                    ? Array.Empty<BrowserEngineTarget>()
+                    : BrowserEngineDiscovery.FindForTargetsAsync(target == null ? Array.Empty<BrowserEngineTarget>() : new[] { target })
+                        .GetAwaiter().GetResult();
                 configuration.EngineTarget = BrowserEngineDiscovery.ResolveForLaunch(target, engines, restoring != null);
                 var requestedBadge = (restoring?.DockBadge ?? configuration.DockBadge ?? "").Trim();
                 var badge = string.IsNullOrEmpty(requestedBadge) ? NextAvailableDockBadge() : DockBadgeLabel.Normalize(requestedBadge);

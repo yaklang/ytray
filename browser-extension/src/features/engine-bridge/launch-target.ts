@@ -8,19 +8,32 @@ export function validEnginePipe(pipe: unknown, instanceId: unknown): pipe is str
     && pipe === 'yak-browser-bridge-v1-' + instanceId;
 }
 
+export function hasNativeEngineTarget(target?: BridgeLaunchTarget): boolean {
+  return Boolean(target?.pipeName || target?.socketName);
+}
+
+export function validEngineSocket(socket: unknown, instanceId: unknown): socket is string {
+  return typeof instanceId === 'string' && /^engine-[a-f0-9]{32}$/.test(instanceId)
+    && socket === 'yak-browser-bridge-v1-' + instanceId + '.sock';
+}
+
 export function bindLaunchTarget(config: BridgeConfig, target: BridgeLaunchTarget): BridgeConfig {
   // A launcher without discovery support must preserve the user's existing connection and credentials.
   if (target.mode === 'legacy') return { ...config, launchTarget: { mode: 'legacy' },
     autoConnect: config.launchTarget?.mode === 'none' ? true : config.autoConnect };
+  // An automatic relaunch of this browser keeps an already selected native engine.
+  if (target.mode === 'auto' && hasNativeEngineTarget(config.launchTarget)) return config;
   const previous = config.pairedEngine && { ...config.pairedEngine,
     frontendId: config.pairedEngine.frontendId || launchFrontendId(config.launchTarget)
       || (target.mode === 'engine' && config.endpoint === target.endpoint ? launchFrontendId(target) : undefined) };
   const records = [...new Map([...(config.trustedEngines || []), ...(previous ? [previous] : [])]
     .map((engine) => [`${engine.engineIdentityId}:${engine.frontendId || ''}`, engine])).values()].slice(-32);
+  if (target.mode === 'auto') return { ...config, launchTarget: target, transport: 'native',
+    nativeHost: YTRAY_ENGINE_HOST, autoConnect: true, trustedEngines: records, pairedEngine: undefined };
   return { ...config, launchTarget: target,
-    transport: target.mode === 'engine' ? target.pipeName ? 'native' : 'websocket' : config.transport,
+    transport: target.mode === 'engine' ? hasNativeEngineTarget(target) ? 'native' : 'websocket' : config.transport,
     autoConnect: target.mode === 'engine',
-    nativeHost: target.mode === 'engine' && target.pipeName ? YTRAY_ENGINE_HOST : config.nativeHost,
+    nativeHost: target.mode === 'engine' && hasNativeEngineTarget(target) ? YTRAY_ENGINE_HOST : config.nativeHost,
     endpoint: target.mode === 'engine' && target.endpoint ? target.endpoint : config.endpoint,
     trustedEngines: records,
     pairedEngine: target.mode === 'engine' ? records.find((engine) => engine.engineIdentityId === target.engineIdentityId
@@ -33,14 +46,17 @@ export function normalizeLaunchTarget(value: unknown): BridgeLaunchTarget | unde
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { mode: 'none' };
   const target = value as Record<string, unknown>;
   if (target.mode === 'legacy') return { mode: 'legacy' };
+  if (target.mode === 'auto') return { mode: 'auto' };
   if (target.mode === 'none') return { mode: 'none' };
   if (target.mode !== 'engine') return { mode: 'none' };
   for (const key of ['engineIdentityId', 'engineInstanceId', 'frontendId', 'frontendName']) {
     if (typeof target[key] !== 'string' || !target[key] || (target[key] as string).length > 160) return { mode: 'none' };
   }
   const pipe = validEnginePipe(target.pipeName, target.engineInstanceId) && target.exactInstance === true;
-  if (target.pipeName !== undefined) {
-    if (!pipe || target.endpoint !== undefined) return { mode: 'none' };
+  const socket = validEngineSocket(target.socketName, target.engineInstanceId) && target.exactInstance === true;
+  if (target.pipeName !== undefined || target.socketName !== undefined) {
+    if ((!pipe && !socket) || (target.pipeName !== undefined && target.socketName !== undefined)
+      || target.endpoint !== undefined || target.challengeOnly) return { mode: 'none' };
   } else {
     if (typeof target.endpoint !== 'string' || target.endpoint.length > 2048) return { mode: 'none' };
     try {
@@ -56,7 +72,7 @@ export function normalizeLaunchTarget(value: unknown): BridgeLaunchTarget | unde
     ...(target.exactInstance === true && target.challengeOnly === true ? { challengeOnly: true } : {}),
     ...(target.ownerFrontendId === 'memfit' || target.ownerFrontendId === 'yakit' ? { ownerFrontendId: target.ownerFrontendId } : {}),
     frontendName: target.frontendName as string,
-    ...(pipe ? { pipeName: target.pipeName as string } : { endpoint: target.endpoint as string }),
+    ...(pipe ? { pipeName: target.pipeName as string } : socket ? { socketName: target.socketName as string } : { endpoint: target.endpoint as string }),
   };
 }
 

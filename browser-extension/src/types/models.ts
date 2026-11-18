@@ -198,12 +198,13 @@ export interface UserAgentResolution {
 }
 
 export interface BridgeLaunchTarget {
-  mode: 'engine' | 'none' | 'legacy';
+  mode: 'engine' | 'auto' | 'none' | 'legacy';
   frontendId?: string;
   ownerFrontendId?: string;
   exactInstance?: boolean;
   challengeOnly?: boolean;
   pipeName?: string;
+  socketName?: string;
   frontendName?: string;
   engineIdentityId?: string;
   engineInstanceId?: string;
@@ -1420,10 +1421,13 @@ export interface FloatingPanelPreferences {
 
 export type BridgeConnectionState = 'disconnected' | 'connecting' | 'negotiating' | 'connected' | 'error';
 
+export type BridgeConnectionTransport = 'websocket' | 'native' | 'named-pipe' | 'unix-socket';
+
 export interface BridgeStatus {
   state: BridgeConnectionState;
   message: string;
   connectedAt?: number;
+  transport?: BridgeConnectionTransport;
   engineVersion?: string;
   protocolVersion?: number;
   capabilities?: string[];

@@ -6,6 +6,7 @@ import { browser } from 'wxt/browser';
 import { YakMark } from '@/components/brand/Brand';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
+import { connectedEngineName, connectedTransportLabel } from '@/features/engine-bridge/presentation';
 import { HANDOFF_REASON_LABELS, waitingHandoff } from '@/features/handoff/presentation';
 import { isStateStorageChange } from '@/protocol/storage';
 import type { ActiveTabInfo, BridgeStatus, ExtensionState, UserAgentResolution } from '@/types/models';
@@ -25,23 +26,6 @@ const FULL_VIEW_TARGETS: Record<PopupView, { section: string; label: string }> =
   cookies: { section: 'cookies', label: '打开完整 Cookie Editor' },
   'user-agent': { section: 'user-agent', label: '打开 User-Agent 管理' },
 };
-
-function connectedEngineName(state: ExtensionState, bridge: BridgeStatus): string {
-  const target = state.bridge.launchTarget;
-  if (target?.mode === 'engine') {
-    const matches = target.engineIdentityId === bridge.engineIdentityId
-      && (!target.exactInstance || target.engineInstanceId === bridge.engineInstanceId);
-    return matches && target.frontendName ? target.frontendName : 'Yak 引擎';
-  }
-  const paired = state.bridge.pairedEngine;
-  if (paired?.engineIdentityId === bridge.engineIdentityId) {
-    if (paired?.frontendId === 'memfit') return 'Memfit AI';
-    if (paired?.frontendId === 'yakit') return 'Yakit';
-    if (paired?.frontendId === 'yakit-enterprise') return 'Yakit 企业版';
-    if (paired?.frontendId === 'irify') return 'IRify';
-  }
-  return 'Yak 引擎';
-}
 
 function engineStatusLabel(state: ExtensionState, bridge: BridgeStatus): string {
   if (bridge.state === 'connected') return connectedEngineName(state, bridge) + ' 在线';
@@ -189,8 +173,9 @@ function App() {
   const engineBusy = bridge.state === 'connecting' || bridge.state === 'negotiating';
   const currentHost = (() => { try { return tab?.url ? new URL(tab.url).host : ''; } catch { return ''; } })();
   const statusLabel = engineStatusLabel(state, bridge);
+  const transportLabel = connectedTransportLabel(bridge);
   const statusActionLabel = bridge.state === 'connected'
-    ? `${statusLabel}，点击断开`
+    ? `${statusLabel}${transportLabel ? `，${transportLabel}` : ''}，点击断开`
     : state.bridge.pairedEngine ? `${statusLabel}，点击连接` : `${statusLabel}，点击配对`;
   const fullViewTarget = FULL_VIEW_TARGETS[view];
 
@@ -213,9 +198,9 @@ function App() {
             </div>
             <div className="popup-brand-actions">
               <Tooltip label={statusActionLabel} side="bottom">
-                <button className={`popup-engine-status ${bridge.state}`} aria-label={statusLabel} disabled={busy || engineBusy} onClick={() => void toggleEngine()}>
+                <button className={`popup-engine-status ${bridge.state}`} aria-label={transportLabel ? `${statusLabel}，${transportLabel}` : statusLabel} disabled={busy || engineBusy} onClick={() => void toggleEngine()}>
                   <i aria-hidden="true" />
-                  <span>{bridge.state === 'connected' ? statusLabel : engineBusy ? '连接中' : state.bridge.pairedEngine ? '离线' : '配对'}</span>
+                  <span className="popup-engine-status-label"><strong>{bridge.state === 'connected' ? statusLabel : engineBusy ? '连接中' : state.bridge.pairedEngine ? '离线' : '配对'}</strong>{transportLabel && <small>{transportLabel}</small>}</span>
                 </button>
               </Tooltip>
               <Tooltip label={fullViewTarget.label} side="bottom">

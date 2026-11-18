@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.IO.Pipes;
 using System.Text;
 using System.Threading;
@@ -82,6 +83,15 @@ namespace YTray.Core.BrowserUse
                 using var input = Console.OpenStandardInput();
                 using var output = Console.OpenStandardOutput();
                 var first = BrowserUseWire.ReadAsync(input, CancellationToken.None).GetAwaiter().GetResult();
+                if ((string?)first["type"] == "yak_engine_discover")
+                {
+                    var targets = BrowserEngineNative.DiscoverAsync().GetAwaiter().GetResult();
+                    BrowserUseWire.WriteAsync(output, new JObject
+                    {
+                        ["targets"] = new JArray(targets.Select(target => target.ToWire())),
+                    }, CancellationToken.None).GetAwaiter().GetResult();
+                    return 0;
+                }
                 if ((string?)first["type"] == "yak_engine_open")
                 {
                     BrowserEngineNative.RelayAsync(input, output, first).GetAwaiter().GetResult();

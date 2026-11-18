@@ -1,5 +1,5 @@
 import { browser, type Browser } from 'wxt/browser';
-import { bindLaunchTarget } from '@/features/engine-bridge/launch-target';
+import { bindLaunchTarget, hasNativeEngineTarget } from '@/features/engine-bridge/launch-target';
 import {
   clearNetworkRequests, exportNetworkRequest, listNetworkRequests, networkCaptureStatus,
   rebindNetworkCapturesForGrant, startNetworkCapture, stopNetworkCapture, stopNetworkCapturesForGrant,
@@ -428,7 +428,10 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
     case 'metrics.get': return ok(await getRuntimeMetrics());
     case 'metrics.reset': return ok(await resetRuntimeMetrics());
     case 'bridge.config.save': {
-      const config = applyPolicyToBridge(request.payload, (await getEnterprisePolicy()).policy);
+      const policy = (await getEnterprisePolicy()).policy;
+      const draft = request.payload;
+      const config = applyPolicyToBridge(draft.launchTarget?.mode === 'auto' && draft.transport === 'websocket'
+        ? { ...draft, launchTarget: { mode: 'legacy' } } : draft, policy);
       const state = await updateState((current) => ({ ...current, bridge: config }));
       await syncManagedInstanceBadge(state.bridge.managedInstance);
       if (config.autoConnect && config.pairedEngine) await engineBridge.connect(config);
@@ -444,7 +447,7 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
       const launchTarget = request.payload.launchTarget;
       if (launchTarget !== undefined) {
         const policy = (await getEnterprisePolicy()).policy;
-        if (launchTarget.mode === 'engine' && (launchTarget.pipeName
+        if (launchTarget.mode === 'engine' && (hasNativeEngineTarget(launchTarget)
           ? policy.bridgeTransport === 'websocket' || !!policy.bridgeEndpoint || policy.nativeHost && policy.nativeHost !== 'com.yaklang.ytray_engine'
           : policy.disableWebSocket || policy.bridgeTransport === 'native' || policy.bridgeEndpoint && policy.bridgeEndpoint !== launchTarget.endpoint)) {
           throw new ExtensionError('forbidden', '企业连接策略与 YTray 所选接入目标不一致');
@@ -472,7 +475,7 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
           .catch((error) => console.error('YTray Browser Use binding failed', errorCode(error)));
       }
       if (launchTarget !== undefined && launchTarget.mode !== 'legacy') {
-        if (launchTarget.mode === 'engine') void engineBridge.connectManaged(state.bridge).catch(console.error);
+        if (launchTarget.mode === 'engine' || launchTarget.mode === 'auto') void engineBridge.connectManaged(state.bridge).catch(console.error);
         return ok(engineBridge.getStatus());
       }
       if (state.bridge.autoConnect && state.bridge.pairedEngine) {
@@ -497,7 +500,7 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
       if (request.action === 'bridge.managed-connection.set') {
         const target = request.payload.launchTarget;
         const policy = (await getEnterprisePolicy()).policy;
-        if (target.mode === 'engine' && (target.pipeName
+        if (target.mode === 'engine' && (hasNativeEngineTarget(target)
           ? policy.bridgeTransport === 'websocket' || !!policy.bridgeEndpoint || policy.nativeHost && policy.nativeHost !== 'com.yaklang.ytray_engine'
           : policy.disableWebSocket || policy.bridgeTransport === 'native' || policy.bridgeEndpoint && policy.bridgeEndpoint !== target.endpoint)) {
           throw new ExtensionError('forbidden', '企业连接策略与 YTray 所选接入目标不一致');
@@ -506,7 +509,7 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
         engineBridge.disconnect();
         await stopPairedBrowserTasks();
         const state = await updateState((current) => ({ ...current, bridge: bindLaunchTarget(current.bridge, target) }));
-        if (target.mode === 'engine') void engineBridge.connectManaged(state.bridge).catch(console.error);
+        if (target.mode === 'engine' || target.mode === 'auto') void engineBridge.connectManaged(state.bridge).catch(console.error);
         else if (target.mode === 'legacy' && state.bridge.autoConnect && state.bridge.pairedEngine) {
           void engineBridge.connect(state.bridge).catch(console.error);
         }
@@ -536,6 +539,8 @@ async function handleRequest(request: ExtensionRequest, sender: Browser.runtime.
       }
     }
     case 'bridge.discover': return ok(await engineBridge.discoverLocalEngines());
+    case 'bridge.native.discover': return ok(await engineBridge.discoverNativePairingTargets());
+    case 'bridge.native.pair': return ok(await engineBridge.startPairing(request.payload.engineInstanceId));
     case 'bridge.pair.cancel': return ok(engineBridge.cancelPairing());
     case 'bridge.pair.status': return ok(engineBridge.getPairingStatus());
     case 'bridge.unpair': {

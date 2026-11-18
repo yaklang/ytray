@@ -269,7 +269,7 @@ namespace YTray.Core
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
                 $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
                 browserIdentity + (browserUseTicket == null ? "" : "&browserUseTicket=" + Uri.EscapeDataString(browserUseTicket)) +
-                "&engineTarget=" + Uri.EscapeDataString((engineTarget ?? new BrowserEngineTarget { Mode = "legacy" })
+                "&engineTarget=" + Uri.EscapeDataString((engineTarget ?? new BrowserEngineTarget { Mode = "auto" })
                     .ToWire().ToString(Newtonsoft.Json.Formatting.None));
         }
 
