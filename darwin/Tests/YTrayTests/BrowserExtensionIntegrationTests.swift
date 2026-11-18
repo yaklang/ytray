@@ -512,10 +512,14 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         XCTAssertEqual(bundled.version, "0.2.19")
         XCTAssertEqual(ExtensionInstaller.chromiumExtensionID(for: legacy), ExtensionInstaller.chromiumExtensionID(for: bundled))
         history.pluginIDs = [bundled.id]
-        // Exercise ordinary startup twice, with the original profile and its
-        // Chromium worker registrations intact.
+        // First keep Chromium's cached worker for the ordinary upgrade. Then
+        // check the current worker using the same profile and pairing data.
         for launch in 1...2 {
-            if launch == 2 { history.lastPageURL = "about:blank" }
+            if launch == 2 {
+                let cache = URL(fileURLWithPath: history.profilePath).appendingPathComponent("Default/Service Worker")
+                if FileManager.default.fileExists(atPath: cache.path) { try FileManager.default.removeItem(at: cache) }
+                history.lastPageURL = "about:blank"
+            }
             store.restoreHistory(history)
             try await waitForLaunch(store)
             let upgrade = try XCTUnwrap(store.runningInstances.first)
@@ -535,6 +539,9 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
                   payload: { manager: 'ytray', instanceId: '\(upgrade.id.uuidString)', badge: 'A' }
                 }).then(reply => ({ current: reply?.errorCode === 'forbidden' }))
                 """)
+            if launch == 2 {
+                XCTAssertEqual(currentWorker["current"] as? Bool, true, "Expected the 0.2.19 background worker")
+            }
             if currentWorker["current"] as? Bool == true {
                 XCTAssertEqual(mode, "legacy")
             }
