@@ -331,6 +331,18 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         let extensionID = try XCTUnwrap(ExtensionInstaller.chromiumExtensionID(for: plugin))
         let installed = try await inventory(port: instance.debugPort)
         XCTAssertTrue(installed.contains { $0["id"] as? String == extensionID && $0["enabled"] as? Bool == true })
+        if let connectionFile = ProcessInfo.processInfo.environment["YTRAY_TEST_NATIVE_CONNECTION_FILE"] {
+            let manifest = URL(fileURLWithPath: instance.profilePath)
+                .appendingPathComponent("NativeMessagingHosts/\(BrowserEngineNativeHost.hostName).json")
+            let registration = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+            XCTAssertEqual(registration["path"] as? String, ProcessInfo.processInfo.environment["YTRAY_LAUNCHER_PATH"].map {
+                URL(fileURLWithPath: $0).standardizedFileURL.path
+            })
+            for _ in 0..<300 where !FileManager.default.fileExists(atPath: connectionFile) {
+                try await Task.sleep(nanoseconds: 200_000_000)
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: connectionFile), "Browser did not authenticate over Native Messaging")
+        }
         var storage: [String: Any] = [:]
         for _ in 0..<40 {
             let targets = try await targets(debugPort: instance.debugPort)
