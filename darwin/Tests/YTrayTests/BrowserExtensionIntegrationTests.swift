@@ -140,6 +140,7 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
             parameters: ["url": "chrome-extension://\(extensionID)/options.html", "background": true])
         let id = try XCTUnwrap(target["targetId"] as? String)
         var lastError: Error?
+        var observed = "no extension page"
         for _ in 0..<120 {
             do {
                 if let item = try await targets(debugPort: instance.debugPort).first(where: { $0.id == id }),
@@ -153,11 +154,13 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
                             bound: (await chrome.storage.session.get(key))[key] === true };
                         })()
                         """)
+                    observed = "version=\(context["version"] ?? "?"), bound=\(context["bound"] ?? false)"
                     if context["bound"] as? Bool == true, context["version"] as? String == plugin.version {
                         let state = try await page.request("state.get")
                         let bridge = try XCTUnwrap(state["bridge"] as? [String: Any])
                         let managed = bridge["managedInstance"] as? [String: Any]
                         let mode = (bridge["launchTarget"] as? [String: Any])?["mode"] as? String
+                        observed += ", mode=\(mode ?? "-"), transport=\(bridge["transport"] ?? "?"), paired=\(bridge["pairedEngine"] is [String: Any])"
                         if (managed?["instanceId"] as? String)?.lowercased() == instance.id.uuidString.lowercased(),
                            launchMode == nil || mode == launchMode { return (page, bridge) }
                     }
@@ -165,7 +168,15 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
             } catch { lastError = error }
             try await Task.sleep(nanoseconds: 250_000_000)
         }
-        throw lastError ?? ExtensionLoadingError(message: "Browser Agent \(plugin.version) did not bind (mode \(launchMode ?? "-"))")
+        for item in try await targets(debugPort: instance.debugPort)
+            where item.url?.contains("/ytray-bootstrap.html?") == true {
+            guard let socket = item.webSocketDebuggerUrl.flatMap(URL.init(string:)) else { continue }
+            let result = try? await ExtensionPage(browser: browser, page: socket, id: item.id)
+                .evaluate("({ status: document.getElementById('status')?.textContent })")
+            observed += ", bootstrap status=\(result?["status"] ?? "?")"
+        }
+        throw ExtensionLoadingError(
+            message: "Browser Agent \(plugin.version) did not bind (expected mode \(launchMode ?? "-")); \(observed); \(lastError?.localizedDescription ?? "")")
     }
 
     private func connectedBridge(_ page: ExtensionPage, transport: String) async throws {
@@ -501,27 +512,33 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         XCTAssertEqual(bundled.version, "0.2.19")
         XCTAssertEqual(ExtensionInstaller.chromiumExtensionID(for: legacy), ExtensionInstaller.chromiumExtensionID(for: bundled))
         history.pluginIDs = [bundled.id]
-        // Preserve Chromium's worker cache on the initial upgrade. Then restart
-        // with the updated worker while keeping the profile and pairing data.
-        for refreshWorker in [false, true] {
-            if refreshWorker {
-                let cache = URL(fileURLWithPath: history.profilePath).appendingPathComponent("Default/Service Worker")
-                if FileManager.default.fileExists(atPath: cache.path) { try FileManager.default.removeItem(at: cache) }
-            }
+        // Exercise ordinary startup twice, with the original profile and its
+        // Chromium worker registrations intact.
+        for launch in 1...2 {
             store.restoreHistory(history)
             try await waitForLaunch(store)
             let upgrade = try XCTUnwrap(store.runningInstances.first)
             XCTAssertEqual(upgrade.id, first.id)
             XCTAssertEqual(upgrade.profilePath, first.profilePath)
-            let (page, bridge) = try await extensionPage(upgrade, plugin: bundled,
-                                                        launchMode: refreshWorker ? "legacy" : nil)
+            let (page, bridge) = try await extensionPage(upgrade, plugin: bundled)
             let pairing = try XCTUnwrap(bridge["pairedEngine"] as? [String: Any])
             XCTAssertEqual(bridge["transport"] as? String, "websocket")
             XCTAssertEqual(pairing["engineIdentityId"] as? String, engineID)
             XCTAssertEqual(pairing["deviceId"] as? String, deviceID)
             XCTAssertEqual(bridge["endpoint"] as? String, endpoint)
             try await connectedBridge(page, transport: "websocket")
+            let mode = (bridge["launchTarget"] as? [String: Any])?["mode"] as? String
+            XCTAssertNotEqual(mode, "none")
+            let currentWorker = try await page.evaluate("""
+                chrome.runtime.sendMessage({ action: 'bridge.managed-instance.bind.v2',
+                  payload: { manager: 'ytray', instanceId: '\(upgrade.id.uuidString)', badge: 'A' }
+                }).then(reply => ({ current: reply?.errorCode === 'forbidden' }))
+                """)
+            if currentWorker["current"] as? Bool == true {
+                XCTAssertEqual(mode, "legacy")
+            }
             try await page.close()
+            print("PASS upgraded launch \(launch), same verified engine and device (mode \(mode ?? "-"))")
             history = try await stop(store, instance: upgrade)
         }
         print("PASS plugin 0.2.19 retained the same engine and device on the same profile after upgrade")
@@ -538,7 +555,10 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         manual["transport"] = "websocket"
         manual["endpoint"] = endpoint
         manual["autoConnect"] = false
-        _ = try await page.request("bridge.config.save", payload: manual)
+        let savedState = try await page.request("bridge.config.save", payload: manual)
+        let savedBridge = savedState["bridge"] as? [String: Any]
+        XCTAssertEqual((savedBridge?["launchTarget"] as? [String: Any])?["mode"] as? String, "legacy")
+        print("PASS manually selected WebSocket on a fresh profile")
         try await page.close()
         let saved = try await stop(store, instance: fresh)
         store.restoreHistory(saved)

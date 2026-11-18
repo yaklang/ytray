@@ -23,6 +23,9 @@ on:
       native_engine_ref:
         description: Optional Yaklang revision for a real Native Messaging regression
         default: ''
+      legacy_recheck_run:
+        description: Recheck the WebSocket upgrade against the package from this same-branch Actions run
+        default: ''
 
 permissions:
   contents: read
@@ -33,7 +36,7 @@ concurrency:
 
 jobs:
   build-test-package:
-    if: github.event_name != 'workflow_dispatch' || inputs.ui_only != true
+    if: github.event_name != 'workflow_dispatch' || (inputs.ui_only != true && inputs.legacy_recheck_run == '')
     name: Build, test, UI smoke, package
     strategy:
       fail-fast: false
@@ -230,6 +233,94 @@ jobs:
             ${{ runner.temp }}/legacy-engine-integration.log
           if-no-files-found: error
           retention-days: 14
+
+  legacy-recheck:
+    if: github.event_name == 'workflow_dispatch' && inputs.legacy_recheck_run != ''
+    runs-on: macos-15
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+    env:
+      LEGACY_YAK_REF: 664306ab17c47cd6fa1a1ba6e84f7bee9f4d2255
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.legacy_recheck_run }}
+          name: ytray-macos-ci-macos-15
+          path: ${{ runner.temp }}/tested-package
+      - uses: actions/checkout@v4
+        with:
+          repository: yaklang/yaklang
+          ref: ${{ env.LEGACY_YAK_REF }}
+          path: .legacy-yaklang
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .legacy-yaklang/go.mod
+          cache: false
+      - uses: actions/cache@v4
+        id: legacy-engine
+        with:
+          path: ${{ runner.temp }}/yak-legacy-smoke
+          key: ytray-legacy-yak-macos-15-${{ runner.arch }}-${{ env.LEGACY_YAK_REF }}
+      - name: Build previous Yak
+        if: steps.legacy-engine.outputs.cache-hit != 'true'
+        working-directory: .legacy-yaklang
+        run: CGO_ENABLED=1 go build -o "$RUNNER_TEMP/yak-legacy-smoke" common/yak/cmd/yak.go
+      - uses: actions/cache/save@v4
+        if: steps.legacy-engine.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/yak-legacy-smoke
+          key: ${{ steps.legacy-engine.outputs.cache-primary-key }}
+      - uses: ./.github/actions/setup-browser-extension
+      - id: test-browser
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2
+        with:
+          chrome-version: stable
+      - name: Run the real Chrome WebSocket upgrade and restart tests
+        env:
+          YTRAY_CHROME_PATH: ${{ steps.test-browser.outputs.chrome-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v grpcurl >/dev/null || brew install grpcurl
+          browser_root="${YTRAY_CHROME_PATH%/Contents/MacOS/*}"
+          if [[ "$browser_root" != *.app ]]; then
+            browser_bundle="$RUNNER_TEMP/integration-browser/Google Chrome for Testing.app"
+            mkdir -p "$(dirname "$browser_bundle")"
+            ditto "$browser_root" "$browser_bundle"
+            export YTRAY_CHROME_PATH="$browser_bundle/Contents/MacOS/Google Chrome for Testing"
+          fi
+          legacy_ref=51ea7d15ed5a453ad41f97229716fa13f0cbcb20
+          git fetch --no-tags --depth=1 origin "$legacy_ref"
+          git worktree add --detach "$RUNNER_TEMP/legacy-extension-source" "$legacy_ref"
+          GITHUB_SHA="$legacy_ref" node "$RUNNER_TEMP/legacy-extension-source/script/prepare-yakit-browser-agent.mjs" \
+            "$RUNNER_TEMP/legacy-extension-bundle"
+          export YTRAY_TEST_LEGACY_EXTENSION_PATH="$RUNNER_TEMP/legacy-browser-agent"
+          mkdir "$YTRAY_TEST_LEGACY_EXTENSION_PATH"
+          unzip -q "$RUNNER_TEMP/legacy-extension-bundle/yakit-browser-agent.zip" -d "$YTRAY_TEST_LEGACY_EXTENSION_PATH"
+          dmg="$(find "$RUNNER_TEMP/tested-package" -type f -name 'YTray-*-darwin-universal.dmg')"
+          test -f "$dmg"
+          mount_dir="$(mktemp -d)"
+          hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
+          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true' EXIT
+          export YTRAY_LAUNCHER_PATH="$mount_dir/YTray.app/Contents/MacOS/YTray"
+          export YTRAY_TEST_EXTENSION_PATH="$RUNNER_TEMP/browser-agent-fixture"
+          mkdir "$YTRAY_TEST_EXTENSION_PATH"
+          unzip -q "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" \
+            -d "$YTRAY_TEST_EXTENSION_PATH"
+          python3 script/test-macos-native-engine.py --websocket \
+            "$RUNNER_TEMP/yak-legacy-smoke" "$PWD/.legacy-yaklang/common/yakgrpc/yakgrpc.proto" \
+            swift test --package-path darwin --filter testRealLegacyEnginePairingAndManualWebSocketSurviveUpgrade \
+            2>&1 | tee "$RUNNER_TEMP/legacy-engine-integration.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ytray-macos-legacy-upgrade
+          path: ${{ runner.temp }}/legacy-engine-integration.log
 
   published-startup:
     if: github.event_name == 'workflow_dispatch' && inputs.release != ''
