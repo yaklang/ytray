@@ -468,6 +468,10 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
             throw XCTSkip("Set both extension paths and the WebSocket-only Yak endpoint")
         }
         let store = try makeStore()
+        let server = try LocalExtensionProxy(requiresAuthentication: false)
+        defer { server.stop() }
+        try await server.start()
+        store.settings.homeURL = "http://127.0.0.1:\(server.port)/probe"
         func install(_ path: String, name: String) throws -> BrowserPlugin {
             let directory = store.applicationDirectory.appendingPathComponent(name)
             try FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: directory)
