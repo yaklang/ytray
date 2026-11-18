@@ -83,6 +83,7 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
     }
 
     private struct Target: Decodable {
+        let id: String
         let type: String
         let url: String?
         let webSocketDebuggerUrl: String?
@@ -102,6 +103,85 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         let socket = try XCTUnwrap(pages.first(where: { $0.type == "page" })?.webSocketDebuggerUrl.flatMap(URL.init(string:)))
         return try await BrowserDevTools.send(socketURL: socket, method: "Runtime.evaluate",
             parameters: ["expression": expression, "awaitPromise": true, "returnByValue": true])
+    }
+
+    private struct ExtensionPage {
+        let browser: URL
+        let page: URL
+        let id: String
+
+        func evaluate(_ expression: String) async throws -> [String: Any] {
+            let reply = try await BrowserDevTools.send(socketURL: page, method: "Runtime.evaluate",
+                parameters: ["expression": expression, "awaitPromise": true, "returnByValue": true])
+            XCTAssertNil(reply["exceptionDetails"])
+            return try XCTUnwrap((reply["result"] as? [String: Any])?["value"] as? [String: Any])
+        }
+
+        func request(_ action: String, payload: [String: Any]? = nil) async throws -> [String: Any] {
+            var message: [String: Any] = ["action": action]
+            if let payload { message["payload"] = payload }
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: message), as: UTF8.self)
+            let response = try await evaluate("chrome.runtime.sendMessage(\(json))")
+            XCTAssertEqual(response["ok"] as? Bool, true, response["error"] as? String ?? action)
+            return try XCTUnwrap(response["data"] as? [String: Any])
+        }
+
+        func close() async throws {
+            _ = try await BrowserDevTools.send(socketURL: browser, method: "Target.closeTarget",
+                                               parameters: ["targetId": id])
+        }
+    }
+
+    private func extensionPage(_ instance: BrowserInstance, plugin: BrowserPlugin,
+                               launchMode: String? = nil) async throws -> (ExtensionPage, [String: Any]) {
+        let extensionID = try XCTUnwrap(ExtensionInstaller.chromiumExtensionID(for: plugin))
+        let browser = try await BrowserDevTools.socketURL(debugPort: instance.debugPort)
+        let target = try await BrowserDevTools.send(socketURL: browser, method: "Target.createTarget",
+            parameters: ["url": "chrome-extension://\(extensionID)/options.html", "background": true])
+        let id = try XCTUnwrap(target["targetId"] as? String)
+        var lastError: Error?
+        for _ in 0..<120 {
+            do {
+                if let item = try await targets(debugPort: instance.debugPort).first(where: { $0.id == id }),
+                   let socket = item.webSocketDebuggerUrl.flatMap(URL.init(string:)) {
+                    let page = ExtensionPage(browser: browser, page: socket, id: id)
+                    let context = try await page.evaluate("""
+                        (async () => {
+                          if (!globalThis.chrome?.runtime?.getManifest) return {};
+                          const key = 'session.ytray-launch-bound.v1';
+                          return { version: chrome.runtime.getManifest().version,
+                            bound: (await chrome.storage.session.get(key))[key] === true };
+                        })()
+                        """)
+                    if context["bound"] as? Bool == true, context["version"] as? String == plugin.version {
+                        let state = try await page.request("state.get")
+                        let bridge = try XCTUnwrap(state["bridge"] as? [String: Any])
+                        let managed = bridge["managedInstance"] as? [String: Any]
+                        let mode = (bridge["launchTarget"] as? [String: Any])?["mode"] as? String
+                        if (managed?["instanceId"] as? String)?.lowercased() == instance.id.uuidString.lowercased(),
+                           launchMode == nil || mode == launchMode { return (page, bridge) }
+                    }
+                }
+            } catch { lastError = error }
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+        throw lastError ?? ExtensionLoadingError(message: "Browser Agent \(plugin.version) did not bind (mode \(launchMode ?? "-"))")
+    }
+
+    private func connectedBridge(_ page: ExtensionPage, transport: String) async throws {
+        var status: [String: Any] = [:]
+        for _ in 0..<120 {
+            status = try await page.request("bridge.status")
+            if status["state"] as? String == "connected" {
+                // 0.2.12 reports a connected state without a transport field.
+                if transport == "native" || status["transport"] != nil {
+                    XCTAssertEqual(status["transport"] as? String, transport)
+                }
+                return
+            }
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+        XCTFail("Expected \(transport) connection. Last state: \(status["state"] as? String ?? "unknown")")
     }
 
     func testRealChromeLoadsPluginAndRestoresIdentityAndTheme() async throws {
@@ -342,6 +422,10 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
                 try await Task.sleep(nanoseconds: 200_000_000)
             }
             XCTAssertTrue(FileManager.default.fileExists(atPath: connectionFile), "Browser did not authenticate over Native Messaging")
+            let (page, bridge) = try await extensionPage(instance, plugin: plugin)
+            XCTAssertEqual(bridge["transport"] as? String, "native")
+            try await connectedBridge(page, transport: "native")
+            try await page.close()
         }
         var storage: [String: Any] = [:]
         for _ in 0..<40 {
@@ -374,6 +458,97 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         XCTAssertEqual(restoredTitle, "Proxy Extension Ready")
+    }
+
+    func testRealLegacyEnginePairingAndManualWebSocketSurviveUpgrade() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let legacyPath = environment["YTRAY_TEST_LEGACY_EXTENSION_PATH"],
+              let bundledPath = environment["YTRAY_TEST_EXTENSION_PATH"],
+              let endpoint = environment["YTRAY_TEST_LEGACY_ENGINE_URL"] else {
+            throw XCTSkip("Set both extension paths and the WebSocket-only Yak endpoint")
+        }
+        let store = try makeStore()
+        func install(_ path: String, name: String) throws -> BrowserPlugin {
+            let directory = store.applicationDirectory.appendingPathComponent(name)
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: directory)
+            store.addPlugin(directory: directory)
+            return try XCTUnwrap(store.plugins.first { $0.path == directory.standardizedFileURL.path })
+        }
+        let legacy = try install(legacyPath, name: "Legacy Agent")
+        XCTAssertEqual(legacy.version, "0.2.12")
+        store.launch(mode: .quick)
+        try await waitForLaunch(store)
+        let first = try XCTUnwrap(store.runningInstances.first)
+        let (oldPage, firstBridge) = try await extensionPage(first, plugin: legacy)
+        XCTAssertNotEqual((firstBridge["launchTarget"] as? [String: Any])?["mode"] as? String, "none")
+        try await connectedBridge(oldPage, transport: "websocket")
+        let oldState = try await oldPage.request("state.get")
+        let oldBridge = try XCTUnwrap(oldState["bridge"] as? [String: Any])
+        XCTAssertEqual(oldBridge["transport"] as? String, "websocket")
+        let originalPair = try XCTUnwrap(oldBridge["pairedEngine"] as? [String: Any])
+        let engineID = try XCTUnwrap(originalPair["engineIdentityId"] as? String)
+        let deviceID = try XCTUnwrap(originalPair["deviceId"] as? String)
+        XCTAssertEqual(oldBridge["endpoint"] as? String, endpoint)
+        try await oldPage.close()
+        print("PASS old plugin 0.2.12 authenticated to old Yak via new YTray")
+
+        var history = try await stop(store, instance: first)
+        let bundled = try install(bundledPath, name: "Updated Agent")
+        XCTAssertEqual(bundled.version, "0.2.19")
+        XCTAssertEqual(ExtensionInstaller.chromiumExtensionID(for: legacy), ExtensionInstaller.chromiumExtensionID(for: bundled))
+        history.pluginIDs = [bundled.id]
+        // Preserve Chromium's worker cache on the initial upgrade. Then restart
+        // with the updated worker while keeping the profile and pairing data.
+        for refreshWorker in [false, true] {
+            if refreshWorker {
+                let cache = URL(fileURLWithPath: history.profilePath).appendingPathComponent("Default/Service Worker")
+                if FileManager.default.fileExists(atPath: cache.path) { try FileManager.default.removeItem(at: cache) }
+            }
+            store.restoreHistory(history)
+            try await waitForLaunch(store)
+            let upgrade = try XCTUnwrap(store.runningInstances.first)
+            XCTAssertEqual(upgrade.id, first.id)
+            XCTAssertEqual(upgrade.profilePath, first.profilePath)
+            let (page, bridge) = try await extensionPage(upgrade, plugin: bundled,
+                                                        launchMode: refreshWorker ? "legacy" : nil)
+            let pairing = try XCTUnwrap(bridge["pairedEngine"] as? [String: Any])
+            XCTAssertEqual(bridge["transport"] as? String, "websocket")
+            XCTAssertEqual(pairing["engineIdentityId"] as? String, engineID)
+            XCTAssertEqual(pairing["deviceId"] as? String, deviceID)
+            XCTAssertEqual(bridge["endpoint"] as? String, endpoint)
+            try await connectedBridge(page, transport: "websocket")
+            try await page.close()
+            history = try await stop(store, instance: upgrade)
+        }
+        print("PASS plugin 0.2.19 retained the same engine and device on the same profile after upgrade")
+
+        // Test the explicit preference on a separate unpaired profile so it
+        // cannot be explained by preserving an already-paired WebSocket engine.
+        store.launch(mode: .quick, customPluginIDs: [bundled.id])
+        try await waitForLaunch(store)
+        let fresh = try XCTUnwrap(store.runningInstances.first)
+        let (page, native) = try await extensionPage(fresh, plugin: bundled, launchMode: "auto")
+        XCTAssertEqual(native["transport"] as? String, "native")
+        XCTAssertNil(native["pairedEngine"])
+        var manual = native
+        manual["transport"] = "websocket"
+        manual["endpoint"] = endpoint
+        manual["autoConnect"] = false
+        _ = try await page.request("bridge.config.save", payload: manual)
+        try await page.close()
+        let saved = try await stop(store, instance: fresh)
+        store.restoreHistory(saved)
+        try await waitForLaunch(store)
+        let restored = try XCTUnwrap(store.runningInstances.first)
+        XCTAssertEqual(restored.profilePath, fresh.profilePath)
+        let (restoredPage, settings) = try await extensionPage(restored, plugin: bundled, launchMode: "legacy")
+        XCTAssertEqual(settings["transport"] as? String, "websocket")
+        XCTAssertEqual(settings["endpoint"] as? String, endpoint)
+        XCTAssertEqual(settings["autoConnect"] as? Bool, false)
+        XCTAssertNil(settings["pairedEngine"])
+        try await restoredPage.close()
+        _ = try await stop(store, instance: restored)
+        print("PASS explicit WebSocket transport, custom endpoint and autoConnect setting survived restart")
     }
 }
 

@@ -40,7 +40,7 @@ jobs:
       matrix:
         os: [macos-15, macos-26]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -139,6 +139,33 @@ jobs:
           command -v grpcurl >/dev/null || brew install grpcurl
           CGO_ENABLED=1 go build -o "$RUNNER_TEMP/yak-native-smoke" common/yak/cmd/yak.go
 
+      - uses: actions/checkout@v4
+        if: matrix.os == 'macos-15' && inputs.native_engine_ref != ''
+        with:
+          repository: yaklang/yaklang
+          ref: 664306ab17c47cd6fa1a1ba6e84f7bee9f4d2255
+          path: .legacy-yaklang
+          persist-credentials: false
+
+      - name: Build previous WebSocket-only Yak for the mixed-upgrade test
+        if: matrix.os == 'macos-15' && inputs.native_engine_ref != ''
+        working-directory: .legacy-yaklang
+        run: CGO_ENABLED=1 go build -o "$RUNNER_TEMP/yak-legacy-smoke" common/yak/cmd/yak.go
+
+      - name: Build historical browser extension 0.2.12
+        if: matrix.os == 'macos-15' && inputs.native_engine_ref != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          legacy_ref=51ea7d15ed5a453ad41f97229716fa13f0cbcb20
+          git fetch --no-tags --depth=1 origin "$legacy_ref"
+          mkdir -p "$RUNNER_TEMP/legacy-extension-source" "$RUNNER_TEMP/legacy-browser-agent"
+          git archive "$legacy_ref" browser-extension script/prepare-yakit-browser-agent.mjs |
+            tar -x -C "$RUNNER_TEMP/legacy-extension-source"
+          GITHUB_SHA="$legacy_ref" node "$RUNNER_TEMP/legacy-extension-source/script/prepare-yakit-browser-agent.mjs" \
+            "$RUNNER_TEMP/legacy-extension-bundle"
+          unzip -q "$RUNNER_TEMP/legacy-extension-bundle/yakit-browser-agent.zip" -d "$RUNNER_TEMP/legacy-browser-agent"
+
       - name: Install real browser for integration tests
         if: matrix.os == 'macos-15'
         id: test-browser
@@ -173,6 +200,7 @@ jobs:
           unzip -q dist/darwin-universal/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip \
             -d "$YTRAY_TEST_EXTENSION_PATH"
           swift test --package-path darwin \
+            --skip testRealLegacyEnginePairingAndManualWebSocketSurviveUpgrade \
             --filter 'BrowserExtensionIntegrationTests|testMCPReadsAndEvaluatesARealBrowserPageWhenAvailable|testRealChromeForTestingUsesGeneratedProxyAuthenticationExtensionWhenConfigured' \
             2>&1 | tee "$RUNNER_TEMP/browser-integration.log"
           ! grep -E 'Test Case .* skipped|[1-9][0-9]* tests skipped' "$RUNNER_TEMP/browser-integration.log"
@@ -181,6 +209,11 @@ jobs:
               "$RUNNER_TEMP/yak-native-smoke" "$PWD/.native-yaklang/common/yakgrpc/yakgrpc.proto" \
               swift test --package-path darwin --filter testRealBundledAgentReceivesManagedIdentityAfterCDPLoad \
               2>&1 | tee "$RUNNER_TEMP/native-engine-integration.log"
+            export YTRAY_TEST_LEGACY_EXTENSION_PATH="$RUNNER_TEMP/legacy-browser-agent"
+            python3 script/test-macos-native-engine.py --websocket \
+              "$RUNNER_TEMP/yak-legacy-smoke" "$PWD/.legacy-yaklang/common/yakgrpc/yakgrpc.proto" \
+              swift test --package-path darwin --filter testRealLegacyEnginePairingAndManualWebSocketSurviveUpgrade \
+              2>&1 | tee "$RUNNER_TEMP/legacy-engine-integration.log"
           fi
 
       - uses: actions/upload-artifact@v4
@@ -193,6 +226,7 @@ jobs:
             ${{ runner.temp }}/startup-evidence
             ${{ runner.temp }}/browser-integration.log
             ${{ runner.temp }}/native-engine-integration.log
+            ${{ runner.temp }}/legacy-engine-integration.log
           if-no-files-found: error
           retention-days: 14
 
