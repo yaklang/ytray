@@ -34,6 +34,7 @@ namespace YTray.Core.BrowserUse
         private readonly CancellationTokenSource _shutdown = new CancellationTokenSource();
         private readonly SemaphoreSlim _connections = new SemaphoreSlim(ConnectionLimit);
         private readonly SemaphoreSlim _pipeConnections = new SemaphoreSlim(SharedPageLimit + InstanceLimit + 4);
+        private readonly SemaphoreSlim _focus = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _pageSlots = new SemaphoreSlim(SharedPageLimit);
         private readonly SemaphoreSlim _instanceSlots = new SemaphoreSlim(InstanceLimit);
         private readonly ConcurrentDictionary<string, BrowserUseSession> _sessions = new ConcurrentDictionary<string, BrowserUseSession>();
@@ -46,6 +47,7 @@ namespace YTray.Core.BrowserUse
         private readonly Dispatcher? _dispatcher;
         private readonly string _pageIdPrefix = "p" + Guid.NewGuid().ToString("N").Substring(0, 8) + "-";
         private long _nextPageId;
+        private BrowserUseSession? _focusedPage;
         internal string Endpoint { get; }
         internal int BoundPort { get; }
         internal string ConfigurationJSON => new JObject
@@ -318,26 +320,9 @@ namespace YTray.Core.BrowserUse
                 var pageId = (string)arguments["page_id"]!;
                 if (!_sessions.TryGetValue(pageId, out var session))
                     throw new BrowserUseException("page_not_shared", "The page is not shared. List the currently shared pages.");
-                var result = await session.CallAsync(method, arguments, cancellation).ConfigureAwait(false);
-                if (method == "focus")
-                {
-                    if (_store != null && session.Managed)
-                    {
-                        var (window, focused) = await OnDispatcherAsync(async () =>
-                        {
-                            var handle = _store.ResolveBrowserUseWindow(session.InstanceId);
-                            if (handle != IntPtr.Zero) WindowEnum.RaiseBrowserWindow(handle);
-                            return (handle, handle != IntPtr.Zero && await WindowsApplicationControl.TryBringToForegroundAsync(handle, cancellation));
-                        }, cancellation).Unwrap().ConfigureAwait(false);
-                        if (window != IntPtr.Zero)
-                        {
-                            result = await session.CallAsync("presentation", arguments, cancellation).ConfigureAwait(false);
-                            result["window_focused"] = focused && WindowsApplicationControl.IsForeground(window);
-                        }
-                    }
-                    if ((string?)result["visibility"] != "visible")
-                        throw new BrowserUseException("page_not_visible", "The tab is selected, but its browser window is still hidden. Bring this window into view to see feedback.", session.InstanceId);
-                }
+                var result = method == "focus"
+                    ? await FocusPageAsync(session, arguments, cancellation).ConfigureAwait(false)
+                    : await session.CallAsync(method, arguments, cancellation).ConfigureAwait(false);
                 result["page_id"] = pageId;
                 return BrowserUseTools.Result(result);
             }
@@ -347,6 +332,59 @@ namespace YTray.Core.BrowserUse
                 if (error.InstanceId is Guid instanceId) failure["instance_id"] = instanceId.ToString("D");
                 return BrowserUseTools.Result(failure, true);
             }
+        }
+
+        private async Task<JObject> FocusPageAsync(BrowserUseSession session, JObject arguments, CancellationToken cancellation)
+        {
+            // Concurrent sessions share a single Windows foreground window.
+            await _focus.WaitAsync(cancellation).ConfigureAwait(false);
+            try
+            {
+                var window = _store != null && session.Managed && session.SupportsTabSelection
+                    ? await OnDispatcherAsync(() => _store.ResolveBrowserUseWindow(session.InstanceId), cancellation).ConfigureAwait(false)
+                    : IntPtr.Zero;
+                var previous = _focusedPage;
+                if (previous != null && previous != session && previous.SupportsTabSelection && previous.IsConnected)
+                {
+                    try { await previous.CallAsync("clear_feedback", new JObject(), cancellation).ConfigureAwait(false); }
+                    catch (BrowserUseException error) when (error.Code is "page_not_shared" or "stale_document" or "page_busy")
+                    {
+                        // A closed or navigating document clears its own feedback.
+                        // A concurrent action still clears feedback on window blur.
+                    }
+                }
+                JObject result;
+                if (window == IntPtr.Zero)
+                {
+                    // Chromium can identify the exact window when a profile has several.
+                    result = await session.CallAsync("focus", arguments, cancellation).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Complete tab selection before activating the native window. A second
+                    // window activation after Chromium starts processing its visibility
+                    // transition can leave the foreground page classified as hidden.
+                    await session.CallAsync("select_tab", arguments, cancellation).ConfigureAwait(false);
+                    await OnDispatcherAsync(async () =>
+                    {
+                        if (!session.IsConnected)
+                            throw new BrowserUseException("page_not_shared", "The page is no longer shared.", session.InstanceId);
+                        if (_store!.ResolveBrowserUseWindow(session.InstanceId) != window)
+                            throw new BrowserUseException("window_changed", "The browser window changed during tab selection.", session.InstanceId);
+                        if (!await WindowsApplicationControl.TryBringToForegroundAsync(window, cancellation))
+                            throw new BrowserUseException("window_not_focused", "Windows did not activate the selected browser window.", session.InstanceId);
+                    }, cancellation).Unwrap().ConfigureAwait(false);
+                    result = await session.CallAsync("presentation", arguments, cancellation).ConfigureAwait(false);
+                    if (!WindowsApplicationControl.IsForeground(window))
+                        throw new BrowserUseException("window_not_focused", "The selected browser window lost the foreground.", session.InstanceId);
+                    result["window_focused"] = true;
+                }
+                if ((string?)result["visibility"] != "visible")
+                    throw new BrowserUseException("page_not_visible", "The selected tab is not visible. Check whether its window is covered or on another desktop.", session.InstanceId);
+                _focusedPage = session;
+                return result;
+            }
+            finally { _focus.Release(); }
         }
 
         private JObject DescribeInstance(BrowserInstance instance) => new JObject

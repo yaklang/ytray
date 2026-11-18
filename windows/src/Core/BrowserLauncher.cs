@@ -106,6 +106,25 @@ namespace YTray.Core
             }
         }
 
+        internal static string BrowserUseFlags(string flags)
+        {
+            // Chromium can retain a stale native occlusion result after YTray moves
+            // a managed window to the foreground. Browser Use confirms foreground
+            // and tab selection separately for profiles it creates.
+            const string option = "--disable-features=";
+            const string occlusion = "CalculateNativeWinOcclusion";
+            var lines = flags.Split('\n').Select(line => line.Trim()).Where(line => line.Length != 0).ToList();
+            var index = lines.FindLastIndex(line => line.StartsWith(option, StringComparison.Ordinal));
+            if (index < 0) lines.Add(option + occlusion);
+            else
+            {
+                var disabled = lines[index].Substring(option.Length).Split(',');
+                if (!disabled.Contains(occlusion, StringComparer.Ordinal))
+                    lines[index] = option + string.Join(",", disabled.Append(occlusion).Where(feature => feature.Length != 0));
+            }
+            return string.Join("\n", lines);
+        }
+
         public static List<string> BuildArguments(LaunchMode mode, LaunchSettings settings,
             string profilePath, int debugPort, List<BrowserPlugin> plugins,
             BrowserKind? runtimeKind = null, List<string>? internalExtensionPaths = null,

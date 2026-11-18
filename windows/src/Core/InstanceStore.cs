@@ -941,6 +941,7 @@ namespace YTray.Core
             configuration.DefaultRuntimeID = runtimeId;
             configuration.HomeURL = "chrome://newtab/";
             configuration.DockBadge = "";
+            configuration.AdditionalFlags = BrowserLauncher.BrowserUseFlags(configuration.AdditionalFlags);
             if (!configuration.DefaultPluginIDs.Contains(plugin.Id)) configuration.DefaultPluginIDs.Add(plugin.Id);
             if (!LaunchCore(LaunchMode.Quick, configuration, null, null, useProxy, chooseEngine: false, browserUse: true)
                 || LaunchingInstanceID is not Guid instanceId)

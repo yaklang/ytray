@@ -1,5 +1,5 @@
 import { browser, type Browser } from 'wxt/browser';
-import { actOnSharedPage, observeSharedPage, setSharedPageGrant } from '@/features/page-context/service';
+import { actOnSharedPage, clearActionFeedback, observeSharedPage, setSharedPageGrant } from '@/features/page-context/service';
 import { getState } from '@/platform/storage/state';
 import { ExtensionError, errorCode } from '@/shared/errors';
 import { assertBrowserAccessPolicy, getEnterprisePolicy } from '@/platform/policy/managed';
@@ -176,6 +176,7 @@ async function shareTab(tab: Browser.tabs.Tab, managed?: ManagedBrowser, openId?
         port.postMessage({
           type: 'share',
           version: 1,
+          select_tab: true,
           host_port: __YTRAY_BROWSER_PORT__,
           instance_id: identity && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(identity.instanceId)
             ? identity.instanceId.toLowerCase() : instanceId,
@@ -327,25 +328,38 @@ async function answerRequest(page: SharedPage, port: NativePort, id: string, met
     }
     assertBrowserAccessPolicy((await getEnterprisePolicy()).policy, { origin: new URL(document.url).origin });
     requireCurrentPage(page, document);
-    if (method === 'focus' || method === 'presentation') {
+    if (method === 'clear_feedback') {
+      await clearActionFeedback(document.target, 'ISOLATED');
+      requireCurrentPage(page, document);
+      result = { status: 'cleared' };
+    } else if (method === 'select_tab') {
+      const tab = await browser.tabs.get(page.tabId);
+      requireCurrentPage(page, document);
+      if (!tab.active) await browser.tabs.update(page.tabId, { active: true });
+      requireCurrentPage(page, document);
+      result = { status: 'selected' };
+    } else if (method === 'focus' || method === 'presentation') {
       if (method === 'focus') {
         const tab = await browser.tabs.get(page.tabId);
         const window = await browser.windows.get(tab.windowId);
         requireCurrentPage(page, document);
-        await browser.tabs.update(page.tabId, { active: true });
+        if (!tab.active) await browser.tabs.update(page.tabId, { active: true });
         requireCurrentPage(page, document);
         if (window.state === 'minimized') await browser.windows.update(tab.windowId, { state: 'normal' });
-        await browser.windows.update(tab.windowId, { focused: true });
+        if (!window.focused) await browser.windows.update(tab.windowId, { focused: true });
       }
-      // Poll from the extension worker. Chromium throttles timers inside an occluded page.
+      // Observe Chromium's rendering state without activating the window again.
+      // The service worker can observe even while the document is throttled.
       let visibility = await tabVisibility(document);
-      const deadline = performance.now() + (method === 'focus' ? 350 : 1_600);
+      const deadline = performance.now() + 3_000;
       while (visibility !== 'visible' && performance.now() < deadline) {
         await new Promise<void>((resolve) => setTimeout(resolve, 100));
         requireCurrentPage(page, document);
         visibility = await tabVisibility(document);
       }
+      const tab = await browser.tabs.get(page.tabId);
       requireCurrentPage(page, document);
+      if (!tab.active) throw new ExtensionError('tab_not_active', '目标标签页已失去选中状态');
       result = { status: 'activated', visibility };
     } else if (method === 'observe' && typeof params.capture_id === 'string') {
       if (!await setSharedPageGrant(document.target, document, true)) {
