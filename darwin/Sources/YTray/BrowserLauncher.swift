@@ -359,12 +359,23 @@ enum BrowserLauncher {
         let target = restoredURL.flatMap { $0.isEmpty ? nil : $0 } ?? settings.homeURL
         if let managed = plugins.first(where: { $0.enabled && $0.name == ExtensionInstaller.extensionName }),
            let extensionID = ExtensionInstaller.chromiumExtensionID(for: managed) {
+            // A transient page from the previous session (about:blank, an
+            // extension page, etc.) must not prevent the managed binding.
+            let bootstrapTarget = history == nil ? target : [target, settings.homeURL]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first(where: managedBootstrapAccepts) ?? "chrome://newtab/"
             return try managedBrowserBootstrapURL(extensionID: extensionID, instanceID: instanceID,
-                                                  badge: badge, target: target, restore: history != nil,
+                                                  badge: badge, target: bootstrapTarget, restore: history != nil,
                                                   proxyServer: settings.proxyServer,
                                                   browserKind: browserKind, browserVersion: browserVersion)
         }
         return target
+    }
+
+    private static func managedBootstrapAccepts(_ target: String) -> Bool {
+        if target == "data:text/html,<title>YTray</title>" { return true }
+        guard let scheme = URL(string: target)?.scheme?.lowercased() else { return false }
+        return ["http", "https", "chrome"].contains(scheme)
     }
 
     static func nextAvailablePort(startingAt requested: Int) -> Int {

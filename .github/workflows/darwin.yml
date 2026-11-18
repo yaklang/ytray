@@ -23,9 +23,10 @@ on:
       native_engine_ref:
         description: Optional Yaklang revision for a real Native Messaging regression
         default: ''
-      legacy_recheck_run:
-        description: Recheck the WebSocket upgrade against the package from this same-branch Actions run
-        default: ''
+      legacy_recheck:
+        description: Build an arm64 package and recheck the WebSocket upgrade
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +37,7 @@ concurrency:
 
 jobs:
   build-test-package:
-    if: github.event_name != 'workflow_dispatch' || (inputs.ui_only != true && inputs.legacy_recheck_run == '')
+    if: github.event_name != 'workflow_dispatch' || (inputs.ui_only != true && inputs.legacy_recheck != true)
     name: Build, test, UI smoke, package
     strategy:
       fail-fast: false
@@ -235,22 +236,13 @@ jobs:
           retention-days: 14
 
   legacy-recheck:
-    if: github.event_name == 'workflow_dispatch' && inputs.legacy_recheck_run != ''
+    if: github.event_name == 'workflow_dispatch' && inputs.legacy_recheck == true
     runs-on: macos-15
     timeout-minutes: 25
-    permissions:
-      actions: read
-      contents: read
     env:
       LEGACY_YAK_REF: 664306ab17c47cd6fa1a1ba6e84f7bee9f4d2255
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.legacy_recheck_run }}
-          name: ytray-macos-ci-macos-15
-          path: ${{ runner.temp }}/tested-package
       - uses: actions/checkout@v4
         with:
           repository: yaklang/yaklang
@@ -276,6 +268,10 @@ jobs:
           path: ${{ runner.temp }}/yak-legacy-smoke
           key: ${{ steps.legacy-engine.outputs.cache-primary-key }}
       - uses: ./.github/actions/setup-browser-extension
+      - name: Package the current arm64 YTray with its bundled extension
+        run: |
+          command -v magick >/dev/null || brew install imagemagick
+          ./script/package-macos.sh --arch arm64
       - id: test-browser
         uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2
         with:
@@ -302,15 +298,11 @@ jobs:
           export YTRAY_TEST_LEGACY_EXTENSION_PATH="$RUNNER_TEMP/legacy-browser-agent"
           mkdir "$YTRAY_TEST_LEGACY_EXTENSION_PATH"
           unzip -q "$RUNNER_TEMP/legacy-extension-bundle/yakit-browser-agent.zip" -d "$YTRAY_TEST_LEGACY_EXTENSION_PATH"
-          dmg="$(find "$RUNNER_TEMP/tested-package" -type f -name 'YTray-*-darwin-universal.dmg')"
-          test -f "$dmg"
-          mount_dir="$(mktemp -d)"
-          hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -readonly >/dev/null
-          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true' EXIT
-          export YTRAY_LAUNCHER_PATH="$mount_dir/YTray.app/Contents/MacOS/YTray"
+          app="$PWD/dist/darwin-arm64/YTray.app"
+          export YTRAY_LAUNCHER_PATH="$app/Contents/MacOS/YTray"
           export YTRAY_TEST_EXTENSION_PATH="$RUNNER_TEMP/browser-agent-fixture"
           mkdir "$YTRAY_TEST_EXTENSION_PATH"
-          unzip -q "$mount_dir/YTray.app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" \
+          unzip -q "$app/Contents/Resources/BundledExtension/yakit-browser-agent.zip" \
             -d "$YTRAY_TEST_EXTENSION_PATH"
           python3 script/test-macos-native-engine.py --websocket \
             "$RUNNER_TEMP/yak-legacy-smoke" "$PWD/.legacy-yaklang/common/yakgrpc/yakgrpc.proto" \

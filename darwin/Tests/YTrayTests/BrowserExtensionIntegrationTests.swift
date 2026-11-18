@@ -515,6 +515,7 @@ final class BrowserExtensionIntegrationTests: XCTestCase {
         // Exercise ordinary startup twice, with the original profile and its
         // Chromium worker registrations intact.
         for launch in 1...2 {
+            if launch == 2 { history.lastPageURL = "about:blank" }
             store.restoreHistory(history)
             try await waitForLaunch(store)
             let upgrade = try XCTUnwrap(store.runningInstances.first)
