@@ -261,7 +261,7 @@ jobs:
         with:
           go-version-file: .legacy-yaklang/go.mod
           cache: false
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: legacy-engine
         with:
           path: ${{ runner.temp }}/yak-legacy-smoke
