@@ -28,16 +28,16 @@ namespace YTray.Tests
                     widget.RefreshAndMeasure();
                     WidgetReviewCapture.PrepareFullCapture(widget);
                     Assert.AreEqual(390, widget.ActualWidth, 0.01);
-                    Assert.AreEqual(816, widget.ActualHeight, 0.01, "The computer-control row adds 70 DIP while preserving all instance rows.");
-                    Assert.AreEqual(212, widget.ProxyCard.ActualHeight, 0.01);
+                    Assert.AreEqual(876, widget.ActualHeight, 0.5, "The redesigned Windows widget preserves all instance rows with ergonomic input heights.");
+                    Assert.AreEqual(248, widget.ProxyCard.ActualHeight, 0.01);
                     foreach (var input in new FrameworkElement[] { widget.SchemeCombo, widget.HostBox, widget.PortBox, widget.RemarkBox, widget.UsernameBox, widget.PasswordInput, widget.TargetBox })
-                        Assert.AreEqual(16, input.ActualHeight, 0.01, input.Name);
+                        Assert.AreEqual(28, input.ActualHeight, 0.01, input.Name);
                     Assert.AreEqual(28, widget.SaveBtn.ActualHeight, 0.01);
-                    Assert.AreEqual(28, widget.DirectBtn.ActualHeight, 0.01);
+                    Assert.AreEqual(36, widget.DirectBtn.ActualHeight, 0.01);
                     Assert.AreEqual(32, widget.StartupBtn.ActualHeight, 0.01);
-                    Assert.AreEqual(Color.FromRgb(57, 57, 57), ((SolidColorBrush)widget.RootBorder.Background).Color);
-                    Assert.AreEqual(Color.FromRgb(30, 30, 30), ((SolidColorBrush)widget.ProxyCard.Background).Color);
-                    Assert.AreEqual(64, widget.ComputerControlCard.ActualHeight, 0.01);
+                    Assert.AreEqual((Color)ColorConverter.ConvertFromString("#16191E"), ((SolidColorBrush)widget.RootBorder.Background).Color);
+                    Assert.AreEqual((Color)ColorConverter.ConvertFromString("#1E2229"), ((SolidColorBrush)widget.ProxyCard.Background).Color);
+                    Assert.AreEqual(58, widget.ComputerControlCard.ActualHeight, 0.01);
                     Assert.AreEqual(38, widget.ComputerControlToggle.ActualWidth, 0.01);
                     Assert.AreEqual("复制电脑控制配置", widget.ComputerCopyLabel.Text);
                     var copyRight = widget.ComputerMcpButton.TranslatePoint(new Point(widget.ComputerMcpButton.ActualWidth, 0), widget).X;
@@ -83,7 +83,7 @@ namespace YTray.Tests
 
                     widget.AdvancedBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     widget.UpdateLayout();
-                    Assert.AreEqual(136, widget.ProxyCard.ActualHeight, 0.01);
+                    Assert.AreEqual(50, widget.ProxyCard.ActualHeight, 0.01);
                     Assert.AreEqual(Visibility.Collapsed, widget.AdvancedPanel.Visibility);
                     widget.AdvancedBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
@@ -96,7 +96,7 @@ namespace YTray.Tests
                     Assert.IsTrue(widget.InstanceScroll.ViewportHeight > 0);
                     Assert.IsTrue(widget.StartupBtn.TranslatePoint(new Point(0, widget.StartupBtn.ActualHeight), widget).Y <= widget.ActualHeight);
                     WidgetReviewCapture.PrepareFullCapture(widget);
-                    Assert.AreEqual(816, widget.ActualHeight, 0.01, "The comparison capture must include every row even on a short CI desktop.");
+                    Assert.AreEqual(876, widget.ActualHeight, 0.5, "The comparison capture must include every row even on a short CI desktop.");
                     Assert.AreEqual(0, widget.InstanceScroll.ScrollableHeight, 0.01);
                     store.Instances.Clear();
                     widget.RefreshAndMeasure();

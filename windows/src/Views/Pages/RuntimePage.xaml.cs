@@ -211,6 +211,30 @@ namespace YTray.Views.Pages
             }
         }
 
+        private void LaunchRuntime_Click(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (!(((FrameworkElement)sender).Tag is BrowserRuntime runtime)) return;
+            var settings = new LaunchSettings(runtime.Id)
+            {
+                HomeURL = _store.Settings.HomeURL,
+                DebugPort = _store.Settings.DebugPort,
+                RestrictWebRTC = _store.Settings.RestrictWebRTC,
+                DisableNotifications = _store.Settings.DisableNotifications,
+                IgnoreCertificateErrors = _store.Settings.IgnoreCertificateErrors,
+                UseTestType = _store.Settings.UseTestType,
+                ColorizeBrowserInstances = _store.Settings.ColorizeBrowserInstances,
+                AdditionalFlags = _store.Settings.AdditionalFlags,
+                ProfileRootPath = _store.Settings.ProfileRootPath,
+                DefaultPluginIDs = _store.Settings.DefaultPluginIDs.ToList(),
+            };
+            if (!_store.Launch(LaunchMode.Quick, settings, settings.DefaultPluginIDs, launchUsesProxy: false)
+                && !_store.LaunchWasCancelled)
+                ShowFeedback(_store.ErrorMessage ?? "无法启动该浏览器");
+            else if (!_store.LaunchWasCancelled)
+                ShowFeedback($"已使用 {runtime.DisplayTitle} 启动新实例");
+        }
+
         private void SetDefault_Click(object sender, RoutedEventArgs e)
         {
             if (!(((FrameworkElement)sender).Tag is BrowserRuntime runtime)) return;

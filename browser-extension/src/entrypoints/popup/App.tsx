@@ -173,7 +173,8 @@ function App() {
   const engineBusy = bridge.state === 'connecting' || bridge.state === 'negotiating';
   const currentHost = (() => { try { return tab?.url ? new URL(tab.url).host : ''; } catch { return ''; } })();
   const statusLabel = engineStatusLabel(state, bridge);
-  const transportLabel = connectedTransportLabel(bridge);
+  const transportLabel = bridge.state === 'connected' && bridge.transport === 'websocket' && state.bridge.automaticWebSocketFallback
+    ? 'WebSocket（自动兼容）' : connectedTransportLabel(bridge);
   const statusActionLabel = bridge.state === 'connected'
     ? `${statusLabel}${transportLabel ? `，${transportLabel}` : ''}，点击断开`
     : state.bridge.pairedEngine ? `${statusLabel}，点击连接` : `${statusLabel}，点击配对`;

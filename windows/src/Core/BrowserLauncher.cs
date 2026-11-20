@@ -263,14 +263,16 @@ namespace YTray.Core
                 : "";
             if (!string.IsNullOrWhiteSpace(browserVersion))
                 browserIdentity += $"&browserVersion={Uri.EscapeDataString(browserVersion!.Trim())}";
+            var connection = engineTarget ?? new BrowserEngineTarget { Mode = "auto" };
+            var connectionParameter = connection.Mode == "auto" || connection.Mode == "engine"
+                ? "engineTargetV2" : "engineTarget";
             return $"chrome-extension://{extensionId}/ytray-bootstrap.html" +
                 $"?manager=ytray&instanceId={Uri.EscapeDataString(instanceId.ToString())}" +
                 $"&badge={Uri.EscapeDataString(DockBadgeLabel.Normalize(badge))}" +
                 $"&target={Uri.EscapeDataString(target)}&restore={(restore ? "1" : "0")}" +
                 $"&startupProxy={Uri.EscapeDataString(string.IsNullOrWhiteSpace(proxyServer) ? "direct" : HTTPProxyAddress.Normalize(proxyServer))}" +
                 browserIdentity + (browserUseTicket == null ? "" : "&browserUseTicket=" + Uri.EscapeDataString(browserUseTicket)) +
-                "&engineTarget=" + Uri.EscapeDataString((engineTarget ?? new BrowserEngineTarget { Mode = "auto" })
-                    .ToWire().ToString(Newtonsoft.Json.Formatting.None));
+                "&" + connectionParameter + "=" + Uri.EscapeDataString(connection.ToWire().ToString(Newtonsoft.Json.Formatting.None));
         }
 
         internal static void PreparePinnedExtensions(string profilePath, IEnumerable<BrowserPlugin> loadedPlugins,

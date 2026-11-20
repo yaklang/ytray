@@ -4,162 +4,418 @@
       xmlns:views="clr-namespace:YTray.Views" Background="{DynamicResource AppBackgroundBrush}">
     <Page.Resources>
         <Style x:Key="OverviewFieldLabel" TargetType="TextBlock" BasedOn="{StaticResource FieldLabel}">
-            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontSize" Value="11.5"/>
             <Setter Property="Margin" Value="0,0,0,6"/>
         </Style>
         <Style x:Key="OverviewTableHeader" TargetType="TextBlock" BasedOn="{StaticResource TableHeaderText}">
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="11.5"/>
         </Style>
         <Style x:Key="OverviewTableCell" TargetType="TextBlock" BasedOn="{StaticResource TableCellText}">
             <Setter Property="FontSize" Value="12"/>
         </Style>
         <Style x:Key="OverviewButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
         <Style x:Key="OverviewPrimaryButton" TargetType="Button" BasedOn="{StaticResource YTrayPrimaryButton}">
-            <Setter Property="FontSize" Value="13.5"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style x:Key="ModeSwitchCardButton" TargetType="Button" BasedOn="{StaticResource YTrayGhostButton}">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="InlineContextComboBox" TargetType="ComboBox" BasedOn="{StaticResource YTrayComboBox}">
+            <Setter Property="Height" Value="31"/>
+            <Setter Property="Padding" Value="10,0,4,0"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="SegmentedProxyComboBox" TargetType="ComboBox" BasedOn="{StaticResource YTrayComboBox}">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Padding" Value="9,0,4,0"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="NetworkPillBorder" TargetType="Border" BasedOn="{StaticResource PillBadge}">
+            <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding UsesProxy}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource BrandPaleBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="NetworkPillText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding UsesProxy}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource BrandOrangeBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
     </Page.Resources>
-    <Grid Margin="25,21,25,20">
-        <Grid.RowDefinitions><RowDefinition Height="76"/><RowDefinition Height="423"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <StackPanel>
-            <TextBlock Text="运行中心" Style="{StaticResource PageTitle}" FontSize="27"/>
-            <StackPanel Orientation="Horizontal" Margin="2,8,0,0">
-                <Ellipse x:Name="LaunchStatusDot" Width="8" Height="8" Fill="{DynamicResource SuccessBrush}" Margin="0,0,9,0"/>
-                <TextBlock x:Name="LaunchStatusLabel" Text="0 个实例运行中" FontSize="14" Foreground="{DynamicResource TextSecondaryBrush}"/>
+
+    <Grid Margin="26,15,26,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="56"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="11"/>
+            <RowDefinition Height="1.52*"/>
+            <RowDefinition Height="10"/>
+            <RowDefinition Height="0.90*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Page Header -->
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="运行中心" Style="{StaticResource PageTitle}"/>
+                <TextBlock Text="一键编排独立身份浏览器实例，全景掌控活跃会话、代理链路与本地调试端口" Style="{StaticResource PageSubtitle}" Margin="0,4,0,0"/>
             </StackPanel>
-        </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border x:Name="ActionToastBorder" Visibility="Collapsed" Margin="0,0,10,0" Padding="11,6" CornerRadius="8" Background="{DynamicResource SuccessPaleBrush}">
+                    <TextBlock x:Name="ActionToastText" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"/>
+                </Border>
+                <Border CornerRadius="14" Padding="12,6" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="LaunchStatusDot" Width="8" Height="8" Fill="{DynamicResource SuccessBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="LaunchStatusLabel" Text="0 个实例运行中" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
 
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="1.9*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="0.98*"/></Grid.ColumnDefinitions>
-            <Border Style="{StaticResource SurfaceBorder}">
+        <!-- Row 1: Two-Tier Quick Launch Cockpit (Hero Launch Bar + Compact Context Strip) -->
+        <Border Grid.Row="1" Style="{StaticResource SurfaceBorder}" Padding="18,12,18,10">
+            <StackPanel>
+                <!-- Tier 1: Primary Launch Controls -->
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="50"/><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <Grid Margin="18,0">
-                        <TextBlock Text="运行中的实例" Style="{StaticResource SectionTitle}" FontSize="15" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="RunningCountLabel" Text="共 0 个实例" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                    </Grid>
-                    <Border Grid.Row="1" Margin="7,0" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1,1,1,1">
-                        <Grid Margin="12,0">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="48"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="92"/><ColumnDefinition Width="70"/><ColumnDefinition Width="110"/></Grid.ColumnDefinitions>
-                            <TextBlock Text="浏览器" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="1" Text="实例" Style="{StaticResource OverviewTableHeader}"/>
-                            <TextBlock Grid.Column="2" Text="页面标题 / 地址" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="3" Text="网络模式" Style="{StaticResource OverviewTableHeader}"/>
-                            <TextBlock Grid.Column="4" Text="调试端口" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="5" Text="运行时长" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="6" Text="操作" Style="{StaticResource OverviewTableHeader}"/>
-                        </Grid>
-                    </Border>
-                    <Grid Grid.Row="2">
-                        <StackPanel x:Name="RunningEmpty" HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <TextBlock Text="暂无运行中的实例" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                            <TextBlock Text="从右侧创建第一个独立浏览器实例" Margin="0,6,0,0" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                        </StackPanel>
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <ItemsControl x:Name="RunningList">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Margin="7,0" MinHeight="70" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1,0,1,1">
-                                            <Grid Margin="12,0">
-                                                <Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="48"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="92"/><ColumnDefinition Width="70"/><ColumnDefinition Width="110"/></Grid.ColumnDefinitions>
-                                                <Image Source="{Binding RuntimeIconSource}" Width="32" Height="32" HorizontalAlignment="Left"/>
-                                                <Border Grid.Column="1" Width="31" Height="31" HorizontalAlignment="Left" CornerRadius="5" Background="{Binding IdentityBrush}" BorderThickness="0">
-                                                    <TextBlock Text="{Binding DockBadge}" Foreground="{Binding IdentityForegroundBrush}" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Border>
-                                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0"><TextBlock Text="{Binding PageTitle}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding PageUrl}" FontSize="11" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/></StackPanel>
-                                                <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="0,0,8,0"><TextBlock Text="{Binding NetworkMode}" FontSize="12.5"/><TextBlock Text="{Binding NetworkAddress}" TextTrimming="CharacterEllipsis" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
-                                                <TextBlock Grid.Column="4" Text="{Binding DebugPort, StringFormat=端口 {0}}" Style="{StaticResource OverviewTableCell}"/>
-                                                <TextBlock Grid.Column="5" Text="{Binding Duration}" Style="{StaticResource OverviewTableCell}"/>
-                                                <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center"><Button Content="聚焦" Padding="10,0" Height="32" Margin="0,0,7,0" Tag="{Binding Instance}" Click="Focus_Click" Style="{StaticResource OverviewButton}"/><Button Content="停止" Padding="10,0" Height="32" Tag="{Binding Instance}" Click="Stop_Click" Style="{StaticResource OutlinedAccentButton}" FontSize="13"/></StackPanel>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </Grid>
-                </Grid>
-            </Border>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="232"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="292"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="2" Style="{StaticResource SurfaceBorder}" Padding="18,15">
-                <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="10"/><RowDefinition Height="Auto"/><RowDefinition Height="9"/><RowDefinition Height="Auto"/><RowDefinition Height="9"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <DockPanel>
-                        <Button x:Name="LaunchButton" DockPanel.Dock="Right" Content="启动实例" Height="34" Padding="10,0" Click="Launch_Click" Style="{StaticResource OverviewPrimaryButton}"/>
-                        <Button x:Name="WizardBtn" DockPanel.Dock="Right" Content="自定义" Height="34" Margin="6,0" Padding="7,0" Click="Wizard_Click" Style="{StaticResource OverviewButton}"/>
-                        <TextBlock Text="新建实例" Style="{StaticResource SectionTitle}" FontSize="15" VerticalAlignment="Center"/>
-                    </DockPanel>
-                    <StackPanel Grid.Row="2">
-                        <TextBlock Text="浏览器" Style="{StaticResource OverviewFieldLabel}"/>
-                        <ComboBox x:Name="RuntimeCombo" Height="42"
+                    <!-- 1. Runtime Picker -->
+                    <StackPanel>
+                        <TextBlock Text="浏览器运行时" Style="{StaticResource OverviewFieldLabel}"/>
+                        <ComboBox x:Name="RuntimeCombo" Height="38"
                                   PreviewMouseLeftButtonDown="ChoiceCombo_PreviewMouseLeftButtonDown"
                                   SelectionChanged="RuntimeCombo_SelectionChanged">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid MinHeight="28">
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                        <Image Source="{Binding IconSource}" Width="26" Height="26" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <Grid MinHeight="24">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <Image Source="{Binding IconSource}" Width="19" Height="19" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Version}" Margin="10,0,0,0" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Version}" Margin="8,0,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
                                     </Grid>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                     </StackPanel>
-                    <StackPanel Grid.Row="4">
-                        <TextBlock Text="网络" Style="{StaticResource OverviewFieldLabel}"/>
-                        <TextBlock x:Name="EnvironmentNetwork" Visibility="Collapsed" TextWrapping="Wrap" Margin="1,7,0,8"/>
-                        <ComboBox x:Name="NetworkCombo" Height="46" SelectedIndex="1"
-                                  PreviewMouseLeftButtonDown="ChoiceCombo_PreviewMouseLeftButtonDown">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding Subtitle}" Margin="0,2,0,0" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                    </StackPanel>
-                    <StackPanel Grid.Row="6">
-                        <TextBlock Text="浏览器环境" Style="{StaticResource OverviewFieldLabel}"/>
-                        <ComboBox x:Name="EnvironmentCombo" Height="38" Margin="0,0,0,9"/>
-                        <DockPanel>
-                            <Button x:Name="EngineDefaultButton" DockPanel.Dock="Right" Content="设为默认" Padding="4,0" MinHeight="0" FontSize="11"
-                                    Style="{StaticResource YTrayGhostButton}" Click="SaveEngineDefault_Click"/>
-                            <TextBlock Text="接入应用" Style="{StaticResource OverviewFieldLabel}"/>
+
+                    <!-- 2. Unified Network & Proxy Preset Bar (Zero Duplication!) -->
+                    <StackPanel Grid.Column="2">
+                        <DockPanel Margin="0,0,0,6">
+                            <Button DockPanel.Dock="Right" Content="配置代理 ›" Click="EditProxy_Click" Style="{StaticResource YTrayGhostButton}"
+                                    Height="18" MinHeight="0" Padding="4,0" FontSize="11" Foreground="{DynamicResource BrandOrangeBrush}"/>
+                            <TextBlock Text="网络与代理" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </DockPanel>
-                        <views:BrowserEnginePicker x:Name="EngineCombo" Height="34" Margin="0,0,0,9"
-                                                   AutomationProperties.Name="接入应用"/>
-                        <TextBlock Text="启动地址" Style="{StaticResource OverviewFieldLabel}"/>
-                        <TextBox x:Name="HomeUrlBox" Height="42" Text="chrome://newtab" FontSize="13" FontWeight="SemiBold" Padding="12,6"/>
+
+                        <Border x:Name="EnvironmentNetworkBadge" Visibility="Collapsed" Height="38" CornerRadius="8" Padding="12,0"
+                                Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse Width="6" Height="6" Fill="{DynamicResource BrandOrangeBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="EnvironmentNetwork" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="NetworkModeSelector" Height="38" CornerRadius="8" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="74"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Button x:Name="DirectModeButton" Click="DirectMode_Click" Style="{StaticResource ModeSwitchCardButton}">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Ellipse x:Name="DirectModeDot" Width="6" Height="6" Fill="{DynamicResource TextTertiaryBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="DirectModeLabel" Text="直连" FontSize="12" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </Button>
+                                <Grid x:Name="ProxyPresetFields" Grid.Column="1">
+                                    <ComboBox x:Name="NetworkCombo" Style="{StaticResource SegmentedProxyComboBox}"
+                                              PreviewMouseLeftButtonDown="NetworkCombo_PreviewMouseLeftButtonDown"
+                                              AutomationProperties.Name="代理配置">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid MinHeight="22">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                    <Ellipse Width="6" Height="6" Fill="{Binding DotBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="{Binding TitleBrush}" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="2" Text="{Binding DisplayAddress}" Margin="7,0,0,0" FontFamily="Cascadia Mono, Consolas" FontSize="11"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- 3. Start URL -->
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Text="起始地址" Style="{StaticResource OverviewFieldLabel}"/>
+                        <TextBox x:Name="HomeUrlBox" Height="38" MinHeight="0" Text="chrome://newtab" FontFamily="Cascadia Mono, Consolas, Segoe UI" FontSize="12.5" Padding="11,0"/>
+                    </StackPanel>
+
+                    <!-- 4. Launch Actions -->
+                    <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <Button x:Name="LaunchButton" Height="38" MinHeight="0" Padding="16,0" Click="Launch_Click" Style="{StaticResource OverviewPrimaryButton}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M 6 1.5 L 6 10.5 M 1.5 6 L 10.5 6" Width="11" Height="11" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="启动隔离实例" Foreground="White" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="WizardBtn" Content="自定义向导…" Height="38" MinHeight="0" Padding="12,0" Margin="7,0,0,0" Click="Wizard_Click" Style="{StaticResource OverviewButton}"/>
                     </StackPanel>
                 </Grid>
-            </Border>
-        </Grid>
 
-        <Border Grid.Row="3" Style="{StaticResource SurfaceBorder}">
-            <Grid>
-                <Grid.RowDefinitions><RowDefinition Height="43"/><RowDefinition Height="35"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                <Grid Margin="17,0"><TextBlock Text="最近会话" Style="{StaticResource SectionTitle}" FontSize="15" VerticalAlignment="Center"/><Button Content="清除全部" Click="ClearAll_Click" Style="{StaticResource YTrayGhostButton}" FontSize="12" HorizontalAlignment="Right" Foreground="{DynamicResource TextTertiaryBrush}"/></Grid>
-                <Border Grid.Row="1" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1">
-                    <Grid Margin="17,0"><Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="90"/><ColumnDefinition Width="75"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="115"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="最近使用" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="1" Text="浏览器" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="2" Text="实例" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="3" Text="页面标题 / 地址" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="4" Text="网络模式" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="5" Text="调试端口" Style="{StaticResource OverviewTableHeader}"/><TextBlock Grid.Column="6" Text="操作" Style="{StaticResource OverviewTableHeader}"/>
+                <!-- Tier 2: Compact Inline Environment Template & Engine Target Strip -->
+                <Border Margin="0,10,0,0" Padding="0,9,0,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Environment Template Inline Picker -->
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="13" Height="13" Margin="0,0,6,0" VerticalAlignment="Center">
+                                <Path Data="M 2 4 L 14 4 M 5.5 2 L 5.5 6 M 2 8.5 L 14 8.5 M 10.5 6.5 L 10.5 10.5 M 2 13 L 14 13 M 7 11 L 7 15"
+                                      Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.4" StrokeStartLineCap="Round"/>
+                            </Viewbox>
+                            <TextBlock Text="环境模板" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="EnvironmentCombo" Width="188" Style="{StaticResource InlineContextComboBox}"
+                                      PreviewMouseLeftButtonDown="ChoiceCombo_PreviewMouseLeftButtonDown"
+                                      AutomationProperties.Name="浏览器环境"/>
+                            <Button Content="管理 ›" Click="ManageEnvironments_Click" Style="{StaticResource YTrayGhostButton}"
+                                    Height="26" MinHeight="0" Padding="7,0" Margin="4,0,0,0" FontSize="11.5" Foreground="{DynamicResource BrandOrangeBrush}"/>
+                        </StackPanel>
+
+                        <Border Grid.Column="1" Width="1" Height="16" Background="{DynamicResource HairlineBrush}" Margin="14,0" VerticalAlignment="Center"/>
+
+                        <!-- Connected Engine Application Inline Picker -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="13" Height="13" Margin="0,0,6,0" VerticalAlignment="Center">
+                                <Path Data="M 5 3 L 5 7 M 11 3 L 11 7 M 3 7 L 13 7 L 13 9.5 C 13 12 10.8 13.5 8 13.5 C 5.2 13.5 3 12 3 9.5 Z M 8 13.5 L 8 15.5"
+                                      Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.35" Fill="Transparent" StrokeStartLineCap="Round" StrokeLineJoin="Round"/>
+                            </Viewbox>
+                            <TextBlock Text="接入应用" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <views:BrowserEnginePicker x:Name="EngineCombo" Width="204" Style="{StaticResource InlineContextComboBox}" AutomationProperties.Name="接入应用"/>
+                            <Button x:Name="EngineDefaultButton" Content="设为默认" Click="SaveEngineDefault_Click"
+                                    Style="{StaticResource YTrayGhostButton}" Height="26" MinHeight="0" Padding="8,0" Margin="4,0,0,0"
+                                    FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <!-- Right Context Hint -->
+                        <TextBlock x:Name="EnvironmentContextHint" Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Margin="12,0,0,0" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"
+                                   Text="独立用户目录 · 自动避让调试端口"/>
                     </Grid>
                 </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- Row 3: Full-Width Running Instances Workspace -->
+        <Border Grid.Row="3" Style="{StaticResource SurfaceBorder}" ClipToBounds="True">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="40"/><RowDefinition Height="30"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid Margin="18,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="运行中的实例" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+                        <TextBlock Text="· 独立用户目录与调试端口" Margin="8,0,0,0" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource PillBadge}" Background="{DynamicResource SurfaceMutedBrush}">
+                        <TextBlock x:Name="RunningCountLabel" Text="共 0 个实例" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </Border>
+                </Grid>
+
+                <Border Grid.Row="1" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1">
+                    <Grid Margin="18,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="178"/>
+                            <ColumnDefinition Width="2.1*"/>
+                            <ColumnDefinition Width="1.2*"/>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="82"/>
+                            <ColumnDefinition Width="162"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="实例身份" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="1" Text="当前页面 / 地址" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="2" Text="网络路径" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="3" Text="调试端口" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="4" Text="运行时长" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="5" Text="快捷操作" Style="{StaticResource OverviewTableHeader}"/>
+                    </Grid>
+                </Border>
+
                 <Grid Grid.Row="2">
-                    <TextBlock x:Name="HistoryEmpty" Text="暂无最近会话" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                    <ItemsControl x:Name="HistoryList">
-                        <ItemsControl.ItemTemplate><DataTemplate>
-                            <Border MinHeight="54" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1">
-                                <Grid Margin="17,0"><Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="90"/><ColumnDefinition Width="75"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="115"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding LastUsed}" Style="{StaticResource OverviewTableCell}" Foreground="{DynamicResource TextSecondaryBrush}"/><Image Grid.Column="1" Source="{Binding RuntimeIconSource}" Width="30" Height="30" HorizontalAlignment="Left"/>
-                                    <Border Grid.Column="2" Width="28" Height="28" HorizontalAlignment="Left" CornerRadius="5" Background="{Binding IdentityBrush}" BorderThickness="0"><TextBlock Text="{Binding DockBadge}" Foreground="{Binding IdentityForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-                                    <StackPanel Grid.Column="3" VerticalAlignment="Center"><TextBlock Text="{Binding PageTitle}" FontSize="12.5" FontWeight="SemiBold"/><TextBlock Text="{Binding PageUrl}" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
-                                    <StackPanel Grid.Column="4" VerticalAlignment="Center"><TextBlock Text="{Binding NetworkMode}" FontSize="12"/><TextBlock Text="{Binding NetworkAddress}" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"/></StackPanel>
-                                    <TextBlock Grid.Column="5" Text="{Binding DebugPort, StringFormat=端口 {0}}" Style="{StaticResource OverviewTableCell}"/><Button Grid.Column="6" Height="32" HorizontalAlignment="Left" Tag="{Binding Instance}" Click="Restore_Click" Style="{StaticResource OutlinedAccentButton}"><TextBlock Text="恢复" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource BrandOrangeBrush}"/></Button>
-                                </Grid>
-                            </Border>
-                        </DataTemplate></ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <StackPanel x:Name="RunningEmpty" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Border Width="44" Height="44" CornerRadius="11" Background="{DynamicResource SurfaceMutedBrush}"
+                                BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" HorizontalAlignment="Center">
+                            <Viewbox Width="20" Height="20">
+                                <Path Data="M 2 3 L 14 3 L 14 13 L 2 13 Z M 2 6 L 14 6 M 5 4.5 L 5.1 4.5 M 7 4.5 L 7.1 4.5"
+                                      Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.3" Fill="Transparent"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                            </Viewbox>
+                        </Border>
+                        <TextBlock Text="暂无运行中的隔离实例" Margin="0,10,0,0" FontSize="13.5" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="在上方选择直连或 HTTP 代理，点击「启动隔离实例」即可创建互不串号的浏览器环境" Margin="0,4,0,0" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}" HorizontalAlignment="Center"/>
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="RunningList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border MinHeight="52" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Background="Transparent">
+                                        <Grid Margin="18,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="178"/>
+                                                <ColumnDefinition Width="2.1*"/>
+                                                <ColumnDefinition Width="1.2*"/>
+                                                <ColumnDefinition Width="96"/>
+                                                <ColumnDefinition Width="82"/>
+                                                <ColumnDefinition Width="162"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                <Image Source="{Binding InstanceIconSource}" Width="32" Height="32" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                <StackPanel Margin="9,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" MaxWidth="124" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding RuntimeTitle}" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="{Binding PageTitle}" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding PageUrl}" Margin="0,2,0,0" FontSize="11" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,12,0">
+                                                <Border Style="{StaticResource NetworkPillBorder}">
+                                                    <TextBlock Text="{Binding NetworkBadgeLabel}" Style="{StaticResource NetworkPillText}"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding NetworkAddress}" Visibility="{Binding ProxyAddressVisibility}" Margin="2,2,0,0"
+                                                           FontFamily="Cascadia Mono, Consolas" FontSize="10.5" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+
+                                            <Border Grid.Column="3" Style="{StaticResource CodeBadgeBorder}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding DebugPortTag}" FontFamily="Cascadia Mono, Consolas" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                            </Border>
+
+                                            <TextBlock Grid.Column="4" Text="{Binding Duration}" FontFamily="Cascadia Mono, Consolas, Segoe UI" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+
+                                            <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Button Content="聚焦" Padding="10,0" Height="29" MinHeight="0" Margin="0,0,6,0" Tag="{Binding Instance}" Click="Focus_Click" Style="{StaticResource OverviewButton}"/>
+                                                <Button Content="截图" Padding="10,0" Height="29" MinHeight="0" Margin="0,0,6,0" Tag="{Binding Instance}" Click="Capture_Click" IsEnabled="{Binding CanCapture}" Style="{StaticResource OverviewButton}"/>
+                                                <Button Content="停止" Padding="10,0" Height="29" MinHeight="0" Tag="{Binding Instance}" Click="Stop_Click" IsEnabled="{Binding CanStop}" Style="{StaticResource YTrayDangerOutlineButton}" FontSize="12"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Row 5: Recent Recoverable Sessions -->
+        <Border Grid.Row="5" Style="{StaticResource SurfaceBorder}" ClipToBounds="True">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="38"/><RowDefinition Height="30"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid Margin="18,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="最近可恢复会话" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+                        <TextBlock Text="· 完整保留原 Cookie、登录态与代理配置" Margin="8,0,0,0" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Content="清除全部" Click="ClearAll_Click" Style="{StaticResource YTrayGhostButton}" Height="26" MinHeight="0" Padding="9,0"
+                            FontSize="11.5" HorizontalAlignment="Right" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </Grid>
+
+                <Border Grid.Row="1" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1">
+                    <Grid Margin="18,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="168"/>
+                            <ColumnDefinition Width="2.1*"/>
+                            <ColumnDefinition Width="1.2*"/>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="110"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="上次活跃" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="1" Text="实例身份" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="2" Text="最后页面 / 地址" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="3" Text="网络路径" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="4" Text="调试端口" Style="{StaticResource OverviewTableHeader}"/>
+                        <TextBlock Grid.Column="5" Text="操作" Style="{StaticResource OverviewTableHeader}"/>
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Row="2">
+                    <StackPanel x:Name="HistoryEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
+                        <TextBlock Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="13.5" Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="暂无最近会话，关闭后的实例身份会自动归档在这里以便一键恢复" FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="HistoryList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border MinHeight="48" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1">
+                                        <Grid Margin="18,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="96"/>
+                                                <ColumnDefinition Width="168"/>
+                                                <ColumnDefinition Width="2.1*"/>
+                                                <ColumnDefinition Width="1.2*"/>
+                                                <ColumnDefinition Width="96"/>
+                                                <ColumnDefinition Width="110"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding LastUsed}" Style="{StaticResource OverviewTableCell}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                <Image Source="{Binding InstanceIconSource}" Width="28" Height="28" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                <TextBlock Text="{Binding Name}" Margin="8,0,0,0" MaxWidth="122" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="{Binding PageTitle}" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding PageUrl}" Margin="0,2,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="0,0,12,0">
+                                                <Border Style="{StaticResource NetworkPillBorder}">
+                                                    <TextBlock Text="{Binding NetworkBadgeLabel}" Style="{StaticResource NetworkPillText}"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding NetworkAddress}" Visibility="{Binding ProxyAddressVisibility}" Margin="2,2,0,0"
+                                                           FontFamily="Cascadia Mono, Consolas" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <Border Grid.Column="4" Style="{StaticResource CodeBadgeBorder}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding DebugPortTag}" FontFamily="Cascadia Mono, Consolas" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                            </Border>
+                                            <Button Grid.Column="5" Height="29" MinHeight="0" Padding="14,0" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                    Tag="{Binding Instance}" Click="Restore_Click" Style="{StaticResource OutlinedAccentButton}" Content="恢复会话" FontSize="12"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </Grid>
             </Grid>
         </Border>

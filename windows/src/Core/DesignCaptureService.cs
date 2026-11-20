@@ -116,6 +116,7 @@ namespace YTray.Core
             Directory.CreateDirectory(outputDirectory);
             Directory.CreateDirectory(Path.Combine(outputDirectory, "main"));
             Directory.CreateDirectory(Path.Combine(outputDirectory, "wizard"));
+            Directory.CreateDirectory(Path.Combine(outputDirectory, "studio"));
             Directory.CreateDirectory(Path.Combine(outputDirectory, "floating"));
 
             var captures = new List<CaptureItem>();
@@ -131,6 +132,7 @@ namespace YTray.Core
                 {
                     await CaptureManagerAsync(store, outputDirectory, captures);
                     await CaptureWizardAsync(store, outputDirectory, captures);
+                    await CaptureControlStudioAsync(store, outputDirectory, captures);
                     await CaptureFloatingAsync(store, outputDirectory, captures);
                     CaptureIdentityIcons(outputDirectory, captures);
                     await CaptureTrayContextMenuAsync(outputDirectory, captures);
@@ -239,11 +241,12 @@ namespace YTray.Core
             {
                 new MainPageCapture { Slug = "overview-runtime-center", Caption = "运行中心", Select = w => w.NavQuick },
                 new MainPageCapture { Slug = "instances", Caption = "浏览器实例", Select = w => w.NavInstances },
+                new MainPageCapture { Slug = "browser-environments", Caption = "环境模板", Select = w => w.NavEnvironment },
                 new MainPageCapture { Slug = "browser-sources", Caption = "浏览器来源", Select = w => w.NavRuntimes },
-                new MainPageCapture { Slug = "proxy-and-launch", Caption = "代理与启动", Select = w => w.NavLaunch },
+                new MainPageCapture { Slug = "proxy-and-launch", Caption = "网络与代理", Select = w => w.NavLaunch },
                 new MainPageCapture { Slug = "plugins", Caption = "本地插件", Select = w => w.NavPlugins },
                 new MainPageCapture { Slug = "mcp", Caption = "MCP", Select = w => w.NavMcp },
-                new MainPageCapture { Slug = "startup", Caption = "开机启动", Select = w => w.NavStartup },
+                new MainPageCapture { Slug = "system-control", Caption = "电脑控制", Select = w => w.NavSystem },
                 new MainPageCapture { Slug = "settings", Caption = "设置", Select = w => w.NavSettings },
             };
 
@@ -285,23 +288,18 @@ namespace YTray.Core
                     }
 
                     if (page.Slug == "overview-runtime-center"
-                        && manager.ContentFrame.Content is QuickLaunchPage overviewPage
-                        && overviewPage.NetworkCombo.Items.Count > 0)
+                        && manager.ContentFrame.Content is QuickLaunchPage overviewPage)
                     {
-                        overviewPage.NetworkCombo.IsDropDownOpen = true;
-                        await SettleAsync(manager, 260);
+                        overviewPage.SelectNetworkMode(false);
+                        await SettleAsync(manager, 180);
                         relative = $"main/{themeName}-overview-network-menu.png";
-                        // Popup is a separate native HWND; PrintWindow captures only the owner.
-                        // Use the composed screen region here so the expanded menu itself is part
-                        // of the interaction review artifact.
-                        CaptureScreen(WindowBounds(manager), Path.Combine(root, relative));
+                        CaptureWindow(manager, Path.Combine(root, relative));
                         captures.Add(new CaptureItem
                         {
                             RelativePath = relative,
-                            Caption = $"运行中心 · 网络下拉 · {ThemeCaption(theme)}",
+                            Caption = $"运行中心 · 直连模式 · {ThemeCaption(theme)}",
                         });
-                        overviewPage.NetworkCombo.IsDropDownOpen = false;
-
+                        overviewPage.SelectNetworkMode(true);
                     }
 
                     if (page.Slug == "browser-sources" && manager.ContentFrame.Content is RuntimePage runtimePage)
@@ -393,6 +391,59 @@ namespace YTray.Core
 
                 wizard.Close();
                 await Task.Delay(160);
+            }
+        }
+
+        private static async Task CaptureControlStudioAsync(InstanceStore store, string root, List<CaptureItem> captures)
+        {
+            foreach (var theme in new[] { AppThemePreference.Light, AppThemePreference.Dark })
+            {
+                ApplyPreviewTheme(store, theme);
+                var themeName = theme == AppThemePreference.Dark ? "dark" : "light";
+
+                var mcpWindow = new SystemMcpWindow(store.SystemControl)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 220,
+                    Top = 100,
+                    Topmost = true,
+                };
+                mcpWindow.Show();
+                await SettleAsync(mcpWindow, 300);
+                var mcpRel = $"studio/{themeName}-system-mcp-window.png";
+                CaptureWindow(mcpWindow, Path.Combine(root, mcpRel));
+                captures.Add(new CaptureItem { RelativePath = mcpRel, Caption = $"MCP 接入与函数目录 · {ThemeCaption(theme)}" });
+                mcpWindow.Close();
+
+                var traceWindow = ControlTraceWindow.CreateDesignPreview(store.SystemControl);
+                traceWindow.WindowStartupLocation = WindowStartupLocation.Manual;
+                traceWindow.Left = 180;
+                traceWindow.Top = 90;
+                traceWindow.Topmost = true;
+                traceWindow.Show();
+                await SettleAsync(traceWindow, 340);
+                var traceRel = $"studio/{themeName}-control-trace-window.png";
+                CaptureWindow(traceWindow, Path.Combine(root, traceRel));
+                captures.Add(new CaptureItem { RelativePath = traceRel, Caption = $"电脑控制 Trace 回放 · {ThemeCaption(theme)}" });
+                traceWindow.Close();
+
+                var inspectorWindow = new ControlInspectorWindow(store.SystemControl)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 170,
+                    Top = 90,
+                    Topmost = true,
+                };
+                inspectorWindow.Show();
+                await SettleAsync(inspectorWindow, 260);
+                inspectorWindow.LoadDesignPreviewFixture();
+                await SettleAsync(inspectorWindow, 280);
+                var inspectorRel = $"studio/{themeName}-control-inspector-window.png";
+                CaptureWindow(inspectorWindow, Path.Combine(root, inspectorRel));
+                captures.Add(new CaptureItem { RelativePath = inspectorRel, Caption = $"本机应用分析 (UIA Inspector) · {ThemeCaption(theme)}" });
+                inspectorWindow.Close();
+
+                await Task.Delay(120);
             }
         }
 
@@ -712,11 +763,22 @@ namespace YTray.Core
             if (bounds.Width <= 0 || bounds.Height <= 0)
                 throw new InvalidOperationException("截图区域无效：" + bounds);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
-            using (var bitmap = new Drawing.Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
-            using (var graphics = Drawing.Graphics.FromImage(bitmap))
+            try
             {
-                graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, Drawing.CopyPixelOperation.SourceCopy);
-                bitmap.Save(outputPath, ImageFormat.Png);
+                using (var bitmap = new Drawing.Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                using (var graphics = Drawing.Graphics.FromImage(bitmap))
+                {
+                    graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, Drawing.CopyPixelOperation.SourceCopy);
+                    bitmap.Save(outputPath, ImageFormat.Png);
+                }
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                var fallbackWindow = Application.Current?.Windows.OfType<Window>().LastOrDefault(w => w.IsVisible);
+                if (fallbackWindow != null && CaptureWpfVisual(fallbackWindow, outputPath))
+                    return;
+                using (var bitmap = new Drawing.Bitmap(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height), System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                    bitmap.Save(outputPath, ImageFormat.Png);
             }
         }
 

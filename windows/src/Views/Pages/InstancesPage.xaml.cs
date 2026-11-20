@@ -163,12 +163,24 @@ namespace YTray.Views.Pages
                 i.ProcessID, i.DebugPort, i.AppUserModelId, i.ThumbnailPath,
                 i.ThumbnailUpdatedAt?.Ticks ?? 0, i.IsCapturing, i.IsStopping, i.PreviewError)));
 
+        private void FocusRow_Click(object s, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (((FrameworkElement)s).Tag is BrowserInstance i) _store.Focus(i);
+        }
+        private async void StopRow_Click(object s, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (((FrameworkElement)s).Tag is BrowserInstance i) await _store.StopAsync(i);
+        }
         private void Restore_Click(object s, RoutedEventArgs e)
         {
+            e.Handled = true;
             if (((FrameworkElement)s).Tag is BrowserInstance i) _store.RestoreHistory(i);
         }
         private void DeleteHistory_Click(object s, RoutedEventArgs e)
         {
+            e.Handled = true;
             if (((FrameworkElement)s).Tag is BrowserInstance i) _store.RemoveHistory(i);
         }
         private void ClearAll_Click(object s, RoutedEventArgs e) => _store.RemoveAllHistory();
@@ -190,9 +202,11 @@ namespace YTray.Views.Pages
 
         private void SetTabState(Button button, bool selected)
         {
-            button.SetResourceReference(BackgroundProperty, selected ? "BrandPaleBrush" : "SurfaceBrush");
-            button.SetResourceReference(Control.BorderBrushProperty, selected ? "BrandOrangeBrush" : "HairlineBrush");
-            button.SetResourceReference(ForegroundProperty, selected ? "BrandOrangeBrush" : "TextPrimaryBrush");
+            button.SetResourceReference(BackgroundProperty, selected ? "SurfaceRaisedBrush" : "Transparent");
+            if (!selected) button.Background = Brushes.Transparent;
+            button.SetResourceReference(Control.BorderBrushProperty, selected ? "HairlineBrush" : "Transparent");
+            if (!selected) button.BorderBrush = Brushes.Transparent;
+            button.SetResourceReference(ForegroundProperty, selected ? "BrandOrangeBrush" : "TextSecondaryBrush");
         }
 
         private void Search_Changed(object sender, TextChangedEventArgs e)
@@ -239,7 +253,9 @@ namespace YTray.Views.Pages
             DetailAumid.Text = selected.AppUserModelIdText;
             DetailProfile.Text = selected.ProfilePath;
             DetailVersion.Text = selected.RuntimeVersion;
-            DetailProxy.Text = selected.NetworkMode + " " + selected.NetworkAddress;
+            DetailProxy.Text = selected.UsesProxy
+                ? $"{selected.NetworkBadgeLabel} · {selected.NetworkAddress}"
+                : selected.NetworkBadgeLabel;
             DetailDebug.Text = selected.DebugAddress;
             DetailPlugins.Text = selected.PluginCount;
             DetailThumbnail.Source = selected.ThumbnailSource;

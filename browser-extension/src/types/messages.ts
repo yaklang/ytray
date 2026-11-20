@@ -271,6 +271,7 @@ export interface ExtensionRequestMap {
     };
     output: BridgeStatus;
   };
+  'bridge.managed-instance.bind.v2': ExtensionRequestMap['bridge.managed-instance.bind'];
   'bridge.managed-connection.get': {
     input: { instanceId: string };
     output: { status: BridgeStatus; pairing: Pick<BridgePairingStatus, 'state' | 'message'> };

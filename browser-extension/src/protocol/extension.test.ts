@@ -8,6 +8,8 @@ describe('extension request schemas', () => {
       expect(parseExtensionRequest({ action: 'bridge.managed-instance.bind', payload: { ...managed, launchTarget: { mode } } }))
         .toMatchObject({ payload: { launchTarget: { mode } } });
     }
+    expect(parseExtensionRequest({ action: 'bridge.managed-instance.bind.v2', payload: { ...managed, launchTarget: { mode: 'auto' } } }))
+      .toMatchObject({ payload: { launchTarget: { mode: 'auto' } } });
     expect(() => parseExtensionRequest({
       action: 'bridge.managed-instance.bind', payload: { ...managed, launchTarget: { mode: 'engine' } },
     })).toThrow();

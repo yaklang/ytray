@@ -45,15 +45,13 @@ namespace YTray.Views
         internal ControlInspectorWindow(SystemControlController controller)
         {
             InitializeComponent();
+            WindowChromeHelper.Attach(this);
             _controller = controller;
             controller.PropertyChanged += ControllerChanged;
-            ThemeManager.ThemeChanged += ThemeChanged;
-            SourceInitialized += (_, __) => ApplyTitleBar();
             Loaded += (_, __) => FitWorkingArea();
             Closed += (_, __) => {
                 _closed = true; _request?.Cancel();
                 controller.PropertyChanged -= ControllerChanged;
-                ThemeManager.ThemeChanged -= ThemeChanged;
             };
             RefreshButtons();
         }
@@ -159,6 +157,7 @@ namespace YTray.Views
                 : target == null ? null : items.FirstOrDefault(item => SameWindow(item.Target, target));
             if (selected == null && !exact) selected = items.FirstOrDefault();
             _settingWindow = true;
+            WindowCountText.Text = items.Count.ToString();
             WindowList.ItemsSource = view;
             WindowList.SelectedItem = selected;
             if (selected != null) WindowList.ScrollIntoView(selected);
@@ -339,14 +338,22 @@ namespace YTray.Views
                 if (frame.IsEmpty || frame.Width <= 0 || frame.Height <= 0) continue;
                 var selected = node == _selected;
                 var border = new Border {
-                    BorderThickness = new Thickness(selected ? 2 : 1), CornerRadius = new CornerRadius(3), ClipToBounds = true,
-                    Background = new SolidColorBrush(Color.FromArgb((byte)(selected ? 40 : 10), 212, 113, 79)),
+                    BorderThickness = new Thickness(selected ? 2 : 1), CornerRadius = new CornerRadius(4), ClipToBounds = true,
+                    Background = new SolidColorBrush(Color.FromArgb((byte)(selected ? 44 : 14), 249, 115, 36)),
                     ToolTip = node.Label, Tag = node
                 };
-                border.SetResourceReference(Border.BorderBrushProperty, selected ? "BrandOrangeBrush" : "HairlineBrush");
-                if (frame.Width > 43 && frame.Height > 15) border.Child = new TextBlock {
-                    Text = node.Label, FontSize = 12, Margin = new Thickness(4, 1, 2, 0), TextTrimming = TextTrimming.CharacterEllipsis
-                };
+                border.SetResourceReference(Border.BorderBrushProperty, selected ? "BrandOrangeBrush" : "WindowBorderBrush");
+                if (frame.Width > 43 && frame.Height > 15) {
+                    var labelBlock = new TextBlock {
+                        Text = node.Label,
+                        FontSize = 11.5,
+                        FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal,
+                        Margin = new Thickness(5, 1, 3, 0),
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    };
+                    labelBlock.SetResourceReference(TextBlock.ForegroundProperty, selected ? "BrandOrangeBrush" : "TextSecondaryBrush");
+                    border.Child = labelBlock;
+                }
                 border.MouseLeftButtonDown += (_, args) => { args.Handled = true; SelectNode(node); };
                 Place(border, frame);
             }
@@ -547,6 +554,45 @@ namespace YTray.Views
         }
         private void Control_Selected(object sender, RoutedPropertyChangedEventArgs<object> args)
         { if (args.NewValue is ControlNode node) ShowNode(node); }
+
+        internal void LoadDesignPreviewFixture()
+        {
+            var previewWindows = new ListCollectionView(new[]
+            {
+                new { Title = "YTray · 多身份工作台", Subtitle = "WPF  ·  YTray", Group = "Windows 原生框架", Icon = (object?)null, Details = "YTray 主工作台 · PID 4820", Name = "YTray · 多身份工作台", FallbackIconVisibility = Visibility.Visible },
+                new { Title = "Windows 终端 · PowerShell", Subtitle = "WinUI 3  ·  WindowsTerminal", Group = "Windows 原生框架", Icon = (object?)null, Details = "WindowsTerminal · PID 9104", Name = "Windows 终端 · PowerShell", FallbackIconVisibility = Visibility.Visible },
+                new { Title = "Yakit 安全集成工作台", Subtitle = "Electron  ·  Yakit", Group = "跨平台与自绘界面", Icon = (object?)null, Details = "Yakit · PID 11240", Name = "Yakit 安全集成工作台", FallbackIconVisibility = Visibility.Visible },
+            });
+            previewWindows.GroupDescriptions.Add(new PropertyGroupDescription("Group"));
+            _settingWindow = true;
+            WindowCountText.Text = "3";
+            WindowList.ItemsSource = previewWindows;
+            WindowList.SelectedIndex = 0;
+            _settingWindow = false;
+            WindowTitleText.Text = "YTray · 多身份工作台";
+
+            var layout = new JObject
+            {
+                ["window_bounds"] = new JObject { ["x"] = 0, ["y"] = 0, ["width"] = 860, ["height"] = 520 },
+                ["layout_source"] = "control",
+                ["elements"] = new JArray
+                {
+                    new JObject { ["element_index"] = 1, ["role"] = "Window", ["label"] = "YTray · 多身份工作台", ["frame"] = new JObject { ["x"] = 0, ["y"] = 0, ["w"] = 860, ["h"] = 520 } },
+                    new JObject { ["element_index"] = 2, ["parent_index"] = 1, ["role"] = "List", ["label"] = "侧边导航栏", ["automation_id"] = "NavList", ["frame"] = new JObject { ["x"] = 12, ["y"] = 48, ["w"] = 176, ["h"] = 456 } },
+                    new JObject { ["element_index"] = 3, ["parent_index"] = 2, ["role"] = "ListItem", ["label"] = "概览", ["automation_id"] = "NavQuick", ["patterns"] = new JArray("SelectionItem", "Invoke"), ["frame"] = new JObject { ["x"] = 20, ["y"] = 76, ["w"] = 160, ["h"] = 36 } },
+                    new JObject { ["element_index"] = 4, ["parent_index"] = 2, ["role"] = "ListItem", ["label"] = "电脑控制", ["automation_id"] = "NavSystem", ["patterns"] = new JArray("SelectionItem", "Invoke"), ["frame"] = new JObject { ["x"] = 20, ["y"] = 248, ["w"] = 160, ["h"] = 36 } },
+                    new JObject { ["element_index"] = 5, ["parent_index"] = 1, ["role"] = "Group", ["label"] = "快捷启动驾驶舱", ["frame"] = new JObject { ["x"] = 204, ["y"] = 60, ["w"] = 636, ["h"] = 112 } },
+                    new JObject { ["element_index"] = 6, ["parent_index"] = 5, ["role"] = "Edit", ["label"] = "起始地址", ["automation_id"] = "HomeUrlBox", ["value"] = "chrome://newtab", ["focusable"] = true, ["patterns"] = new JArray("Value"), ["frame"] = new JObject { ["x"] = 468, ["y"] = 84, ["w"] = 186, ["h"] = 38 } },
+                    new JObject { ["element_index"] = 7, ["parent_index"] = 5, ["role"] = "Button", ["label"] = "启动隔离实例", ["automation_id"] = "LaunchButton", ["element_token"] = "preview-launch-btn", ["focused"] = true, ["patterns"] = new JArray("Invoke"), ["frame"] = new JObject { ["x"] = 668, ["y"] = 84, ["w"] = 152, ["h"] = 38 } },
+                    new JObject { ["element_index"] = 8, ["parent_index"] = 1, ["role"] = "DataGrid", ["label"] = "运行中的实例列表", ["automation_id"] = "RunningList", ["patterns"] = new JArray("Scroll"), ["frame"] = new JObject { ["x"] = 204, ["y"] = 188, ["w"] = 636, ["h"] = 308 } },
+                }
+            };
+            PresentInspection(new ControlInspection(null, layout, null), false, "preview-launch-btn");
+            ObservationText.Text = "UI Automation 控件视图  ·  8 个控件  ·  14:32:08";
+            AnalysisButton.IsEnabled = true;
+            ScreenshotButton.IsEnabled = true;
+            HighlightButton.IsEnabled = true;
+        }
 
         private void FitWorkingArea()
         {

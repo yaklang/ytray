@@ -213,6 +213,7 @@ export interface BridgeLaunchTarget {
 
 export interface BridgeConfig {
   transport: 'native' | 'websocket';
+  automaticWebSocketFallback?: true;
   nativeHost: string;
   endpoint: string;
   autoConnect: boolean;
@@ -270,6 +271,8 @@ export interface DiscoveredYakEngine {
   endpoint: string;
   frontendId?: string;
   frontendName?: string;
+  challengeOnly?: boolean;
+  ownerFrontendId?: string;
 }
 
 export type CapabilityScope =
@@ -1428,6 +1431,7 @@ export interface BridgeStatus {
   message: string;
   connectedAt?: number;
   transport?: BridgeConnectionTransport;
+  endpoint?: string;
   engineVersion?: string;
   protocolVersion?: number;
   capabilities?: string[];

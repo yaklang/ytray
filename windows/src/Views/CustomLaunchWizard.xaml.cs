@@ -24,6 +24,7 @@ namespace YTray.Views
         public CustomLaunchWizard(InstanceStore store, BrowserEnvironment? environment = null, BrowserEngineTarget? engineTarget = null)
         {
             InitializeComponent();
+            WindowChromeHelper.Attach(this);
             _store = store;
             _draft = new LaunchSettings(store.Settings.DefaultRuntimeID)
             {
@@ -93,12 +94,30 @@ namespace YTray.Views
             }
         }
 
+        private static TextBlock MakeWizardFieldLabel(string text)
+        {
+            var label = new TextBlock
+            {
+                Text = text,
+                FontSize = 11.5,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6),
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            return label;
+        }
+
         private UIElement BuildRuntimeStep()
         {
             var sp = new StackPanel();
-            var label = new TextBlock { Text = "选择本次使用的浏览器", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 14) };
-            sp.Children.Add(label);
-            var environment = new ComboBox { Margin = new Thickness(0, 0, 0, 10) };
+            var contextGrid = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            contextGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            contextGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            contextGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var envPanel = new StackPanel();
+            envPanel.Children.Add(MakeWizardFieldLabel("环境模板"));
+            var environment = new ComboBox { Height = 36 };
             AutomationProperties.SetName(environment, "浏览器环境");
             environment.Items.Add(new ComboBoxItem { Content = "默认启动设置" });
             foreach (var item in _store.BrowserEnvironments)
@@ -110,16 +129,25 @@ namespace YTray.Views
                 _draft.Environment = ((environment.SelectedItem as ComboBoxItem)?.Tag as BrowserEnvironment)?.Clone();
                 Dispatcher.BeginInvoke(new Action(() => { if (_step == 0) ShowStep(); }));
             };
-            sp.Children.Add(environment);
-            sp.Children.Add(new TextBlock { Text = "接入应用", Margin = new Thickness(0, 0, 0, 5) });
-            var engine = new BrowserEnginePicker { Margin = new Thickness(0, 0, 0, 12) };
+            envPanel.Children.Add(environment);
+            contextGrid.Children.Add(envPanel);
+
+            var enginePanel = new StackPanel();
+            enginePanel.Children.Add(MakeWizardFieldLabel("接入应用"));
+            var engine = new BrowserEnginePicker { Height = 36 };
             AutomationProperties.SetName(engine, "接入应用");
             engine.Configure(_draft.EngineTarget);
             engine.SelectionChanged += (_, __) =>
             {
                 if (engine.Target is BrowserEngineTarget selected) _draft.EngineTarget = selected;
             };
-            sp.Children.Add(engine);
+            enginePanel.Children.Add(engine);
+            Grid.SetColumn(enginePanel, 2);
+            contextGrid.Children.Add(enginePanel);
+            sp.Children.Add(contextGrid);
+
+            var label = MakeWizardFieldLabel("选择本次使用的浏览器");
+            sp.Children.Add(label);
             foreach (var rt in _store.Runtimes)
             {
                 var content = new Grid();
@@ -183,8 +211,8 @@ namespace YTray.Views
                     IsEnabled = _draft.Environment?.RuntimeId == null,
                     Content = content,
                     Padding = new Thickness(12, 9, 12, 9),
-                    Margin = new Thickness(0, 0, 0, 6),
-                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 0, 0, 8),
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 };
                 btn.Style = (Style)FindResource("YTrayButton");
                 btn.SetResourceReference(Control.BackgroundProperty,
@@ -280,57 +308,88 @@ namespace YTray.Views
             var sp = new StackPanel();
             var proxyAddress = (_store.Settings.PresetProxyServer ?? LaunchSettings.DefaultPresetProxyServer)
                 .Replace("http://", "").Replace("https://", "");
-            var networkLabel = new TextBlock
+            sp.Children.Add(new TextBlock
             {
-                Text = "网络模式",
-                FontWeight = FontWeights.Bold,
-                Margin = new Thickness(0, 0, 0, 8),
-            };
-            sp.Children.Add(networkLabel);
+                Text = "网络路径",
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 12,
+                Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                Margin = new Thickness(0, 0, 0, 6),
+            });
+
             var networkChoices = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             networkChoices.ColumnDefinitions.Add(new ColumnDefinition());
             networkChoices.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
             networkChoices.ColumnDefinitions.Add(new ColumnDefinition());
-            var direct = MakeNetworkChoice("无代理", "直连网络", !_usePresetProxy);
-            var proxy = MakeNetworkChoice("HTTP 代理", proxyAddress, _usePresetProxy);
-            direct.Checked += (s, e) => _usePresetProxy = false;
-            proxy.Checked += (s, e) => _usePresetProxy = true;
+            var direct = MakeNetworkChoiceCard("直连无代理", "直接连接互联网或内网目标", !_usePresetProxy);
+            var proxy = MakeNetworkChoiceCard("使用预设 HTTP 代理", proxyAddress, _usePresetProxy);
+            void SyncCards()
+            {
+                ApplyChoiceCardStyle(direct, !_usePresetProxy);
+                ApplyChoiceCardStyle(proxy, _usePresetProxy);
+            }
+            direct.Click += (s, e) => { _usePresetProxy = false; SyncCards(); };
+            proxy.Click += (s, e) => { _usePresetProxy = true; SyncCards(); };
+            SyncCards();
             networkChoices.Children.Add(direct);
             Grid.SetColumn(proxy, 2);
             networkChoices.Children.Add(proxy);
             var environmentNetwork = _store.EnvironmentNetworkDescription(_draft.Environment);
             if (environmentNetwork == null) sp.Children.Add(networkChoices);
             else sp.Children.Add(new TextBlock { Text = environmentNetwork, Margin = new Thickness(0, 0, 0, 12) });
-            sp.Children.Add(MakeField("启动地址", out var urlBox));
+            sp.Children.Add(MakeField("起始地址", out var urlBox));
             urlBox.Text = _draft.HomeURL;
-            sp.Children.Add(MakeField("调试端口", out var portBox));
+
+            var rowGrid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+            var portField = MakeField("调试端口（占用自动递增）", out var portBox);
+            portField.Margin = new Thickness(0);
             portBox.Text = _draft.DebugPort.ToString();
-            sp.Children.Add(MakeField("Dock 角标（留空自动分配 A/B/C…，可填 1–2 个字母）", out var badgeBox));
+            var badgeField = MakeField("身份角标（留空自动分配 A/B/C…）", out var badgeBox);
+            badgeField.Margin = new Thickness(0);
             badgeBox.Text = _draft.DockBadge;
-            var webRtc = new CheckBox { Content = "限制 WebRTC 非代理 UDP 与本地 IP 暴露", IsChecked = _draft.RestrictWebRTC, Margin = new Thickness(0, 8, 0, 4) };
-            var notif = new CheckBox { Content = "关闭通知", IsChecked = _draft.DisableNotifications, Margin = new Thickness(0, 0, 0, 4) };
-            var cert = new CheckBox { Content = "忽略证书错误", IsChecked = _draft.IgnoreCertificateErrors, Margin = new Thickness(0, 0, 0, 4) };
-            var testType = new CheckBox { Content = "测试模式（--test-type）", IsChecked = _draft.UseTestType, Margin = new Thickness(0, 0, 0, 8) };
-            sp.Children.Add(webRtc); sp.Children.Add(notif); sp.Children.Add(cert); sp.Children.Add(testType);
-            var flagsLabel = new TextBlock { Text = "附加参数（每行一个）", FontSize = 11 };
+            rowGrid.Children.Add(portField);
+            Grid.SetColumn(badgeField, 2);
+            rowGrid.Children.Add(badgeField);
+            sp.Children.Add(rowGrid);
+
+            var checkGrid = new Grid { Margin = new Thickness(0, 4, 0, 10) };
+            checkGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            checkGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            checkGrid.RowDefinitions.Add(new RowDefinition());
+            checkGrid.RowDefinitions.Add(new RowDefinition());
+            var webRtc = new CheckBox { Content = "限制 WebRTC 暴露真实 IP", IsChecked = _draft.RestrictWebRTC, Margin = new Thickness(0, 0, 10, 8) };
+            var cert = new CheckBox { Content = "忽略 HTTPS 证书错误", IsChecked = _draft.IgnoreCertificateErrors, Margin = new Thickness(0, 0, 0, 8) };
+            var notif = new CheckBox { Content = "屏蔽桌面通知弹窗", IsChecked = _draft.DisableNotifications, Margin = new Thickness(0, 0, 10, 0) };
+            var testType = new CheckBox { Content = "测试模式 (--test-type)", IsChecked = _draft.UseTestType };
+            checkGrid.AddChild(webRtc, 0, 0);
+            checkGrid.AddChild(cert, 0, 1);
+            checkGrid.AddChild(notif, 1, 0);
+            checkGrid.AddChild(testType, 1, 1);
+            sp.Children.Add(checkGrid);
+
+            var flagsLabel = new TextBlock { Text = "附加命令行参数（每行一个）", FontSize = 11.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 5) };
             flagsLabel.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             sp.Children.Add(flagsLabel);
             var flags = new TextBox
             {
                 AcceptsReturn = true,
-                Height = 104,
+                Height = 82,
                 FontFamily = new System.Windows.Media.FontFamily("Cascadia Mono, Consolas"),
                 TextWrapping = TextWrapping.NoWrap,
                 Text = _draft.AdditionalFlags,
                 VerticalContentAlignment = VerticalAlignment.Top,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 TextAlignment = TextAlignment.Left,
-                Padding = new Thickness(11, 9, 11, 9),
+                Padding = new Thickness(11, 8, 11, 8),
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             };
+            flags.SetResourceReference(Control.BackgroundProperty, "SurfaceMutedBrush");
             sp.Children.Add(flags);
-            // capture on Next
+
             sp.Tag = new Func<bool>(() =>
             {
                 _draft.HomeURL = urlBox.Text;
@@ -347,22 +406,26 @@ namespace YTray.Views
             return sp;
         }
 
-        private RadioButton MakeNetworkChoice(string title, string subtitle, bool selected)
+        private Button MakeNetworkChoiceCard(string title, string subtitle, bool selected)
         {
             var text = new StackPanel();
-            text.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 12 });
-            var secondary = new TextBlock { Text = subtitle, FontSize = 10, Margin = new Thickness(0, 2, 0, 0) };
+            text.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 12.5 });
+            var secondary = new TextBlock { Text = subtitle, FontSize = 10.5, Margin = new Thickness(0, 3, 0, 0) };
             secondary.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             text.Children.Add(secondary);
-            var choice = new RadioButton
+            return new Button
             {
                 Content = text,
-                GroupName = "WizardNetworkMode",
-                IsChecked = selected,
-                Padding = new Thickness(11, 8, 11, 8),
-                VerticalContentAlignment = VerticalAlignment.Center,
+                Style = (Style)FindResource("YTrayButton"),
+                Padding = new Thickness(13, 9, 13, 9),
+                HorizontalContentAlignment = HorizontalAlignment.Left,
             };
-            return choice;
+        }
+
+        private void ApplyChoiceCardStyle(Button card, bool selected)
+        {
+            card.SetResourceReference(Control.BackgroundProperty, selected ? "BrandPaleBrush" : "SurfaceMutedBrush");
+            card.SetResourceReference(Control.BorderBrushProperty, selected ? "BrandOrangeBrush" : "HairlineBrush");
         }
 
         private bool ApplySelectedNetwork()
@@ -471,10 +534,19 @@ namespace YTray.Views
 
         private void AddReviewRow(Grid grid, int row, string key, string value)
         {
-            var keyLabel = new TextBlock { Text = key, Margin = new Thickness(0, 4, 0, 4) };
+            var keyLabel = new TextBlock { Text = key, Margin = new Thickness(0, 5, 0, 5), FontSize = 12.5 };
             keyLabel.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             grid.AddChild(keyLabel, row, 0);
-            grid.AddChild(new TextBlock { Text = value, Margin = new Thickness(0, 4, 0, 4) }, row, 1);
+            var valLabel = new TextBlock
+            {
+                Text = value,
+                Margin = new Thickness(0, 5, 0, 5),
+                FontSize = 12.5,
+                FontWeight = FontWeights.Medium,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = value,
+            };
+            grid.AddChild(valLabel, row, 1);
         }
 
         private StackPanel MakeField(string label, out TextBox box)

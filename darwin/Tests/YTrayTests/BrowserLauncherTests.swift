@@ -1645,6 +1645,9 @@ final class BrowserLauncherTests: XCTestCase {
         XCTAssertTrue(bootstrap.contains("manager=ytray"))
         XCTAssertTrue(bootstrap.contains("instanceId=00000000-0000-4000-8000-000000000003"))
         XCTAssertTrue(bootstrap.contains("badge=C"))
+        let queryItems = try XCTUnwrap(URLComponents(string: bootstrap)?.queryItems)
+        XCTAssertEqual(queryItems.first { $0.name == "engineTargetV2" }?.value, #"{"mode":"auto"}"#)
+        XCTAssertNil(queryItems.first { $0.name == "engineTarget" })
         XCTAssertEqual(
             URLComponents(string: bootstrap)?.queryItems?.first { $0.name == "browserName" }?.value,
             "Chrome for Testing"

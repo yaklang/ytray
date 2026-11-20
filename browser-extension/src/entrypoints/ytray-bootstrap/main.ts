@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { request } from '@/platform/messaging/runtime';
+import { ExtensionError } from '@/shared/errors';
 
 const status = document.getElementById('status');
 const fail = (message: string) => {
@@ -14,6 +15,8 @@ async function bootstrap(): Promise<void> {
   const badge = query.get('badge') || '';
   const target = query.get('target') || 'chrome://newtab/';
   const browserUseTicket = query.get('browserUseTicket') || undefined;
+  const engineTargetV2 = query.get('engineTargetV2');
+  const engineTarget = query.get('engineTarget');
   if (!['ytray', 'yakit'].includes(manager || '')
     || !/^[A-Za-z0-9-]{1,160}$/.test(instanceId)
     || !/^[A-Z]{1,2}$/.test(badge)) {
@@ -30,13 +33,24 @@ async function bootstrap(): Promise<void> {
     history.replaceState(null, '', current);
   }
 
-  await request('bridge.managed-instance.bind', {
+  const binding = {
     manager: manager as 'ytray' | 'yakit', instanceId, badge,
     browserName: query.get('browserName') || undefined,
     browserVersion: query.get('browserVersion') || undefined,
     startupProxy: query.get('startupProxy') || undefined,
-    launchTarget: query.has('engineTarget') ? JSON.parse(query.get('engineTarget')!) : undefined,
     browserUseTicket,
+  };
+  let bound = false;
+  if (engineTargetV2 !== null) {
+    try {
+      await request('bridge.managed-instance.bind.v2', { ...binding, launchTarget: JSON.parse(engineTargetV2) });
+      bound = true;
+    } catch (error) {
+      if (!(error instanceof ExtensionError) || error.code !== 'request_failed' || error.message !== '未知扩展操作') throw error;
+    }
+  }
+  if (!bound) await request('bridge.managed-instance.bind', {
+    ...binding, launchTarget: engineTarget === null ? undefined : JSON.parse(engineTarget),
   });
 
   const current = await browser.tabs.getCurrent();

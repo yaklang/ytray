@@ -1,10 +1,12 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -18,6 +20,7 @@ namespace YTray.Core.SystemControl
     internal sealed class ControlGateway : IDisposable
     {
         internal const int Port = 51373;
+        private const uint HandleFlagInherit = 0x00000001;
         private const int ToolCallLimit = 16;
         private const int ConnectionLimit = ToolCallLimit + 2; // Allow cancellation while tools occupy all their slots.
         private readonly SystemControlController _controller;
@@ -34,13 +37,28 @@ namespace YTray.Core.SystemControl
         {
             if (_listener != null) return;
             var listener = new TcpListener(IPAddress.Loopback, port);
-            try { listener.Start(ConnectionLimit); }
-            catch (SocketException error) { DiagnosticLog.Error("control.mcp", error, "could not listen on " + _controller.Endpoint); throw; }
+            try
+            {
+                if (!SetHandleInformation(listener.Server.Handle, HandleFlagInherit, 0))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "无法保护电脑控制 MCP 的监听句柄。");
+                listener.Start(ConnectionLimit);
+            }
+            catch (Exception error)
+            {
+                listener.Stop();
+                DiagnosticLog.Error("control.mcp", error, "could not listen on " + _controller.Endpoint);
+                if (error is SocketException socketError && socketError.SocketErrorCode == SocketError.AddressAlreadyInUse)
+                    throw new InvalidOperationException($"电脑控制 MCP 端口 {port} 已被占用。请退出占用端口的程序。如果刚更换 YTray，请先关闭上一版启动的浏览器窗口，再重新开启电脑控制。", error);
+                throw;
+            }
             _listener = listener;
             BoundPort = ((IPEndPoint)listener.LocalEndpoint).Port;
             DiagnosticLog.Info("control.mcp", "listening on http://127.0.0.1:" + BoundPort + "/system/mcp");
             _ = AcceptAsync(listener);
         }
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
         private async Task AcceptAsync(TcpListener listener)
         {
             while (!_shutdown.IsCancellationRequested) {

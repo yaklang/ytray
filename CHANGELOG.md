@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 — 2026-11-20
+
+- Windows 重整运行中心、实例详情、启动向导、设置及 MCP 管理界面，统一深浅主题和下拉框交互。浏览器环境可保存为模板，并用于快速启动、自定义启动和 Browser Use。
+- Windows 新增独立 Browser Use MCP，可在指定实例打开网页并查看操作红框。Yakit 和 Memfit 可以分别接入不同实例，也可以从实例详情切换接入目标。
+- Windows 电脑控制新增本机应用分析、控件树、窗口布局和任务 Trace。优先从后台读取原生布局，按需截图，并在坐标点击前重新核对目标。修复退出 YTray 后浏览器子进程仍占用电脑控制 MCP 端口的问题。
+- macOS 改善浏览器启动恢复、运行时安装取消和电脑控制的过期目标校验。
+- Windows 与 macOS 安装包内置 Yakit Browser Agent 0.2.22。插件变更单独记录在 [浏览器插件更新说明](https://github.com/yaklang/ytray/blob/v0.3.2/browser-extension/release-notes.json)。
+
 ## 0.3.1 — 2026-11-11
 
 - macOS 电脑控制新增全屏陶土红氛围灯、与 Windows 一致的飞镖光标及顶部动作提示，展示即将执行、执行中、已执行和待确认状态；边缘与四角使用连续柔和渐变，反馈窗口不抢焦点、不拦截鼠标，并从自身截图中排除。

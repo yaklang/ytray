@@ -20,6 +20,35 @@ namespace YTray.Tests
     public class SystemControlTests
     {
         [TestMethod, TestCategory("ControlProtocol")]
+        public void GatewayCanRebindWhileRedirectedChildIsStillRunning()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "ytray-control-rebind-" + Guid.NewGuid().ToString("N"));
+            using var controller = new SystemControlController(root);
+            using var gateway = new ControlGateway(controller);
+            gateway.Start(0);
+            var port = gateway.BoundPort;
+            using var child = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /q /c set /p response=")
+            {
+                UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+            })!;
+            try
+            {
+                Assert.IsFalse(child.HasExited);
+                gateway.Dispose();
+                using var replacement = new ControlGateway(controller);
+                replacement.Start(port);
+                Assert.AreEqual(port, replacement.BoundPort);
+                Assert.IsFalse(child.HasExited);
+            }
+            finally
+            {
+                if (!child.HasExited) child.Kill();
+                child.WaitForExit(3000);
+            }
+        }
+
+        [TestMethod, TestCategory("ControlProtocol")]
         public void NdjsonPreservesUtf8SplitFramesAndEscapedNewlines()
         {
             var text = "{\"a\":\"中文🚀\\n文字\"}\r\n{\"id\":2}\n";

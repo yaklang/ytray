@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using YTray.Core;
 using YTray.Models;
+using YTray.Native;
 using YTray.Views.Pages;
 
 namespace YTray.Views
@@ -28,6 +29,7 @@ namespace YTray.Views
         public ManagerView(InstanceStore store, LaunchAtLoginManager launchAtLogin)
         {
             InitializeComponent();
+            WindowChromeHelper.Attach(this);
             _store = store;
             _launchAtLogin = launchAtLogin;
             Loaded += OnLoaded;
@@ -46,6 +48,7 @@ namespace YTray.Views
                 NavQuick.IsSelected = true;
                 ShowPage("overview");
                 _store.PropertyChanged += OnStorePropertyChanged;
+                _store.SystemControl.PropertyChanged += OnStorePropertyChanged;
                 _updater.PropertyChanged += OnUpdaterPropertyChanged;
                 ThemeManager.ThemeChanged += OnThemeChanged;
             }
@@ -56,6 +59,7 @@ namespace YTray.Views
         private void OnClosed(object? sender, EventArgs e)
         {
             _store.PropertyChanged -= OnStorePropertyChanged;
+            _store.SystemControl.PropertyChanged -= OnStorePropertyChanged;
             _updater.PropertyChanged -= OnUpdaterPropertyChanged;
             ThemeManager.ThemeChanged -= OnThemeChanged;
             ContentFrame.Content = null;
@@ -183,13 +187,20 @@ namespace YTray.Views
         {
             var count = _store.RunningInstances.Count;
             StatusEnvironment.Text = count == 0 ? "运行环境正常" : $"{count} 个实例运行中";
-            RunningDot.Opacity = count == 0 ? 0.35 : 1;
+            RunningDot.Opacity = count == 0 ? 0.45 : 1;
+            if (NavInstancesBadge != null)
+            {
+                NavInstancesBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                NavInstancesBadgeText.Text = count.ToString();
+            }
+            if (NavSystemDot != null)
+                NavSystemDot.Visibility = _store.SystemControl.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
             var runtime = _store.DefaultRuntime;
             StatusRuntime.Text = runtime == null
                 ? "暂无默认浏览器"
                 : $"{runtime.DisplayTitle} {runtime.VersionLabel}";
-            StatusBrowserCount.Text = $"可用浏览器: {_store.Runtimes.Count}";
-            StatusPluginCount.Text = $"插件: {_store.Plugins.Count} 个";
+            StatusBrowserCount.Text = $"可用浏览器 {_store.Runtimes.Count}";
+            StatusPluginCount.Text = $"插件 {_store.Plugins.Count}";
             var proxy = _store.Settings.PresetProxyServer;
             if (string.IsNullOrWhiteSpace(proxy)) proxy = LaunchSettings.DefaultPresetProxyServer;
             StatusProxy.Text = "HTTP 代理 " + proxy.Replace("http://", "").Replace("https://", "");
@@ -295,13 +306,16 @@ namespace YTray.Views
                 {
                     case "runtimes": page = new RuntimePage(_store); break;
                     case "environments": page = new BrowserEnvironmentPage(_store); break;
-                    case "settings": page = new SettingsPage(_store); break;
+                    case "settings":
+                    case "startup":
+                        tag = "settings";
+                        page = new SettingsPage(_store, _launchAtLogin);
+                        break;
                     case "instances": page = new InstancesPage(_store); break;
                     case "launch": page = new ProxyLaunchPage(_store); break;
                     case "plugins": page = new PluginsPage(_store); break;
                     case "mcp": page = new McpPage(_store); break;
                     case "system": page = new SystemControlPage(_store); break;
-                    case "startup": page = new StartupPage(_launchAtLogin); break;
                     default: page = new QuickLaunchPage(_store); tag = "overview"; break;
                 }
                 _pageCache[tag] = page;
@@ -312,9 +326,14 @@ namespace YTray.Views
 
         public void NavigateTo(string tag)
         {
-            if (string.Equals(tag, "settings", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tag, "settings", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tag, "startup", StringComparison.OrdinalIgnoreCase))
+            {
                 NavSettings.IsSelected = true;
-            else if (string.Equals(tag, "plugins", StringComparison.OrdinalIgnoreCase))
+                ShowPage("settings");
+                return;
+            }
+            if (string.Equals(tag, "plugins", StringComparison.OrdinalIgnoreCase))
                 NavPlugins.IsSelected = true;
             else if (string.Equals(tag, "mcp", StringComparison.OrdinalIgnoreCase))
                 NavMcp.IsSelected = true;
@@ -322,6 +341,8 @@ namespace YTray.Views
                 NavSystem.IsSelected = true;
             else if (string.Equals(tag, "runtimes", StringComparison.OrdinalIgnoreCase))
                 NavRuntimes.IsSelected = true;
+            else if (string.Equals(tag, "launch", StringComparison.OrdinalIgnoreCase))
+                NavLaunch.IsSelected = true;
             ShowPage(tag);
         }
 

@@ -4,19 +4,28 @@
       Background="{DynamicResource AppBackgroundBrush}">
     <Page.Resources>
         <Style x:Key="ProxySectionTitle" TargetType="TextBlock" BasedOn="{StaticResource SectionTitle}">
-            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontSize" Value="14.5"/>
         </Style>
         <Style x:Key="ProxyFieldLabel" TargetType="TextBlock" BasedOn="{StaticResource FieldLabel}">
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Margin" Value="0,0,0,7"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
         </Style>
         <Style x:Key="ProxyInput" TargetType="TextBox" BasedOn="{StaticResource YTrayTextBox}">
-            <Setter Property="Height" Value="42"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="MinHeight" Value="0"/>
             <Setter Property="FontSize" Value="12.5"/>
         </Style>
+        <Style x:Key="SchemeSegmentButton" TargetType="Button" BasedOn="{StaticResource YTrayGhostButton}">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="6,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="2"/>
+        </Style>
         <Style x:Key="ProxyPasswordInput" TargetType="PasswordBox">
-            <Setter Property="Height" Value="42"/>
-            <Setter Property="Padding" Value="11,7,38,7"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Padding" Value="11,6,38,6"/>
             <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
@@ -24,14 +33,17 @@
             <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CaretBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="PasswordBox">
-                        <Border x:Name="Chrome" CornerRadius="5" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
-                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        <Border x:Name="Chrome" CornerRadius="7" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/></Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -41,173 +53,246 @@
         <Style x:Key="ProxyActionButton" TargetType="Button" BasedOn="{StaticResource YTrayButton}">
             <Setter Property="Height" Value="36"/>
             <Setter Property="MinHeight" Value="0"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="12.5"/>
         </Style>
     </Page.Resources>
 
-    <Grid Margin="25,20,25,22">
-        <Grid.RowDefinitions><RowDefinition Height="70"/><RowDefinition Height="60"/><RowDefinition Height="10"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Grid Margin="26,20,26,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="66"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
+        <!-- Header -->
         <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel>
-                <TextBlock Text="代理与启动" Style="{StaticResource PageTitle}" FontSize="27"/>
-                <TextBlock Text="管理预设代理、默认启动行为与浏览器网络隔离" Style="{StaticResource PageSubtitle}" FontSize="13" Margin="0,5,0,0"/>
+                <TextBlock Text="网络与代理" Style="{StaticResource PageTitle}"/>
+                <TextBlock Text="配置本地抓包与测试代理预设、验证上游连通性，或切换常用代理环境一键拉起浏览器" Style="{StaticResource PageSubtitle}" Margin="0,5,0,0"/>
             </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
-                <Border x:Name="SaveStatusBorder" Visibility="Collapsed" Margin="0,0,10,0" Padding="11,8"
-                        CornerRadius="5" Background="{DynamicResource SuccessPaleBrush}">
-                    <TextBlock x:Name="SaveStatus" FontSize="11.5" Foreground="{DynamicResource SuccessBrush}"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border x:Name="SaveStatusBorder" Visibility="Collapsed" Margin="0,0,10,0" Padding="12,7"
+                        CornerRadius="8" Background="{DynamicResource SuccessPaleBrush}">
+                    <TextBlock x:Name="SaveStatus" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"/>
                 </Border>
-                <Button Content="保存设置" MinWidth="110" Height="40" FontSize="13" Click="Save_Click" Style="{StaticResource YTrayPrimaryButton}"/>
+                <Button Content="保存当前代理" MinWidth="120" Height="38" FontSize="13" Click="SaveProxy_Click" Style="{StaticResource YTrayPrimaryButton}"/>
             </StackPanel>
         </Grid>
 
-        <Border Grid.Row="1" Style="{StaticResource SurfaceBorder}" Padding="18,0">
-            <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="300"/><ColumnDefinition Width="*"/><ColumnDefinition Width="114"/><ColumnDefinition Width="12"/><ColumnDefinition Width="178"/><ColumnDefinition Width="12"/><ColumnDefinition Width="114"/></Grid.ColumnDefinitions>
-                <TextBlock Text="快速启动" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <ComboBox x:Name="RuntimeCombo" Grid.Column="1" Height="36" VerticalAlignment="Center"
-                          AutomationProperties.AutomationId="ProxyRuntimeCombo"
-                          PreviewMouseLeftButtonDown="ChoiceCombo_PreviewMouseLeftButtonDown">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Height="34">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="31"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                <Image Source="{Binding IconSource}" Width="24" Height="24" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
-                                <TextBlock Grid.Column="1" Text="{Binding Runtime.DisplayTitle}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Grid.Column="2" Text="{Binding Runtime.VersionLabel}" Margin="9,0,0,0" FontSize="10.5" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-                <Button Grid.Column="3" Content="无代理启动" Click="Direct_Click" Style="{StaticResource ProxyActionButton}"/>
-                <Button Grid.Column="5" Content="使用 HTTP 代理启动" Click="Proxy_Click" Style="{StaticResource YTrayPrimaryButton}" Height="36" FontSize="12"/>
-                <Button Grid.Column="7" Content="自定义启动" Click="Wizard_Click" Style="{StaticResource ProxyActionButton}"/>
-            </Grid>
-        </Border>
+        <!-- Two-Column Workbench -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="1.08*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="1*"/></Grid.ColumnDefinitions>
 
-        <Grid Grid.Row="3">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="1.04*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="1*"/></Grid.ColumnDefinitions>
-
-            <Border Style="{StaticResource SurfaceBorder}" Padding="18,17">
+            <!-- Left Column: Active Proxy Editor & Connectivity Probe -->
+            <Border Style="{StaticResource SurfaceBorder}" Padding="22,20">
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/>
-                        <RowDefinition Height="14"/><RowDefinition Height="Auto"/><RowDefinition Height="14"/>
-                        <RowDefinition Height="38"/><RowDefinition Height="14"/><RowDefinition Height="Auto"/>
-                        <RowDefinition Height="14"/><RowDefinition Height="1"/><RowDefinition Height="16"/>
-                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="1"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="预设 HTTP 代理" Style="{StaticResource ProxySectionTitle}"/>
+
+                    <DockPanel>
+                        <Border DockPanel.Dock="Right" Style="{StaticResource PillBadge}" Background="{DynamicResource BrandPaleBrush}" VerticalAlignment="Center">
+                            <TextBlock x:Name="ActiveProxySummaryBadge" Text="HTTP · 127.0.0.1:8083" FontFamily="Cascadia Mono, Consolas" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource BrandOrangeBrush}"/>
+                        </Border>
+                        <TextBlock Text="当前预设代理配置" Style="{StaticResource ProxySectionTitle}" VerticalAlignment="Center"/>
+                    </DockPanel>
+
+                    <!-- Row 1: Segmented HTTP/HTTPS + Host + Port -->
                     <Grid Grid.Row="2">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="112"/></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="152"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="96"/></Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="协议" Style="{StaticResource ProxyFieldLabel}"/>
-                            <ComboBox x:Name="SchemeCombo" Height="42" AutomationProperties.AutomationId="ProxySchemeCombo" PreviewMouseLeftButtonDown="ChoiceCombo_PreviewMouseLeftButtonDown"><ComboBoxItem Content="HTTP"/><ComboBoxItem Content="HTTPS"/></ComboBox>
+                            <TextBlock Text="代理协议" Style="{StaticResource ProxyFieldLabel}"/>
+                            <Border CornerRadius="8" Background="{DynamicResource SurfaceMutedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" Height="38">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Button x:Name="HttpSchemeBtn" Content="HTTP" Tag="Http" Click="SchemeSegment_Click" Style="{StaticResource SchemeSegmentButton}"/>
+                                    <Button x:Name="HttpsSchemeBtn" Grid.Column="1" Content="HTTPS" Tag="Https" Click="SchemeSegment_Click" Style="{StaticResource SchemeSegmentButton}"/>
+                                </Grid>
+                            </Border>
                         </StackPanel>
-                        <StackPanel Grid.Column="2"><TextBlock Text="主机" Style="{StaticResource ProxyFieldLabel}"/><TextBox x:Name="HostBox" Style="{StaticResource ProxyInput}"/></StackPanel>
-                        <StackPanel Grid.Column="4"><TextBlock Text="端口" Style="{StaticResource ProxyFieldLabel}"/><TextBox x:Name="PortBox" Style="{StaticResource ProxyInput}"/></StackPanel>
-                    </Grid>
-                    <Grid Grid.Row="4">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <StackPanel><TextBlock Text="用户名（可选）" Style="{StaticResource ProxyFieldLabel}"/><TextBox x:Name="UsernameBox" Style="{StaticResource ProxyInput}"/></StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="密码（可选）" Style="{StaticResource ProxyFieldLabel}"/>
+                            <TextBlock Text="主机地址 (Host / IP)" Style="{StaticResource ProxyFieldLabel}"/>
+                            <TextBox x:Name="HostBox" Style="{StaticResource ProxyInput}" FontFamily="Cascadia Mono, Consolas, Segoe UI"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="端口" Style="{StaticResource ProxyFieldLabel}"/>
+                            <TextBox x:Name="PortBox" Style="{StaticResource ProxyInput}" FontFamily="Cascadia Mono, Consolas, Segoe UI"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Row 2: Remark -->
+                    <StackPanel Grid.Row="4">
+                        <TextBlock Text="环境备注（可选，例如 Yak MITM / 预发抓包）" Style="{StaticResource ProxyFieldLabel}"/>
+                        <TextBox x:Name="RemarkBox" Style="{StaticResource ProxyInput}"/>
+                    </StackPanel>
+
+                    <!-- Row 3: Optional Auth -->
+                    <Grid Grid.Row="6">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="认证用户名（可选）" Style="{StaticResource ProxyFieldLabel}"/>
+                            <TextBox x:Name="UsernameBox" Style="{StaticResource ProxyInput}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="认证密码（可选，随历史保存）" Style="{StaticResource ProxyFieldLabel}"/>
                             <Grid>
                                 <PasswordBox x:Name="PasswordInput" Style="{StaticResource ProxyPasswordInput}" PasswordChanged="PasswordInput_PasswordChanged"/>
-                                <TextBox x:Name="PasswordRevealBox" Style="{StaticResource ProxyInput}" Padding="11,7,38,7" Visibility="Collapsed" TextChanged="PasswordRevealBox_TextChanged"/>
-                                <Button HorizontalAlignment="Right" Width="36" Height="40" Padding="0" Background="Transparent" BorderThickness="0"
-                                        Click="TogglePassword_Click" ToolTip="显示或隐藏密码">
-                                    <Viewbox Width="17" Height="17"><Path x:Name="PasswordEyeIcon" Data="M 1 8 C 4.2 3.7 11.8 3.7 15 8 C 11.8 12.3 4.2 12.3 1 8 Z M 8 5.6 A 2.4 2.4 0 1 0 8 10.4 A 2.4 2.4 0 1 0 8 5.6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3" Fill="Transparent"/></Viewbox>
+                                <TextBox x:Name="PasswordRevealBox" Style="{StaticResource ProxyInput}" Padding="11,6,38,6" Visibility="Collapsed" TextChanged="PasswordRevealBox_TextChanged"/>
+                                <Button HorizontalAlignment="Right" VerticalAlignment="Center" Width="32" Height="32" Margin="0,0,3,0"
+                                        Style="{StaticResource YTrayIconButton}" Click="TogglePassword_Click" ToolTip="显示或隐藏密码">
+                                    <Viewbox Width="16" Height="16"><Path x:Name="PasswordEyeIcon" Data="M 1 8 C 4.2 3.7 11.8 3.7 15 8 C 11.8 12.3 4.2 12.3 1 8 Z M 8 5.6 A 2.4 2.4 0 1 0 8 10.4 A 2.4 2.4 0 1 0 8 5.6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.3" Fill="Transparent"/></Viewbox>
                                 </Button>
                             </Grid>
                         </StackPanel>
                     </Grid>
-                    <Grid Grid.Row="6">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="122"/><ColumnDefinition Width="14"/><ColumnDefinition Width="122"/></Grid.ColumnDefinitions>
-                        <Button Grid.Column="1" x:Name="CheckButton" Content="检测连接" Click="Check_Click" Style="{StaticResource ProxyActionButton}"/>
-                        <Button Grid.Column="3" Content="保存代理" Click="SaveProxy_Click" Style="{StaticResource YTrayPrimaryButton}" Height="38" FontSize="12.5"/>
-                    </Grid>
-                    <StackPanel Grid.Row="8" Orientation="Horizontal">
-                        <Ellipse x:Name="ProxyDot" Width="8" Height="8" Fill="{DynamicResource TextTertiaryBrush}" Margin="0,0,9,0"/>
-                        <TextBlock x:Name="ProxyStatus" Text="等待检测" FontSize="12.5" Foreground="{DynamicResource TextSecondaryBrush}"/>
+
+                    <Border Grid.Row="8" Background="{DynamicResource HairlineBrush}"/>
+
+                    <!-- Row 4: Connectivity Check Section -->
+                    <StackPanel Grid.Row="10">
+                        <TextBlock Text="连通性探测" Style="{StaticResource ProxySectionTitle}" Margin="0,0,0,12"/>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,6">
+                                    <TextBlock DockPanel.Dock="Right" Text="留空则仅检测代理端口握手；填写域名将自动补全 https://" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="探测目标（可选）" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                </DockPanel>
+                                <TextBox x:Name="CheckTargetBox" Style="{StaticResource ProxyInput}" FontFamily="Cascadia Mono, Consolas, Segoe UI"/>
+                            </StackPanel>
+                            <Button x:Name="CheckButton" Grid.Column="2" Content="检测连接" Click="Check_Click" Style="{StaticResource OutlinedAccentButton}" Height="38" MinHeight="0" Padding="18,0" VerticalAlignment="Bottom"/>
+                        </Grid>
+
+                        <Border Style="{StaticResource SubtleCardBorder}" Padding="13,10">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse x:Name="ProxyDot" Width="8" Height="8" Fill="{DynamicResource TextTertiaryBrush}" Margin="0,0,9,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="ProxyStatus" Text="等待检测，点击右侧「检测连接」验证代理可用性" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                    <Border Grid.Row="10" Background="{DynamicResource HairlineBrush}"/>
-                    <TextBlock Grid.Row="12" Text="最近使用" Style="{StaticResource ProxySectionTitle}"/>
-                    <Border Grid.Row="13" Margin="0,9,0,0" MinHeight="48" VerticalAlignment="Top"
-                            BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="4" ClipToBounds="True">
-                    <Grid>
-                        <TextBlock x:Name="RecentProxyEmpty" Text="暂无最近使用的代理" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                        <ItemsControl x:Name="RecentProxyList">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Tag="{Binding Preset}" MouseLeftButtonUp="SelectProxyRow_MouseLeftButtonUp"
-                                            BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1"
-                                            MinHeight="48" Padding="0" Cursor="Hand">
-                                        <Border.Style>
-                                            <Style TargetType="Border">
-                                                <Setter Property="Background" Value="Transparent"/>
-                                                <Style.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Border.Style>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="68"/><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
-                                            <Border Padding="10,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="{Binding SchemeTitle}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/></Border>
-                                            <Border Grid.Column="1" Padding="14,0" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0"><TextBlock Text="{Binding Address}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Border>
-                                            <Grid Grid.Column="2"><Button Tag="{Binding Preset}" Click="RemoveProxy_Click" Style="{StaticResource YTrayDangerIconButton}" ToolTip="删除此代理">
-                                                    <Viewbox Width="16" Height="16"><Path Data="M 2.5 4.5 L 13.5 4.5 M 6 2.5 L 10 2.5 M 4.5 4.5 L 5.2 14 L 10.8 14 L 11.5 4.5 M 7 7 L 7.3 11.5 M 10 7 L 9.7 11.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.35" Fill="Transparent"/></Viewbox>
-                                            </Button></Grid>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </Grid>
+
+                    <Border Grid.Row="12" Style="{StaticResource SubtleCardBorder}" Padding="13,10">
+                        <TextBlock Text="提示：WebRTC 保护、忽略证书与全局 Chrome 参数已收口至左侧「设置」页统一维护，避免重复配置。"
+                                   FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
                     </Border>
                 </Grid>
             </Border>
 
-            <Border Grid.Column="2" Style="{StaticResource SurfaceBorder}" Padding="18,17">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/>
-                        <RowDefinition Height="14"/><RowDefinition Height="Auto"/><RowDefinition Height="14"/>
-                        <RowDefinition Height="1"/><RowDefinition Height="14"/><RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/><RowDefinition Height="10"/><RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Text="默认启动" Style="{StaticResource ProxySectionTitle}"/>
-                    <StackPanel Grid.Row="2"><TextBlock Text="启动地址" Style="{StaticResource ProxyFieldLabel}"/><TextBox x:Name="HomeUrlBox" Style="{StaticResource ProxyInput}"/></StackPanel>
-                    <Grid Grid.Row="4">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="1*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="1.05*"/></Grid.ColumnDefinitions>
-                        <StackPanel><TextBlock Text="调试端口" Style="{StaticResource ProxyFieldLabel}"/><TextBox x:Name="DebugPortBox" Style="{StaticResource ProxyInput}"/></StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="端口策略" Style="{StaticResource ProxyFieldLabel}"/>
-                            <ComboBox x:Name="PortPolicyCombo" SelectedIndex="0" Height="42" AutomationProperties.AutomationId="PortPolicyCombo" PreviewMouseLeftButtonDown="ChoiceCombo_PreviewMouseLeftButtonDown"><ComboBoxItem Content="占用时自动递增"/></ComboBox>
-                        </StackPanel>
-                    </Grid>
-                    <Border Grid.Row="6" Background="{DynamicResource HairlineBrush}"/>
-                    <StackPanel Grid.Row="8">
-                        <TextBlock Text="浏览器网络行为" Style="{StaticResource ProxySectionTitle}" Margin="0,0,0,11"/>
-                        <CheckBox x:Name="WebRtcCheck" Content="限制 WebRTC 非代理 UDP 与本地 IP 暴露" FontSize="12.5" Margin="0,0,0,10"/>
-                        <CheckBox x:Name="NotificationsCheck" Content="关闭浏览器通知" FontSize="12.5" Margin="0,0,0,10"/>
-                        <CheckBox x:Name="CertCheck" Content="忽略证书错误" FontSize="12.5" Margin="0,0,0,10"/>
-                        <CheckBox x:Name="TestTypeCheck" Content="测试模式（--test-type）" FontSize="12.5"/>
-                    </StackPanel>
-                    <Grid Grid.Row="9" Margin="0,16,0,0">
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="9"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                        <DockPanel LastChildFill="False">
-                            <TextBlock Text="每行一个 --flag" DockPanel.Dock="Right" Margin="14,0,0,0" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock Text="附加 Chrome 参数" DockPanel.Dock="Left" Style="{StaticResource ProxySectionTitle}"/>
+            <!-- Right Column: Saved Proxy Presets Library + Quick Test Launch -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="16"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+                <!-- Top Card: Saved Presets -->
+                <Border Style="{StaticResource SurfaceBorder}" Padding="20,18">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <DockPanel>
+                            <TextBlock x:Name="PresetCountLabel" DockPanel.Dock="Right" Text="0 / 5" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                            <StackPanel>
+                                <TextBlock Text="常用代理预设库" Style="{StaticResource ProxySectionTitle}"/>
+                                <TextBlock Text="点击任一预设即可载入左侧编辑器并设为当前默认代理" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                            </StackPanel>
                         </DockPanel>
-                        <TextBox x:Name="FlagsBox" Grid.Row="2" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="11,9"
-                                 FontFamily="Cascadia Mono, Consolas" FontSize="11.5"/>
+
+                        <Grid Grid.Row="2">
+                            <Border x:Name="RecentProxyEmpty" Style="{StaticResource SubtleCardBorder}" Padding="20">
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="暂无保存的代理预设" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="在左侧填写代理信息并点击「保存当前代理」，最多保留最近 5 组常用配置" Margin="0,5,0,0" FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="260"/>
+                                </StackPanel>
+                            </Border>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl x:Name="RecentProxyList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Tag="{Binding Preset}" MouseLeftButtonUp="SelectProxyRow_MouseLeftButtonUp"
+                                                    CornerRadius="9" BorderThickness="1" Margin="0,0,0,8" Padding="14,11" Cursor="Hand">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}"/>
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/>
+                                                            </Trigger>
+                                                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource BrandPaleBrush}"/>
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                    <StackPanel VerticalAlignment="Center">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Border Style="{StaticResource PillBadge}" Background="{DynamicResource SurfaceRaisedBrush}" Margin="0,0,8,0">
+                                                                <TextBlock Text="{Binding SchemeTitle}" FontSize="10.5" FontWeight="Bold" Foreground="{DynamicResource BrandOrangeBrush}"/>
+                                                            </Border>
+                                                            <TextBlock Text="{Binding DisplayTitle}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                            <Border Visibility="{Binding AuthVisibility}" Style="{StaticResource PillBadge}" Background="{DynamicResource SurfaceRaisedBrush}" Margin="7,0,0,0">
+                                                                <TextBlock Text="含认证" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                                            </Border>
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding Address}" Margin="2,4,0,0" FontFamily="Cascadia Mono, Consolas" FontSize="11.5" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <Button Tag="{Binding Preset}" Click="LaunchPreset_Click" Content="以此启动" Height="28" MinHeight="0" Padding="10,0" FontSize="11.5" Margin="0,0,6,0" Style="{StaticResource YTrayButton}"/>
+                                                        <Button Tag="{Binding Preset}" Click="RemoveProxy_Click" Style="{StaticResource YTrayDangerIconButton}" Width="28" Height="28" ToolTip="删除此代理预设">
+                                                            <Viewbox Width="14" Height="14"><Path Data="M 2.5 4.5 L 13.5 4.5 M 6 2.5 L 10 2.5 M 4.5 4.5 L 5.2 14 L 10.8 14 L 11.5 4.5 M 7 7 L 7.3 11.5 M 10 7 L 9.7 11.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.35" Fill="Transparent"/></Viewbox>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
                     </Grid>
-                    <TextBlock Grid.Row="11" Text="实例隔离、调试端口、代理和插件参数由 YTray 管理" FontSize="10.5" Foreground="{DynamicResource TextTertiaryBrush}"/>
-                </Grid>
-            </Border>
+                </Border>
+
+                <!-- Bottom Card: Quick Verification Launch -->
+                <Border Grid.Row="2" Style="{StaticResource SurfaceBorder}" Padding="20,16">
+                    <StackPanel>
+                        <TextBlock Text="快速验证启动" Style="{StaticResource ProxySectionTitle}" Margin="0,0,0,10"/>
+                        <ComboBox x:Name="RuntimeCombo" Height="38" Margin="0,0,0,10"
+                                  AutomationProperties.AutomationId="ProxyRuntimeCombo"
+                                  PreviewMouseLeftButtonDown="ChoiceCombo_PreviewMouseLeftButtonDown">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Height="28">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <Image Source="{Binding IconSource}" Width="21" Height="21" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Runtime.DisplayTitle}" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Runtime.VersionLabel}" Margin="8,0,0,0" FontSize="11" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="1.25*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Button Content="无代理直连" Click="Direct_Click" Style="{StaticResource ProxyActionButton}"/>
+                            <Button Grid.Column="2" Content="使用当前代理启动" Click="Proxy_Click" Style="{StaticResource YTrayPrimaryButton}" Height="36" MinHeight="0" FontSize="12.5"/>
+                            <Button Grid.Column="4" Content="向导…" Click="Wizard_Click" Style="{StaticResource ProxyActionButton}" Padding="13,0"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </Page>

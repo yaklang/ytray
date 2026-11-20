@@ -4,82 +4,202 @@
       Background="{DynamicResource AppBackgroundBrush}">
     <Page.Resources>
         <Style x:Key="EnvironmentCard" TargetType="Border" BasedOn="{StaticResource SurfaceBorder}">
-            <Setter Property="Padding" Value="17,14"/>
+            <Setter Property="Padding" Value="20,16"/>
             <Setter Property="Margin" Value="0,0,0,12"/>
         </Style>
         <Style x:Key="EnvironmentField" TargetType="TextBlock" BasedOn="{StaticResource FieldLabel}">
-            <Setter Property="Margin" Value="0,0,0,5"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
         <Style x:Key="EnvironmentSection" TargetType="TextBlock" BasedOn="{StaticResource SectionTitle}">
-            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontSize" Value="14.5"/>
             <Setter Property="Margin" Value="0,0,0,12"/>
         </Style>
         <Style x:Key="EnvironmentChoice" TargetType="ComboBox" BasedOn="{StaticResource YTrayComboBox}">
-            <Setter Property="Height" Value="34"/>
+            <Setter Property="Height" Value="36"/>
         </Style>
-        <Style TargetType="TextBox" BasedOn="{StaticResource YTrayTextBox}">
-            <Setter Property="Padding" Value="10,3"/>
+        <Style x:Key="EnvironmentInput" TargetType="TextBox" BasedOn="{StaticResource YTrayTextBox}">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="11,0"/>
+        </Style>
+        <Style x:Key="TemplateCardItem" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,0,7"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Card" Padding="13,10" CornerRadius="8"
+                                Background="{DynamicResource SurfaceMutedBrush}"
+                                BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" SnapsToDevicePixels="True">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Card" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                                <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Card" Property="Background" Value="{DynamicResource BrandPaleBrush}"/>
+                                <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource BrandOrangeBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Page.Resources>
-    <Grid Margin="24,20,24,20">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <DockPanel Margin="0,0,0,16">
-            <Button DockPanel.Dock="Right" Content="新建模板" Height="34" Click="New_Click" Style="{StaticResource YTrayPrimaryButton}"/>
-            <TextBlock Text="浏览器环境" Style="{StaticResource PageTitle}" FontSize="25" VerticalAlignment="Center"/>
-        </DockPanel>
+
+    <Grid Margin="26,20,26,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="64"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Page Header -->
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="浏览器环境模板" Style="{StaticResource PageTitle}"/>
+                <TextBlock Text="预设语言时区、窗口视口、WebRTC 与网站权限策略，在运行中心或向导中一键复用" Style="{StaticResource PageSubtitle}" Margin="0,5,0,0"/>
+            </StackPanel>
+            <Button Grid.Column="1" Height="38" Padding="18,0" VerticalAlignment="Center" Click="New_Click" Style="{StaticResource YTrayPrimaryButton}">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="M 6 1.5 L 6 10.5 M 1.5 6 L 10.5 6" Width="11" Height="11" Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="新建模板" Foreground="White" FontSize="13"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- Master-Detail Workbench -->
         <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Border Style="{StaticResource SurfaceBorder}" Padding="10">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="已保存的模板" Style="{StaticResource EnvironmentSection}" Margin="6,3,0,10"/>
-                    <Grid>
-                        <TextBlock x:Name="TemplatesEmpty" Text="还没有已保存的模板" FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}" Margin="6,9" Visibility="Collapsed"/>
-                        <ListBox x:Name="Templates" Style="{StaticResource YTraySurfaceListBox}" DisplayMemberPath="Name"
-                                 SelectionChanged="Templates_SelectionChanged" BorderThickness="0"/>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="248"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left Column: Saved Templates List -->
+            <Border Style="{StaticResource SurfaceBorder}" Padding="14,15">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <DockPanel Margin="2,0,2,12">
+                        <TextBlock Text="已保存的模板" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+                    </DockPanel>
+
+                    <Grid Grid.Row="1">
+                        <StackPanel x:Name="TemplatesEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="196" Visibility="Collapsed">
+                            <Border Width="44" Height="44" CornerRadius="11" Background="{DynamicResource SurfaceMutedBrush}"
+                                    BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" HorizontalAlignment="Center">
+                                <Viewbox Width="20" Height="20">
+                                    <Path Data="M 2.5 4 L 13.5 4 M 6 2 L 6 6 M 2.5 8 L 13.5 8 M 10 6 L 10 10 M 2.5 12 L 13.5 12 M 7 10 L 7 14"
+                                          Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.4" StrokeStartLineCap="Round"/>
+                                </Viewbox>
+                            </Border>
+                            <TextBlock Text="尚未保存环境模板" Margin="0,10,0,0" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                            <TextBlock Text="在右侧填写名称并点击「保存模板」，即可在启动实例时快速切换" Margin="0,4,0,0"
+                                       FontSize="11.5" Foreground="{DynamicResource TextTertiaryBrush}" TextAlignment="Center" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <ListBox x:Name="Templates" BorderThickness="0" Background="Transparent"
+                                 ItemContainerStyle="{StaticResource TemplateCardItem}"
+                                 SelectionChanged="Templates_SelectionChanged"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel>
+                                        <Border DockPanel.Dock="Right" Style="{StaticResource PillBadge}" Background="{DynamicResource SurfaceBrush}"
+                                                BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock FontSize="10.5" Foreground="{DynamicResource TextSecondaryBrush}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="固定"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RandomizeOnLaunch}" Value="True">
+                                                                <Setter Property="Text" Value="随机"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource BrandOrangeBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                        <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
                     </Grid>
-                </DockPanel>
+                </Grid>
             </Border>
+
+            <!-- Right Column: Template Editor + Sticky Action Footer -->
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="0,0,4,0">
+                    <StackPanel Margin="0,0,2,0">
+                        <!-- Card 1: Launch & Fingerprint Mode -->
                         <Border Style="{StaticResource EnvironmentCard}">
                             <StackPanel>
-                                <TextBlock Text="启动配置" Style="{StaticResource EnvironmentSection}"/>
-                                <TextBlock Text="模板名称" Style="{StaticResource EnvironmentField}"/>
-                                <TextBox x:Name="NameBox" MaxLength="80" Margin="0,0,0,12"/>
+                                <TextBlock Text="基础与网络绑定" Style="{StaticResource EnvironmentSection}"/>
                                 <Grid Margin="0,0,0,12">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                    <StackPanel><TextBlock Text="浏览器" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="RuntimeBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
-                                    <StackPanel Grid.Column="2"><TextBlock Text="网络" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="NetworkBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="模板名称" Style="{StaticResource EnvironmentField}"/>
+                                        <TextBox x:Name="NameBox" Style="{StaticResource EnvironmentInput}" MaxLength="80"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="地区与尺寸生成模式" Style="{StaticResource EnvironmentField}"/>
+                                        <DockPanel LastChildFill="True">
+                                            <Button x:Name="GenerateButton" DockPanel.Dock="Right" Content="随机填充" Height="36" MinHeight="0" Padding="12,0" Margin="8,0,0,0"
+                                                    Style="{StaticResource YTrayButton}" Click="Generate_Click" ToolTip="抽取一套常用的地区和尺寸组合。"/>
+                                            <ComboBox x:Name="ModeBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="Mode_SelectionChanged"/>
+                                        </DockPanel>
+                                    </StackPanel>
                                 </Grid>
-                                <DockPanel LastChildFill="True">
-                                    <Button x:Name="GenerateButton" DockPanel.Dock="Right" Content="随机填充" Height="34" Margin="10,0,0,0"
-                                            Click="Generate_Click" ToolTip="抽取一套常用的地区和尺寸组合。"/>
-                                    <ComboBox x:Name="ModeBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="Mode_SelectionChanged"/>
-                                </DockPanel>
-                                <TextBlock x:Name="RandomHint" Text="每次启动新实例时抽取地区与尺寸，恢复历史时沿用该实例的原值。"
-                                           Margin="0,7,0,0" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Visibility="Collapsed"/>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="绑定浏览器运行时" Style="{StaticResource EnvironmentField}"/>
+                                        <ComboBox x:Name="RuntimeBox" Style="{StaticResource EnvironmentChoice}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="绑定网络路径" Style="{StaticResource EnvironmentField}"/>
+                                        <ComboBox x:Name="NetworkBox" Style="{StaticResource EnvironmentChoice}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Border x:Name="RandomHintBorder" Visibility="{Binding Visibility, ElementName=RandomHint}" Margin="0,12,0,0" Padding="12,9"
+                                        CornerRadius="7" Background="{DynamicResource BrandPaleBrush}">
+                                    <TextBlock x:Name="RandomHint" Text="每次启动新实例时自动抽取一套匹配的地区与视口组合；恢复历史会话时沿用该实例首次生成的参数。"
+                                               TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource BrandOrangeBrush}" Visibility="Collapsed"/>
+                                </Border>
                             </StackPanel>
                         </Border>
+
+                        <!-- Card 2: Regional & Display Fingerprint -->
                         <Border Style="{StaticResource EnvironmentCard}">
                             <StackPanel>
-                                <TextBlock Text="地区与页面" Style="{StaticResource EnvironmentSection}"/>
+                                <TextBlock Text="地区、语言与页面视口" Style="{StaticResource EnvironmentSection}"/>
                                 <StackPanel x:Name="RegionalDisplayFields">
-                                    <TextBlock Text="地区预设" Style="{StaticResource EnvironmentField}"/>
+                                    <TextBlock Text="常用地区一键预设" Style="{StaticResource EnvironmentField}"/>
                                     <ComboBox x:Name="RegionBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="Region_SelectionChanged" Margin="0,0,0,12"/>
                                     <Grid Margin="0,0,0,12">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                         <StackPanel>
-                                            <TextBlock Text="语言" Style="{StaticResource EnvironmentField}"/>
+                                            <TextBlock Text="浏览器语言 (Accept-Language)" Style="{StaticResource EnvironmentField}"/>
                                             <ComboBox x:Name="LanguageBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
-                                            <TextBox x:Name="CustomLanguage" Visibility="Collapsed" ToolTip="例如 en-US" Margin="0,6,0,0"/>
+                                            <TextBox x:Name="CustomLanguage" Style="{StaticResource EnvironmentInput}" Visibility="Collapsed" ToolTip="例如 en-US" Margin="0,6,0,0"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
-                                            <TextBlock Text="时区" Style="{StaticResource EnvironmentField}"/>
+                                            <TextBlock Text="时区 (TimeZone)" Style="{StaticResource EnvironmentField}"/>
                                             <ComboBox x:Name="TimeZoneBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
-                                            <TextBox x:Name="CustomTimeZone" Visibility="Collapsed" ToolTip="例如 Asia/Shanghai" Margin="0,6,0,0"/>
+                                            <TextBox x:Name="CustomTimeZone" Style="{StaticResource EnvironmentInput}" Visibility="Collapsed" ToolTip="例如 Asia/Shanghai" Margin="0,6,0,0"/>
                                         </StackPanel>
                                     </Grid>
                                     <Grid Margin="0,0,0,12">
@@ -88,18 +208,18 @@
                                             <TextBlock Text="窗口尺寸" Style="{StaticResource EnvironmentField}"/>
                                             <ComboBox x:Name="WindowBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
                                             <StackPanel x:Name="CustomWindow" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
-                                                <TextBox x:Name="WindowWidthBox" Width="82" AutomationProperties.Name="窗口宽度"/>
-                                                <TextBlock Text="×" Margin="8,0" VerticalAlignment="Center"/>
-                                                <TextBox x:Name="WindowHeightBox" Width="82" AutomationProperties.Name="窗口高度"/>
+                                                <TextBox x:Name="WindowWidthBox" Style="{StaticResource EnvironmentInput}" Width="88" AutomationProperties.Name="窗口宽度"/>
+                                                <TextBlock Text="×" Margin="8,0" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                                <TextBox x:Name="WindowHeightBox" Style="{StaticResource EnvironmentInput}" Width="88" AutomationProperties.Name="窗口高度"/>
                                             </StackPanel>
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
                                             <TextBlock Text="页面视口" Style="{StaticResource EnvironmentField}"/>
                                             <ComboBox x:Name="ViewportBox" Style="{StaticResource EnvironmentChoice}" SelectionChanged="CustomChoice_SelectionChanged"/>
                                             <StackPanel x:Name="CustomViewport" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
-                                                <TextBox x:Name="ViewportWidthBox" Width="82" AutomationProperties.Name="页面视口宽度"/>
-                                                <TextBlock Text="×" Margin="8,0" VerticalAlignment="Center"/>
-                                                <TextBox x:Name="ViewportHeightBox" Width="82" AutomationProperties.Name="页面视口高度"/>
+                                                <TextBox x:Name="ViewportWidthBox" Style="{StaticResource EnvironmentInput}" Width="88" AutomationProperties.Name="页面视口宽度"/>
+                                                <TextBlock Text="×" Margin="8,0" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                                <TextBox x:Name="ViewportHeightBox" Style="{StaticResource EnvironmentInput}" Width="88" AutomationProperties.Name="页面视口高度"/>
                                             </StackPanel>
                                         </StackPanel>
                                     </Grid>
@@ -111,12 +231,14 @@
                                 </UniformGrid>
                             </StackPanel>
                         </Border>
+
+                        <!-- Card 3: Privacy & Site Permissions -->
                         <Border Style="{StaticResource EnvironmentCard}">
                             <StackPanel>
-                                <TextBlock Text="隐私与网站权限" Style="{StaticResource EnvironmentSection}"/>
+                                <TextBlock Text="隐私与网站默认权限" Style="{StaticResource EnvironmentSection}"/>
                                 <UniformGrid Columns="2" Margin="0,0,0,12">
                                     <StackPanel Margin="0,0,7,0"><TextBlock Text="第三方 Cookie" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="CookiesBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
-                                    <StackPanel Margin="7,0,0,0"><TextBlock Text="WebRTC 网络接口" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="WebRtcBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
+                                    <StackPanel Margin="7,0,0,0"><TextBlock Text="WebRTC 网络接口策略" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="WebRtcBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
                                 </UniformGrid>
                                 <UniformGrid Columns="3">
                                     <StackPanel Margin="0,0,9,0"><TextBlock Text="网站定位" Style="{StaticResource EnvironmentField}"/><ComboBox x:Name="LocationBox" Style="{StaticResource EnvironmentChoice}"/></StackPanel>
@@ -125,23 +247,31 @@
                                 </UniformGrid>
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource EnvironmentCard}">
+
+                        <!-- Card 4: Live Tab Environment Verification -->
+                        <Border Style="{StaticResource EnvironmentCard}" Margin="0,0,0,10">
                             <StackPanel>
-                                <TextBlock Text="实例生效值" Style="{StaticResource EnvironmentSection}"/>
+                                <TextBlock Text="运行实例生效值校验" Style="{StaticResource EnvironmentSection}"/>
                                 <DockPanel>
-                                    <Button DockPanel.Dock="Right" x:Name="ReadButton" Content="读取当前标签页" Height="34" Margin="8,0,0,0" Click="Read_Click"/>
+                                    <Button DockPanel.Dock="Right" x:Name="ReadButton" Content="读取当前标签页" Height="36" MinHeight="0" Padding="14,0" Margin="8,0,0,0"
+                                            Style="{StaticResource OutlinedAccentButton}" Click="Read_Click"/>
                                     <ComboBox x:Name="InstanceBox" Style="{StaticResource EnvironmentChoice}" DropDownOpened="InstanceBox_DropDownOpened"/>
                                 </DockPanel>
-                                <TextBlock x:Name="Observed" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                <TextBlock x:Name="Observed" TextWrapping="Wrap" Margin="0,10,0,0" FontFamily="Cascadia Mono, Consolas, Segoe UI"
+                                           FontSize="11.5" LineHeight="19" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </ScrollViewer>
-                <Border Grid.Row="1" Style="{StaticResource SurfaceBorder}" Padding="12,8">
+
+                <!-- Sticky Save Action Bar -->
+                <Border Grid.Row="1" Style="{StaticResource SurfaceBorder}" Padding="16,10" Margin="0,4,0,0">
                     <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="保存模板" Height="34" Click="Save_Click" Style="{StaticResource YTrayPrimaryButton}"/>
-                        <Button x:Name="DeleteButton" DockPanel.Dock="Right" Content="删除" Height="34" Click="Delete_Click" Margin="0,0,8,0"/>
-                        <TextBlock x:Name="SaveStatus" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+                        <Button DockPanel.Dock="Right" Content="保存模板" Height="36" MinHeight="0" Padding="18,0" Click="Save_Click" Style="{StaticResource YTrayPrimaryButton}"/>
+                        <Button x:Name="DeleteButton" DockPanel.Dock="Right" Content="删除模板" Height="36" MinHeight="0" Padding="14,0" Click="Delete_Click"
+                                Style="{StaticResource YTrayDangerOutlineButton}" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="SaveStatus" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource BrandOrangeBrush}" TextWrapping="Wrap" Margin="0,0,12,0"/>
                     </DockPanel>
                 </Border>
             </Grid>

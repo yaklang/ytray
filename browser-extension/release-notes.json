@@ -1,4 +1,12 @@
 {
+  "0.2.22": [
+    "托管实例优先通过 Windows 命名管道或 macOS Unix Socket 接入新版 Yak。Windows 兼容旧版 WebSocket 引擎，按监听进程区分 Memfit 和 Yakit。",
+    "引擎查找只刷新候选列表。自动模式遇到多个候选时等待选择，连接页显示实际引擎、传输方式和地址，并提示从 Native 自动回退到 WebSocket 的情况。",
+    "升级后保留已有配对和手动连接设置。改善 Browser Use 的实例聚焦和操作红框，点击网页空白区域可收起悬浮面板。"
+  ],
+  "0.2.21": ["Windows 托管浏览器通过 YTray 查找旧引擎，按监听进程区分 Memfit 和 Yakit，并保留实际连接地址。"],
+  "0.2.20": ["自动接入优先使用 Native Messaging，兼容旧版 WebSocket 引擎。查找只刷新列表，连接后显示实际地址。"],
+  "0.2.19": ["YTray 托管浏览器升级后保留旧引擎配对和手动 WebSocket 设置，新实例默认通过 Native Messaging 接入。"],
   "0.2.18": ["YTray 托管实例默认通过 Native Messaging 查找本机引擎。WebSocket 保留为兼容选项。"],
   "0.2.17": ["连接页和弹窗显示实际传输方式。支持通过 macOS Native Messaging 与 Unix Socket 配对和连接。"],
   "0.2.16": ["插件状态显示实际接入的引擎。Windows 上可通过 YTray Native Host 和命名管道完成配对与连接。"],

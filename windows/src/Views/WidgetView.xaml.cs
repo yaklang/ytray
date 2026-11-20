@@ -254,15 +254,23 @@ namespace YTray.Views
                 ? $"默认 · {runtime.DisplayTitle} {runtime.VersionLabel}"
                 : "未选择默认浏览器";
             if (!_editorDirty) LoadProxyEditor();
+            var schemeTitle = _store.Settings.PresetProxyScheme == ProxyScheme.Https ? "HTTPS" : "HTTP";
+            var summary = $"{schemeTitle} · {_store.Settings.PresetProxyHost}:{_store.Settings.PresetProxyPort}";
+            if (!string.IsNullOrWhiteSpace(_store.Settings.PresetProxyRemark))
+                summary += " · " + _store.Settings.PresetProxyRemark;
+            if (ProxySummaryText != null) ProxySummaryText.Text = summary;
             RecentProxyCount.Text = $"最近 {_store.Settings.RecentProxyPresets.Count}/5";
-            ProxyCard.Height = _store.IsProxyAdvancedExpanded ? 212 : 136;
+            ProxyCard.Height = _store.IsProxyAdvancedExpanded ? 248 : 50;
             AdvancedPanel.Visibility = _store.IsProxyAdvancedExpanded ? Visibility.Visible : Visibility.Collapsed;
+            if (AdvancedLabel != null) AdvancedLabel.Text = _store.IsProxyAdvancedExpanded ? "收起" : "配置";
             AdvancedGlyph.Text = _store.IsProxyAdvancedExpanded ? "\uE70E" : "\uE70D";
             StartupLabel.Text = _launchAtLogin.IsEnabled ? "开机启动已开" : "开启开机启动";
             StartupBtn.SetResourceReference(ForegroundProperty,
                 _launchAtLogin.IsEnabled ? "WidgetAccentBrush" : "WidgetTextPrimaryBrush");
             if (!string.IsNullOrEmpty(_store.ProxyCheckMessage))
                 ProxyStatus.Text = _store.ProxyCheckMessage;
+            else if (string.IsNullOrEmpty(ProxyStatus.Text))
+                ProxyStatus.Text = "点击右侧可测速或展开修改";
             CheckBtn.IsEnabled = _store.ProxyCheckPhase != ProxyCheckPhase.Checking;
             DirectBtn.IsEnabled = ProxyBtn.IsEnabled = !_store.IsLaunching;
             foreach (var button in FindVisualChildren<Button>(HistoryList).Where(b => b.Name == "RestoreButton"))
@@ -286,34 +294,32 @@ namespace YTray.Views
 
         private void ApplyWidgetPalette()
         {
-            // Only the widget uses these neutral macOS popover colors. The manager and edge
-            // dock retain their own palette; ThemeChanged refreshes already-open controls.
             var dark = ThemeManager.IsDark;
             var colors = new (string Key, string Dark, string Light)[]
             {
-                ("WidgetSurfaceBrush", "#393939", "#F0F0F0"),
-                ("WidgetDeepBrush", "#1E1E1E", "#FFFFFF"),
-                ("WidgetRaisedBrush", "#292929", "#E6E6E6"),
-                ("WidgetInputBrush", "#292929", "#FFFFFF"),
-                ("WidgetComboBrush", "#565656", "#DDDDDD"),
-                ("WidgetHoverBrush", "#494949", "#EAEAEA"),
-                ("WidgetBorderBrush", "#484848", "#C9C9C9"),
-                ("WidgetSwitchOffBrush", "#606064", "#CECED2"),
-                ("WidgetSwitchOnBrush", "#30D158", "#34C759"),
-                ("WidgetHairlineBrush", "#3E3E3E", "#DCDCDC"),
-                ("WidgetTextPrimaryBrush", "#DEDEDE", "#262626"),
-                ("WidgetTextSecondaryBrush", "#9E9E9E", "#6B6B6B"),
-                ("WidgetTextTertiaryBrush", "#616161", "#8A8A8A"),
-                ("WidgetPlaceholderBrush", "#858585", "#929292"),
-                ("WidgetAccentBrush", "#F28B44", "#F28B44"),
-                ("WidgetLaunchSecondaryBrush", "#444444", "#E3E3E3"),
-                ("WidgetAccentBorderBrush", "#67503E", "#E5C8B4"),
-                ("WidgetOrangePaleBrush", "#4A413B", "#FAEBDD"),
-                ("WidgetDangerBrush", "#FF453A", "#D9362C"),
-                ("WidgetDangerPaleBrush", "#312322", "#FDECEB"),
-                ("WidgetDangerBorderBrush", "#512B28", "#F4D2CF"),
-                ("WidgetSuccessBrush", "#24D836", "#18862E"),
-                ("WidgetSuccessPaleBrush", "#233525", "#E7F3E8"),
+                ("WidgetSurfaceBrush", "#16191E", "#F4F5F7"),
+                ("WidgetDeepBrush", "#1E2229", "#FFFFFF"),
+                ("WidgetRaisedBrush", "#262B34", "#EFF1F4"),
+                ("WidgetInputBrush", "#14171C", "#F8F9FB"),
+                ("WidgetComboBrush", "#242932", "#F0F2F5"),
+                ("WidgetHoverBrush", "#2C323D", "#E7EAF0"),
+                ("WidgetBorderBrush", "#323945", "#D5D9E2"),
+                ("WidgetSwitchOffBrush", "#4A5260", "#C7CCD6"),
+                ("WidgetSwitchOnBrush", "#F97324", "#F97324"),
+                ("WidgetHairlineBrush", "#272D36", "#E5E8EE"),
+                ("WidgetTextPrimaryBrush", "#F1F3F5", "#1A1D21"),
+                ("WidgetTextSecondaryBrush", "#9EA5B0", "#5B616B"),
+                ("WidgetTextTertiaryBrush", "#6C737F", "#8C939E"),
+                ("WidgetPlaceholderBrush", "#6C737F", "#8C939E"),
+                ("WidgetAccentBrush", "#F97324", "#F97324"),
+                ("WidgetLaunchSecondaryBrush", "#252A33", "#FFFFFF"),
+                ("WidgetAccentBorderBrush", "#4A3323", "#E8C9B5"),
+                ("WidgetOrangePaleBrush", "#382418", "#FFF1E6"),
+                ("WidgetDangerBrush", "#F0524D", "#DC4440"),
+                ("WidgetDangerPaleBrush", "#331E20", "#FDECEB"),
+                ("WidgetDangerBorderBrush", "#52282B", "#F5CECC"),
+                ("WidgetSuccessBrush", "#26B86D", "#1F9256"),
+                ("WidgetSuccessPaleBrush", "#182E23", "#E6F5ED"),
             };
             foreach (var entry in colors)
                 Resources[entry.Key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dark ? entry.Dark : entry.Light));
@@ -643,7 +649,8 @@ namespace YTray.Views
         {
             if (!CommitProxyEditor()) return;
             var saved = _store.RememberPresetProxy();
-            ProxyStatus.Text = saved == null ? (_store.ErrorMessage ?? "保存失败") : "已保存";
+            Refresh();
+            ProxyStatus.Text = saved == null ? (_store.ErrorMessage ?? "保存失败") : "已保存预设";
             ProxyStatus.Foreground = saved == null
                 ? (Brush)FindResource("DangerBrush")
                 : (Brush)FindResource("SuccessBrush");

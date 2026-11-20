@@ -48,7 +48,7 @@ namespace YTray.Views
             foreach (var engine in online)
             {
                 var duplicate = online.Count(candidate => candidate.DisplayName == engine.DisplayName) > 1;
-                Add(engine, duplicate ? engine.DisplayName + " · " + engine.Detail : engine.DisplayName);
+                Add(engine, engine.PipeName == null || duplicate ? engine.DisplayName + " · " + engine.Detail : engine.DisplayName);
             }
             if (selected?.Mode == "legacy") Add(selected);
             if (selected?.Mode == "engine" && !online.Any(candidate => SameChoice(candidate, selected)))

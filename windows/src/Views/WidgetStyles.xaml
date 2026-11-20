@@ -1,27 +1,28 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- Measurements are WPF DIPs: the macOS reference is a 2x, 390-DIP popover. -->
     <Style TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
+
     <Style x:Key="WidgetIcon" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
     </Style>
+
     <Style x:Key="WidgetButton" TargetType="Button">
-        <Setter Property="Height" Value="28"/>
-        <Setter Property="Padding" Value="8,0"/>
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="Padding" Value="10,0"/>
         <Setter Property="Background" Value="{DynamicResource WidgetRaisedBrush}"/>
-        <Setter Property="BorderBrush" Value="{DynamicResource WidgetHairlineBrush}"/>
-        <Setter Property="BorderThickness" Value="0.5"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource WidgetBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
-        <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
-        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
+        <Setter Property="FontSize" Value="11.5"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -31,61 +32,98 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Chrome" CornerRadius="7" Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
                         <ContentPresenter Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="Width" Value="24"><Setter TargetName="Chrome" Property="CornerRadius" Value="6"/></Trigger>
-                        <Trigger Property="Height" Value="32"><Setter TargetName="Chrome" Property="CornerRadius" Value="8"/></Trigger>
-                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.84"/></Trigger>
-                        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.65"/></Trigger>
+                        <Trigger Property="Width" Value="28"><Setter TargetName="Chrome" Property="CornerRadius" Value="7"/></Trigger>
+                        <Trigger Property="Height" Value="34"><Setter TargetName="Chrome" Property="CornerRadius" Value="8"/></Trigger>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.88"/></Trigger>
+                        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.72"/></Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource WidgetAccentBrush}"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.42"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="WidgetPrimaryButton" TargetType="Button" BasedOn="{StaticResource WidgetButton}">
+        <Setter Property="Background" Value="{DynamicResource WidgetAccentBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource WidgetAccentBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+
+    <Style x:Key="WidgetGhostButton" TargetType="Button" BasedOn="{StaticResource WidgetButton}">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Padding" Value="4,0"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" CornerRadius="6" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource WidgetHoverBrush}"/></Trigger>
+                        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.75"/></Trigger>
                         <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.4"/></Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
     </Style>
-    <Style x:Key="WidgetPrimaryButton" TargetType="Button" BasedOn="{StaticResource WidgetButton}">
-        <Setter Property="Background" Value="{DynamicResource WidgetAccentBrush}"/>
-        <Setter Property="BorderBrush" Value="#B3FFCEAA"/>
-        <Setter Property="Foreground" Value="White"/>
-    </Style>
-    <Style x:Key="WidgetGhostButton" TargetType="Button" BasedOn="{StaticResource WidgetButton}">
-        <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="BorderBrush" Value="Transparent"/>
-        <Setter Property="Padding" Value="0"/>
-    </Style>
+
     <Style x:Key="WidgetControlLink" TargetType="Button" BasedOn="{StaticResource WidgetGhostButton}">
-        <Setter Property="Height" Value="18"/>
-        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="Height" Value="20"/>
+        <Setter Property="Padding" Value="4,0"/>
+        <Setter Property="FontSize" Value="11"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextSecondaryBrush}"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/></Trigger>
         </Style.Triggers>
     </Style>
+
     <Style x:Key="WidgetControlToggle" TargetType="ToggleButton">
-        <Setter Property="Width" Value="38"/><Setter Property="Height" Value="24"/>
-        <Setter Property="Cursor" Value="Hand"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Width" Value="38"/>
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Grid x:Name="SwitchRoot" Background="Transparent">
-                        <Border x:Name="FocusRing" CornerRadius="13" BorderThickness="1" BorderBrush="Transparent"/>
-                        <Border x:Name="Track" Width="34" Height="20" CornerRadius="10" Background="{DynamicResource WidgetSwitchOffBrush}"/>
-                        <Ellipse x:Name="Thumb" Width="16" Height="16" Fill="White" HorizontalAlignment="Left" Margin="4,0,0,0">
+                        <Border x:Name="FocusRing" CornerRadius="11" BorderThickness="1" BorderBrush="Transparent"/>
+                        <Border x:Name="Track" Width="38" Height="20" CornerRadius="10" Background="{DynamicResource WidgetSwitchOffBrush}" SnapsToDevicePixels="True"/>
+                        <Ellipse x:Name="Thumb" Width="15" Height="15" Fill="White" HorizontalAlignment="Left" Margin="3,0,0,0">
                             <Ellipse.RenderTransform><TranslateTransform X="0"/></Ellipse.RenderTransform>
-                            <Ellipse.Effect><DropShadowEffect BlurRadius="2" ShadowDepth="1" Opacity="0.16"/></Ellipse.Effect>
                         </Ellipse>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Track" Property="Background" Value="{DynamicResource WidgetSwitchOnBrush}"/>
-                            <Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="14" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.EnterActions>
-                            <Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="0" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.ExitActions>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="17" Duration="0:0:0.12"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="0" Duration="0:0:0.12"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Track" Property="Opacity" Value="0.88"/></Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="BorderBrush" Value="{DynamicResource WidgetAccentBrush}"/></Trigger>
@@ -95,47 +133,53 @@
             </Setter.Value>
         </Setter>
     </Style>
+
     <Style x:Key="WidgetIconButton" TargetType="Button" BasedOn="{StaticResource WidgetButton}">
-        <Setter Property="Width" Value="24"/>
-        <Setter Property="Height" Value="24"/>
+        <Setter Property="Width" Value="28"/>
+        <Setter Property="Height" Value="28"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextSecondaryBrush}"/>
     </Style>
+
     <Style x:Key="WidgetHeaderButton" TargetType="Button" BasedOn="{StaticResource WidgetGhostButton}">
-        <Setter Property="Width" Value="24"/>
-        <Setter Property="Height" Value="24"/>
+        <Setter Property="Width" Value="28"/>
+        <Setter Property="Height" Value="28"/>
+        <Setter Property="Padding" Value="0"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextSecondaryBrush}"/>
     </Style>
+
     <Style x:Key="WidgetDangerIconButton" TargetType="Button" BasedOn="{StaticResource WidgetIconButton}">
         <Setter Property="Foreground" Value="{DynamicResource WidgetDangerBrush}"/>
         <Setter Property="Background" Value="{DynamicResource WidgetDangerPaleBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource WidgetDangerBorderBrush}"/>
     </Style>
+
     <Style x:Key="WidgetTextBox" TargetType="TextBox">
-        <Setter Property="Height" Value="16"/>
+        <Setter Property="Height" Value="28"/>
         <Setter Property="MinHeight" Value="0"/>
-        <Setter Property="Padding" Value="7,0"/>
+        <Setter Property="Padding" Value="9,0"/>
         <Setter Property="Background" Value="{DynamicResource WidgetInputBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource WidgetBorderBrush}"/>
-        <Setter Property="BorderThickness" Value="0.5"/>
+        <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
         <Setter Property="CaretBrush" Value="{DynamicResource WidgetAccentBrush}"/>
         <Setter Property="SelectionBrush" Value="{DynamicResource WidgetAccentBrush}"/>
-        <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
-        <Setter Property="FontSize" Value="11.5"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="Medium"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
-                    <Border x:Name="Chrome" CornerRadius="3.5" Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                    <Border x:Name="Chrome" CornerRadius="6" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
                         <Grid>
                             <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
                             <TextBlock x:Name="Placeholder" Text="{TemplateBinding Tag}" Margin="{TemplateBinding Padding}"
-                                       Foreground="{DynamicResource WidgetPlaceholderBrush}" FontWeight="SemiBold"
-                                       FontSize="{TemplateBinding FontSize}" IsHitTestVisible="False" Visibility="Collapsed"/>
+                                       Foreground="{DynamicResource WidgetPlaceholderBrush}" FontWeight="Normal"
+                                       FontSize="11.5" IsHitTestVisible="False" Visibility="Collapsed"/>
                         </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -147,21 +191,23 @@
             </Setter.Value>
         </Setter>
     </Style>
+
     <Style x:Key="WidgetPasswordBox" TargetType="PasswordBox">
-        <Setter Property="Height" Value="16"/>
+        <Setter Property="Height" Value="28"/>
         <Setter Property="MinHeight" Value="0"/>
-        <Setter Property="Padding" Value="7,0"/>
+        <Setter Property="Padding" Value="9,0"/>
         <Setter Property="Background" Value="{DynamicResource WidgetInputBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource WidgetBorderBrush}"/>
-        <Setter Property="BorderThickness" Value="0.5"/>
+        <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
         <Setter Property="CaretBrush" Value="{DynamicResource WidgetAccentBrush}"/>
-        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="FontSize" Value="12"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="PasswordBox">
-                    <Border x:Name="Chrome" CornerRadius="3.5" Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                    <Border x:Name="Chrome" CornerRadius="6" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
                         <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -171,13 +217,15 @@
             </Setter.Value>
         </Setter>
     </Style>
+
     <Style x:Key="WidgetComboItem" TargetType="ComboBoxItem">
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
-        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="Padding" Value="9,6"/>
+        <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBoxItem">
-                    <Border x:Name="Chrome" CornerRadius="4" Padding="{TemplateBinding Padding}" Background="Transparent">
+                    <Border x:Name="Chrome" CornerRadius="5" Padding="{TemplateBinding Padding}" Background="Transparent">
                         <ContentPresenter/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -192,10 +240,12 @@
             </Setter.Value>
         </Setter>
     </Style>
+
     <Style x:Key="WidgetComboBox" TargetType="ComboBox">
-        <Setter Property="Height" Value="16"/>
+        <Setter Property="Height" Value="28"/>
         <Setter Property="MinHeight" Value="0"/>
-        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
         <Setter Property="ItemContainerStyle" Value="{StaticResource WidgetComboItem}"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -203,17 +253,17 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
                     <Grid>
-                        <ToggleButton Style="{x:Null}" Focusable="False" ClickMode="Press" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                        <ToggleButton Style="{x:Null}" Focusable="False" ClickMode="Press" Cursor="Hand" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
-                                    <Border CornerRadius="3.5" Background="{DynamicResource WidgetComboBrush}"
-                                            BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="0.5">
-                                        <Grid Margin="6,0,5,0">
+                                    <Border CornerRadius="6" Background="{DynamicResource WidgetComboBrush}"
+                                            BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1" SnapsToDevicePixels="True">
+                                        <Grid Margin="8,0,7,0">
                                             <ContentPresenter Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"
-                                                              VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                            <Path Data="M0,3 L2,1 L4,3 M0,6 L2,8 L4,6"
-                                                  Stroke="{DynamicResource WidgetTextPrimaryBrush}" StrokeThickness="1.2"
+                                                              VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                            <Path Data="M 0,2 L 3.5,5.5 L 7,2"
+                                                  Stroke="{DynamicResource WidgetTextSecondaryBrush}" StrokeThickness="1.35"
                                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
                                         </Grid>
@@ -223,7 +273,7 @@
                         </ToggleButton>
                         <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
                                IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Fade">
-                            <Border Margin="0,3,0,0" Padding="4" MinWidth="{TemplateBinding ActualWidth}" CornerRadius="6"
+                            <Border Margin="0,4,0,0" Padding="4" MinWidth="{TemplateBinding ActualWidth}" CornerRadius="8"
                                     Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1">
                                 <ScrollViewer CanContentScroll="True" MaxHeight="220"><ItemsPresenter/></ScrollViewer>
                             </Border>
@@ -233,14 +283,16 @@
             </Setter.Value>
         </Setter>
     </Style>
+
     <Style x:Key="WidgetMenuItem" TargetType="MenuItem">
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
         <Setter Property="FontSize" Value="12"/>
-        <Setter Property="Padding" Value="10,6"/>
+        <Setter Property="Padding" Value="10,7"/>
+        <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="Chrome" Padding="{TemplateBinding Padding}" CornerRadius="5" Background="Transparent">
+                    <Border x:Name="Chrome" Padding="{TemplateBinding Padding}" CornerRadius="6" Background="Transparent">
                         <ContentPresenter ContentSource="Header"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -251,6 +303,7 @@
             </Setter.Value>
         </Setter>
     </Style>
+
     <Style x:Key="WidgetContextMenu" TargetType="ContextMenu">
         <Setter Property="Background" Value="{DynamicResource WidgetDeepBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource WidgetTextPrimaryBrush}"/>
@@ -259,26 +312,27 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ContextMenu">
                     <Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource WidgetBorderBrush}"
-                            BorderThickness="1" CornerRadius="8" Padding="5"><StackPanel IsItemsHost="True"/></Border>
+                            BorderThickness="1" CornerRadius="9" Padding="5"><StackPanel IsItemsHost="True"/></Border>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
     </Style>
+
     <DataTemplate x:Key="WidgetThumbnail">
         <Grid ClipToBounds="True">
-            <Border Background="{DynamicResource WidgetSurfaceBrush}" CornerRadius="8"
-                    BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1"/>
+            <Border Background="{DynamicResource WidgetSurfaceBrush}" CornerRadius="7"
+                    BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1" SnapsToDevicePixels="True"/>
             <Image Source="{Binding ThumbnailSource}" Stretch="UniformToFill" Margin="1"/>
-            <Border Width="19" Height="19" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="2"
-                    CornerRadius="5" Background="#55888888" BorderBrush="#77FFFFFF" BorderThickness="0.5">
+            <Border Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="3"
+                    CornerRadius="5" Background="#8816191E" BorderBrush="#44FFFFFF" BorderThickness="0.75">
                 <Grid>
-                    <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="{DynamicResource WidgetAccentBrush}" HorizontalAlignment="Center"/>
-                    <Image Source="{Binding RuntimeIconSource}" Width="14" Height="14"/>
+                    <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{DynamicResource WidgetAccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Image Source="{Binding RuntimeIconSource}" Width="13" Height="13"/>
                 </Grid>
             </Border>
             <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="3"
-                    Width="15" Height="15" CornerRadius="7.5" Background="{DynamicResource WidgetAccentBrush}" BorderBrush="White" BorderThickness="1">
-                <TextBlock Text="{Binding DockBadge}" Foreground="White" FontSize="9" FontWeight="Bold"
+                    MinWidth="16" Height="16" Padding="3,0" CornerRadius="8" Background="{Binding IdentityBrush}" BorderBrush="White" BorderThickness="1">
+                <TextBlock Text="{Binding DockBadge}" Foreground="{Binding IdentityForegroundBrush}" FontSize="9" FontWeight="Bold"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
         </Grid>

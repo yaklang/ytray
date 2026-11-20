@@ -41,51 +41,54 @@ namespace YTray.Tests
             Assert.AreEqual("memfit", restored.EngineTarget.FrontendId);
             var url = BrowserLauncher.ManagedBrowserBootstrapURL("extension-id", Guid.NewGuid(), "A", "https://example.test", false,
                 engineTarget: settings.EngineTarget);
+            StringAssert.Contains(new Uri(url).Query, "&engineTargetV2=");
+            Assert.IsFalse(new Uri(url).Query.Contains("&engineTarget="));
             StringAssert.Contains(Uri.UnescapeDataString(url), "\"engineIdentityId\":\"stable-key\"");
             StringAssert.Contains(Uri.UnescapeDataString(url), "\"frontendId\":\"memfit\"");
         }
 
         [TestMethod]
-        public void AutomaticLaunchOnlyChoosesNativeTargetsAndPreservesExplicitLegacySettings()
+        public void AutomaticLaunchLeavesConnectionSelectionToThePlugin()
         {
-            var legacy = BrowserEngineDiscovery.ResolveForLaunch(null, new BrowserEngineTarget[0], false);
-            Assert.AreEqual("auto", legacy.Mode);
-            var restoredLegacy = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target() }, true);
-            Assert.AreEqual("auto", restoredLegacy.Mode);
-            var automatic = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target() }, false);
+            var automatic = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target() });
             Assert.AreEqual("auto", automatic.Mode);
-            var savedLegacy = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "legacy" }, new[] { Target() }, false);
+            var savedLegacy = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "legacy" }, new[] { Target() });
             Assert.AreEqual("legacy", savedLegacy.Mode);
-            var optedOut = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "none" }, new[] { Target() }, false);
+            var optedOut = BrowserEngineDiscovery.ResolveForLaunch(new BrowserEngineTarget { Mode = "none" }, new[] { Target() });
             Assert.AreEqual("none", optedOut.Mode);
 
             var url = BrowserLauncher.ManagedBrowserBootstrapURL("extension-id", Guid.NewGuid(), "A", "https://example.test", false);
-            StringAssert.Contains(Uri.UnescapeDataString(url), "\"mode\":\"auto\"");
+            StringAssert.Contains(Uri.UnescapeDataString(new Uri(url).Query), "&engineTargetV2={\"mode\":\"auto\"}");
+            Assert.IsFalse(new Uri(url).Query.Contains("&engineTarget="));
+
+            var browserOnly = BrowserLauncher.ManagedBrowserBootstrapURL("extension-id", Guid.NewGuid(), "A", "https://example.test", false,
+                engineTarget: optedOut);
+            StringAssert.Contains(Uri.UnescapeDataString(new Uri(browserOnly).Query), "&engineTarget={\"mode\":\"none\"}");
         }
 
         [TestMethod]
         public void RememberedTargetNeverFallsBackToLegacyWhenDiscoveryDisappears()
         {
             var saved = Target();
-            var resolved = BrowserEngineDiscovery.ResolveForLaunch(saved, new BrowserEngineTarget[0], true);
+            var resolved = BrowserEngineDiscovery.ResolveForLaunch(saved, new BrowserEngineTarget[0]);
             Assert.AreEqual("engine", resolved.Mode);
             Assert.AreEqual("stable-key", resolved.EngineIdentityId);
             Assert.AreEqual("process-a", resolved.EngineInstanceId);
             Assert.AreEqual("memfit", resolved.FrontendId);
-            var ambiguous = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target(), Target("other", "yakit") }, false);
+            var ambiguous = BrowserEngineDiscovery.ResolveForLaunch(null, new[] { Target(), Target("other", "yakit") });
             Assert.AreEqual("auto", ambiguous.Mode);
             Assert.AreEqual("auto", (string)ambiguous.ToWire()["mode"]);
-            Assert.AreEqual("auto", BrowserEngineDiscovery.ResolveForLaunch(ambiguous, new[] { Target() }, true).Mode);
+            Assert.AreEqual("auto", BrowserEngineDiscovery.ResolveForLaunch(ambiguous, new[] { Target() }).Mode);
         }
 
         [TestMethod]
-        public void AutomaticLaunchChoosesTheNativeEngineAndPinnedPipeNeverSwitchesToWebSocket()
+        public void AutomaticLaunchStaysAutomaticAndPinnedPipeNeverSwitchesToWebSocket()
         {
             var native = Target();
             native.PipeName = "pipe";
             native.Endpoint = "";
             var legacy = Target("websocket-process");
-            Assert.AreEqual("pipe", BrowserEngineDiscovery.ResolveForLaunch(null, new[] { native, legacy }, false).PipeName);
+            Assert.AreEqual("auto", BrowserEngineDiscovery.ResolveForLaunch(null, new[] { native, legacy }).Mode);
             Assert.AreEqual(native.EngineInstanceId, BrowserEngineDiscovery.ResolveRemembered(native, new[] { legacy })!.EngineInstanceId);
         }
 

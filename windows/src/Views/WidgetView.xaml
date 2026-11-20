@@ -1,4 +1,13 @@
-<Window x:Class="YTray.Views.WidgetView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=mscorlib" Title="YTray" Width="390" SizeToContent="Height" MaxHeight="1000" WindowStyle="None" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False" Topmost="True" ShowActivated="False" ResizeMode="NoResize" WindowStartupLocation="Manual" UseLayoutRounding="False" TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="Grayscale">
+<Window x:Class="YTray.Views.WidgetView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        Title="YTray" Width="390" SizeToContent="Height" MaxHeight="1000"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" Topmost="True" ShowActivated="False" ResizeMode="NoResize"
+        WindowStartupLocation="Manual" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Foreground="{DynamicResource WidgetTextPrimaryBrush}"
+        TextOptions.TextFormattingMode="Display">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -6,338 +15,386 @@
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Window.Resources>
-    <Border x:Name="RootBorder" CornerRadius="18" Background="{DynamicResource WidgetSurfaceBrush}">
+
+    <Border x:Name="RootBorder" CornerRadius="14" Background="{DynamicResource WidgetSurfaceBrush}"
+            BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="1">
         <Border.RenderTransform>
             <TranslateTransform x:Name="EntranceTransform" />
         </Border.RenderTransform>
-        <Grid Margin="14,20">
+
+        <Grid Margin="14,15">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid Height="105" Margin="0,0,0,9">
+
+            <!-- Row 0: Header + Compact Computer Control Strip -->
+            <Grid Margin="0,0,0,10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="9" />
+                    <RowDefinition Height="58" />
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Top" Margin="0,0,8,0">
-                    <TextBlock Text="浏览器与电脑控制" FontSize="16" FontWeight="Bold" Height="22" />
-                    <TextBlock x:Name="DefaultRuntimeLabel" FontSize="10.5" Height="13" FontWeight="SemiBold" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+
+                <StackPanel VerticalAlignment="Center" Margin="2,0,8,0">
+                    <TextBlock Text="YTray 快捷工作台" FontSize="15" FontWeight="Bold" />
+                    <TextBlock x:Name="DefaultRuntimeLabel" Margin="0,2,0,0" FontSize="11" FontWeight="Medium"
+                               Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
+
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
-                    <Button x:Name="QuickConfigBtn" Style="{StaticResource WidgetGhostButton}" Click="QuickConfig_Click" Margin="0,0,15,0" ToolTip="快速配置">
+                    <Button x:Name="QuickConfigBtn" Style="{StaticResource WidgetGhostButton}" Height="28" Padding="8,0" Click="QuickConfig_Click" Margin="0,0,5,0" ToolTip="切换默认浏览器">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,6,0" />
-                            <TextBlock Text="快速配置" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="12" />
+                            <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,5,0" />
+                            <TextBlock Text="浏览器" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11.5" />
                             <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="4,0,0,0" FontSize="8" />
                         </StackPanel>
                     </Button>
-                    <Button x:Name="PinBtn" Style="{StaticResource WidgetHeaderButton}" Click="Pin_Click" ToolTip="固定小组件" Margin="0,0,8,0">
+                    <Button x:Name="PinBtn" Style="{StaticResource WidgetHeaderButton}" Click="Pin_Click" ToolTip="固定小组件" Margin="0,0,4,0">
                         <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" />
                     </Button>
                     <Button Style="{StaticResource WidgetHeaderButton}" Click="Close_Click" ToolTip="关闭">
-                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" FontSize="11" />
+                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" FontSize="10.5" />
                     </Button>
                 </StackPanel>
-                <Border x:Name="ComputerControlCard" Grid.ColumnSpan="2" VerticalAlignment="Bottom" Height="64" Padding="12,8" CornerRadius="10"
-                        Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="0.5">
+
+                <Border x:Name="ComputerControlCard" Grid.Row="2" Grid.ColumnSpan="2" Height="58" Padding="12,7" CornerRadius="10"
+                        Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="1">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions><RowDefinition Height="24"/><RowDefinition Height="4"/><RowDefinition Height="18"/></Grid.RowDefinitions>
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="{DynamicResource WidgetTextSecondaryBrush}" Margin="0,0,7,0"/><TextBlock Text="电脑控制" FontSize="12" FontWeight="SemiBold"/></StackPanel>
+                        <Grid.RowDefinitions><RowDefinition Height="22"/><RowDefinition Height="2"/><RowDefinition Height="18"/></Grid.RowDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="12.5" Foreground="{DynamicResource WidgetAccentBrush}" Margin="0,0,7,0"/>
+                            <TextBlock Text="电脑控制" FontSize="12" FontWeight="SemiBold"/>
+                        </StackPanel>
                         <ToggleButton x:Name="ComputerControlToggle" Grid.Column="1" HorizontalAlignment="Right" Style="{StaticResource WidgetControlToggle}" Click="ComputerControl_Click"
                                       AutomationProperties.Name="电脑控制开关" AutomationProperties.HelpText="开启后持续可用，关闭即停止电脑控制" ToolTip="开启或关闭电脑控制"/>
                         <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
-                            <Ellipse x:Name="ComputerStateDot" Width="5" Height="5" Fill="{DynamicResource WidgetTextTertiaryBrush}" Margin="0,0,5,0"/>
-                            <TextBlock x:Name="ComputerStatusText" FontSize="10" FontWeight="Normal" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                            <Ellipse x:Name="ComputerStateDot" Width="6" Height="6" Fill="{DynamicResource WidgetTextTertiaryBrush}" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="ComputerStatusText" FontSize="10.5" FontWeight="Normal" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
                         <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <Button x:Name="ComputerMcpButton" Click="ComputerMcp_Click" Style="{StaticResource WidgetControlLink}" AutomationProperties.Name="复制电脑控制配置" ToolTip="仅复制电脑控制 MCP；两个服务的配置请打开下方 MCP">
-                                <TextBlock x:Name="ComputerCopyLabel" Text="复制电脑控制配置" FontWeight="Normal" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="10.5"/>
+                                <TextBlock x:Name="ComputerCopyLabel" Text="复制电脑控制配置" FontWeight="Medium" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="10.5"/>
                             </Button>
-                            <Border Width="0.5" Height="10" Background="{DynamicResource WidgetBorderBrush}" Margin="10,0"/>
+                            <Border Width="1" Height="10" Background="{DynamicResource WidgetBorderBrush}" Margin="7,0"/>
                             <Button x:Name="ComputerAdvancedButton" Click="ComputerAdvanced_Click" Style="{StaticResource WidgetControlLink}" AutomationProperties.Name="电脑控制高级设置" ToolTip="打开电脑控制设置窗口">
-                                <StackPanel Orientation="Horizontal"><TextBlock Text="高级" FontWeight="Normal" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="10.5"/><TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="7" Margin="4,0,0,0"/></StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="高级" FontWeight="Medium" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="10.5"/>
+                                    <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="8" Margin="4,0,0,0"/>
+                                </StackPanel>
                             </Button>
                         </StackPanel>
                     </Grid>
                 </Border>
             </Grid>
-            <Border x:Name="ProxyCard" Grid.Row="1" Height="136" CornerRadius="11" Padding="9.25,0" Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetAccentBorderBrush}" BorderThickness="0.75">
-                <StackPanel VerticalAlignment="Center">
-                    <Grid Height="22" Margin="0,0,0,7">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="预设代理" FontSize="12" FontWeight="Bold" />
-                            <TextBlock Text="用于高频本地网络调试" FontSize="9.5" Margin="6,0,0,0" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+
+            <!-- Row 1: Hero Dual Launch Bar (Promoted to Top!) -->
+            <Grid Grid.Row="1" Height="36" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="1.36*" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="DirectBtn" Height="36" Background="{DynamicResource WidgetLaunchSecondaryBrush}" Click="DirectLaunch_Click" Style="{StaticResource WidgetButton}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,6,0" />
+                        <TextBlock Text="无代理启动" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="12" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ProxyBtn" Grid.Column="2" Height="36" Click="ProxyLaunch_Click" Style="{StaticResource WidgetPrimaryButton}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,6,0" />
+                        <TextBlock Text="使用 HTTP 代理启动" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="12" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <!-- Row 2: Collapsible Proxy Capsule (50px Summary by Default, Unfolds on Demand!) -->
+            <Border x:Name="ProxyCard" Grid.Row="2" Height="50" CornerRadius="10" Padding="11,9"
+                    Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetAccentBorderBrush}" BorderThickness="1">
+                <StackPanel VerticalAlignment="Top">
+                    <!-- Compact Summary Strip -->
+                    <Grid Height="30">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="预设代理" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+                                <TextBlock x:Name="ProxySummaryText" Margin="7,0,0,0" FontFamily="Cascadia Mono, Consolas, Segoe UI" FontSize="11.5" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <TextBlock x:Name="ProxyStatus" Margin="0,1,0,0" FontSize="10" FontWeight="Normal" Foreground="{DynamicResource WidgetTextTertiaryBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                         </StackPanel>
-                        <Button x:Name="ProxyHistoryBtn" HorizontalAlignment="Right" Height="22" Click="ProxyHistory_Click" Style="{StaticResource WidgetGhostButton}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,5,0" />
-                                <TextBlock Text="历史" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
-                                <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="4,0,0,0" FontSize="8" />
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-                    <Grid Height="16" Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="76" />
-                            <ColumnDefinition Width="6" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="64" />
-                        </Grid.ColumnDefinitions>
-                        <ComboBox x:Name="SchemeCombo" Style="{StaticResource WidgetComboBox}" SelectionChanged="ProxyEditor_Changed" AutomationProperties.Name="代理协议">
-                            <sys:String>HTTP</sys:String>
-                            <sys:String>HTTPS</sys:String>
-                        </ComboBox>
-                        <TextBox x:Name="HostBox" Grid.Column="2" Style="{StaticResource WidgetTextBox}" Tag="Host，例如 127.0.0.1" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理主机" />
-                        <TextBox x:Name="PortBox" Grid.Column="4" Style="{StaticResource WidgetTextBox}" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理端口" />
-                    </Grid>
-                    <Grid Height="16" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="42" />
-                            <ColumnDefinition Width="6" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="6" />
-                            <ColumnDefinition Width="46" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="备注" FontSize="10.5" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
-                        <TextBox x:Name="RemarkBox" Grid.Column="2" Style="{StaticResource WidgetTextBox}" Tag="可选，例如 Yak MITM" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理备注" />
-                        <TextBlock x:Name="RecentProxyCount" Grid.Column="4" FontSize="9.5" HorizontalAlignment="Right" Foreground="{DynamicResource WidgetTextTertiaryBrush}" />
-                    </Grid>
-                    <Grid Height="28">
-                        <Button x:Name="AdvancedBtn" Width="60" HorizontalAlignment="Left" Click="Advanced_Click" Style="{StaticResource WidgetButton}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock x:Name="AdvancedGlyph" Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,7,0" />
-                                <TextBlock Text="高级" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
-                            </StackPanel>
-                        </Button>
-                        <TextBlock x:Name="ProxyStatus" Margin="66,0,128,0" FontSize="9" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button x:Name="CheckBtn" Width="54" Padding="6,0" Click="Check_Click" Style="{StaticResource WidgetButton}">
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="CheckBtn" Width="58" Height="28" Padding="6,0" Click="Check_Click" Style="{StaticResource WidgetButton}">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,6,0" />
+                                    <TextBlock Text="" Style="{StaticResource WidgetIcon}" FontSize="11" Margin="0,0,4,0" />
                                     <TextBlock Text="检测" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
                                 </StackPanel>
                             </Button>
-                            <Border Width="7" />
-                            <Button x:Name="SaveBtn" Width="62" Click="Save_Click" Style="{StaticResource WidgetPrimaryButton}">
+                            <Border Width="6" />
+                            <Button x:Name="AdvancedBtn" Width="62" Height="28" Padding="6,0" Click="Advanced_Click" Style="{StaticResource WidgetButton}">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,6,0" />
-                                    <TextBlock Text="保存" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
+                                    <TextBlock x:Name="AdvancedLabel" Text="配置" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
+                                    <TextBlock x:Name="AdvancedGlyph" Text="" Style="{StaticResource WidgetIcon}" FontSize="8" Margin="5,0,0,0" />
                                 </StackPanel>
                             </Button>
                         </StackPanel>
                     </Grid>
+
+                    <!-- Collapsible Full Proxy Editor Drawer -->
                     <StackPanel x:Name="AdvancedPanel" Visibility="Collapsed">
-                        <Border Height="0.5" Background="{DynamicResource WidgetHairlineBrush}" Margin="0,7,0,9" />
-                        <Grid Height="16" Margin="0,0,0,10">
+                        <Border Height="1" Background="{DynamicResource WidgetHairlineBrush}" Margin="0,9,0,9" />
+                        <Grid Height="22" Margin="0,0,0,7">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="编辑代理与认证" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+                                <TextBlock x:Name="RecentProxyCount" Margin="7,0,0,0" FontSize="10" FontWeight="Normal" Foreground="{DynamicResource WidgetTextTertiaryBrush}" />
+                            </StackPanel>
+                            <Button x:Name="ProxyHistoryBtn" HorizontalAlignment="Right" Height="22" Padding="6,0" Click="ProxyHistory_Click" Style="{StaticResource WidgetGhostButton}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,4,0" FontSize="10.5" />
+                                    <TextBlock Text="历史预设" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
+                                    <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="4,0,0,0" FontSize="8" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <Grid Height="28" Margin="0,0,0,7">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="48" />
-                                <ColumnDefinition Width="7" />
+                                <ColumnDefinition Width="82" />
+                                <ColumnDefinition Width="6" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="68" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="SchemeCombo" Style="{StaticResource WidgetComboBox}" SelectionChanged="ProxyEditor_Changed" AutomationProperties.Name="代理协议">
+                                <sys:String>HTTP</sys:String>
+                                <sys:String>HTTPS</sys:String>
+                            </ComboBox>
+                            <TextBox x:Name="HostBox" Grid.Column="2" Style="{StaticResource WidgetTextBox}" Tag="Host，例如 127.0.0.1" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理主机" />
+                            <TextBox x:Name="PortBox" Grid.Column="4" Style="{StaticResource WidgetTextBox}" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理端口" />
+                        </Grid>
+
+                        <Grid Height="28" Margin="0,0,0,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="42" />
+                                <ColumnDefinition Width="6" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="" FontFamily="Segoe MDL2 Assets" FontSize="11" Margin="0,0,9,0" />
-                                <TextBlock Text="认证" FontSize="10.5" />
-                            </StackPanel>
+                            <TextBlock Text="备注" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+                            <TextBox x:Name="RemarkBox" Grid.Column="2" Style="{StaticResource WidgetTextBox}" Tag="可选，例如 Yak MITM" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理备注" />
+                        </Grid>
+
+                        <Grid Height="28" Margin="0,0,0,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="42" />
+                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="认证" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
                             <TextBox x:Name="UsernameBox" Grid.Column="2" Style="{StaticResource WidgetTextBox}" Tag="用户名（可选）" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理用户名" />
                             <Grid Grid.Column="4">
                                 <PasswordBox x:Name="PasswordInput" Style="{StaticResource WidgetPasswordBox}" PasswordChanged="Password_Changed" AutomationProperties.Name="代理密码" />
-                                <TextBlock x:Name="PasswordPlaceholder" Text="密码（随历史保存）" FontSize="11" Foreground="{DynamicResource WidgetPlaceholderBrush}" Margin="7,0" IsHitTestVisible="False" />
+                                <TextBlock x:Name="PasswordPlaceholder" Text="密码（可选）" FontSize="11.5" FontWeight="Normal" Foreground="{DynamicResource WidgetPlaceholderBrush}" Margin="9,0" IsHitTestVisible="False" />
                             </Grid>
                         </Grid>
-                        <Grid Height="16" Margin="0,0,0,6">
+
+                        <Grid Height="30">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="48" />
-                                <ColumnDefinition Width="7" />
+                                <ColumnDefinition Width="42" />
+                                <ColumnDefinition Width="6" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="7" />
-                                <ColumnDefinition Width="70" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="68" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,9,0" />
-                                <TextBlock Text="目标" FontSize="10.5" />
-                            </StackPanel>
-                            <TextBox x:Name="TargetBox" Grid.Column="2" Style="{StaticResource WidgetTextBox}" Tag="特定 URL / DOMAIN（可选）" FontSize="10.5" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理检测目标" />
-                            <TextBlock Grid.Column="4" Text="自动补全 https://" FontSize="9" Foreground="{DynamicResource WidgetTextTertiaryBrush}" />
+                            <TextBlock Text="测速" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+                            <TextBox x:Name="TargetBox" Grid.Column="2" Style="{StaticResource WidgetTextBox}" Tag="探测域名 / URL（可选）" TextChanged="ProxyEditor_Changed" AutomationProperties.Name="代理检测目标" />
+                            <Button x:Name="SaveBtn" Grid.Column="4" Width="68" Height="28" Padding="6,0" Click="Save_Click" Style="{StaticResource WidgetPrimaryButton}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,5,0" />
+                                    <TextBlock Text="保存" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11.5" />
+                                </StackPanel>
+                            </Button>
                         </Grid>
                     </StackPanel>
                 </StackPanel>
             </Border>
-            <ScrollViewer x:Name="InstanceScroll" Grid.Row="2" Margin="0,9" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+
+            <!-- Row 3: Scrollable Running & History Instances -->
+            <ScrollViewer x:Name="InstanceScroll" Grid.Row="3" Margin="0,10" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
-                    <Button Height="17" Click="RunningSection_Click" HorizontalContentAlignment="Left" Style="{StaticResource WidgetGhostButton}" Margin="0,0,0,9">
+                    <Button Height="22" Click="RunningSection_Click" HorizontalContentAlignment="Left" Style="{StaticResource WidgetGhostButton}" Margin="0,0,0,7">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock x:Name="RunningChevron" Text="" Style="{StaticResource WidgetIcon}" FontSize="8" Margin="0,0,6,0" />
                             <TextBlock Text="运行中" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="12" />
-                            <TextBlock x:Name="RunningCountLabel" FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}" Margin="5,0,0,0" />
+                            <Border CornerRadius="8" Background="{DynamicResource WidgetRaisedBrush}" Padding="6,1" Margin="6,0,0,0">
+                                <TextBlock x:Name="RunningCountLabel" FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+                            </Border>
                         </StackPanel>
                     </Button>
-                    <Border x:Name="RunningCard" CornerRadius="11" Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetAccentBorderBrush}" BorderThickness="0.75" Margin="0,0,0,9">
-                        <Grid Margin="-0.75">
-                            <Grid x:Name="RunningEmpty" Height="62" Margin="9,0">
+
+                    <Border x:Name="RunningCard" CornerRadius="10" Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="1" Margin="0,0,0,10" ClipToBounds="True">
+                        <Grid>
+                            <Grid x:Name="RunningEmpty" Height="60" Margin="12,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="30" />
+                                    <ColumnDefinition Width="34" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="{DynamicResource WidgetAccentBrush}" />
+                                <Border Width="28" Height="28" CornerRadius="7" Background="{DynamicResource WidgetOrangePaleBrush}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="{DynamicResource WidgetAccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="暂无运行实例" FontSize="12" />
-                                    <TextBlock Text="启动浏览器后将在这里显示" FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+                                    <TextBlock Text="点击上方按钮一键启动独立浏览器环境" FontSize="10.5" FontWeight="Normal" Margin="0,2,0,0" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
                                 </StackPanel>
-                                <Button Grid.Column="2" Click="OpenManager_Click" Width="54" Style="{StaticResource WidgetPrimaryButton}" Content="更换" />
+                                <Button Grid.Column="2" Click="OpenManager_Click" Width="56" Height="28" Style="{StaticResource WidgetButton}" Content="配置" />
                             </Grid>
+
                             <ItemsControl x:Name="RunningList">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid Height="68" Margin="9,0">
+                                        <Grid Height="70" Margin="10,0">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="76" />
-                                                <ColumnDefinition Width="8" />
+                                                <ColumnDefinition Width="74" />
+                                                <ColumnDefinition Width="9" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="7" />
-                                                <ColumnDefinition Width="84" />
+                                                <ColumnDefinition Width="6" />
+                                                <ColumnDefinition Width="92" />
                                             </Grid.ColumnDefinitions>
-                                            <ContentControl Width="76" Height="48" VerticalAlignment="Center" Content="{Binding}" ContentTemplate="{StaticResource WidgetThumbnail}" SizeChanged="Thumbnail_SizeChanged" Tag="{Binding}" MouseEnter="Thumbnail_MouseEnter" MouseLeave="Thumbnail_MouseLeave" />
+                                            <ContentControl Width="74" Height="46" VerticalAlignment="Center" Content="{Binding}" ContentTemplate="{StaticResource WidgetThumbnail}" SizeChanged="Thumbnail_SizeChanged" Tag="{Binding}" MouseEnter="Thumbnail_MouseEnter" MouseLeave="Thumbnail_MouseLeave" />
                                             <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                                 <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" MaxWidth="115" TextTrimming="CharacterEllipsis" />
-                                                    <Border Background="{DynamicResource WidgetSuccessPaleBrush}" CornerRadius="8" Padding="6,1" Margin="5,0,0,0">
+                                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" MaxWidth="116" TextTrimming="CharacterEllipsis" />
+                                                    <Border Background="{DynamicResource WidgetSuccessPaleBrush}" CornerRadius="7" Padding="5,1" Margin="5,0,0,0">
                                                         <TextBlock Text="运行中" FontSize="9.5" Foreground="{DynamicResource WidgetSuccessBrush}" />
                                                     </Border>
                                                 </StackPanel>
-                                                <TextBlock FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0">
-                                                    <Run Text="{Binding RuntimeTitle, Mode=OneWay}" />
-                                                    <Run Text=" " />
-                                                    <Run Text="{Binding RuntimeVersion, Mode=OneWay}" />
-                                                    <Run Text=" · " />
+                                                <TextBlock FontSize="10.5" FontWeight="Normal" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0">
                                                     <Run Text="{Binding PageTitle, Mode=OneWay}" />
-                                                </TextBlock>
-                                                <TextBlock FontSize="9.5" Foreground="{DynamicResource WidgetTextTertiaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0">
-                                                    <Run Text="PID " />
-                                                    <Run Text="{Binding ProcessID, Mode=OneWay, StringFormat={}{0:N0}}" />
-                                                    <Run Text=" · 调试 :" />
-                                                    <Run Text="{Binding DebugPort, Mode=OneWay, StringFormat={}{0:N0}}" />
                                                     <Run Text=" · " />
-                                                    <Run Text="{Binding Instance.EngineTargetSummary, Mode=OneWay}" />
+                                                    <Run Text="{Binding RuntimeTitle, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock FontSize="10" FontWeight="Normal" Foreground="{DynamicResource WidgetTextTertiaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0">
+                                                    <Run Text="PID " />
+                                                    <Run Text="{Binding ProcessID, Mode=OneWay}" />
+                                                    <Run Text=" · " />
+                                                    <Run Text="{Binding DebugPortTag, Mode=OneWay}" />
+                                                    <Run Text=" · " />
+                                                    <Run Text="{Binding NetworkBadgeLabel, Mode=OneWay}" />
                                                 </TextBlock>
                                             </StackPanel>
-                                            <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
-                                                <Button Click="Focus_Click" ToolTip="聚焦窗口" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}" Margin="0,0,6,0" Foreground="{DynamicResource WidgetTextPrimaryBrush}">
+                                            <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                                <Button Click="Focus_Click" ToolTip="聚焦窗口" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}" Margin="0,0,4,0" Foreground="{DynamicResource WidgetTextPrimaryBrush}">
                                                     <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" />
                                                 </Button>
-                                                <Button Click="Capture_Click" ToolTip="{Binding CaptureToolTip}" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}" Margin="0,0,6,0" IsEnabled="{Binding CanCapture}">
+                                                <Button Click="Capture_Click" ToolTip="{Binding CaptureToolTip}" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}" Margin="0,0,4,0" IsEnabled="{Binding CanCapture}">
                                                     <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" />
                                                 </Button>
                                                 <Button Click="Stop_Click" ToolTip="{Binding StopToolTip}" Tag="{Binding Instance}" Style="{StaticResource WidgetDangerIconButton}" IsEnabled="{Binding CanStop}">
-                                                    <Rectangle Width="9" Height="9" RadiusX="1.3" RadiusY="1.3" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                                    <Rectangle Width="9" Height="9" RadiusX="1.5" RadiusY="1.5" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                                                 </Button>
                                             </StackPanel>
-                                            <Border Grid.ColumnSpan="5" Height="0.5" VerticalAlignment="Bottom" Margin="30,0,0,0" Background="{DynamicResource WidgetHairlineBrush}" />
+                                            <Border Grid.ColumnSpan="5" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource WidgetHairlineBrush}" />
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </Grid>
                     </Border>
-                    <Grid Height="21" Margin="0,0,0,9">
-                        <Button Click="HistorySection_Click" HorizontalAlignment="Left" Height="21" Style="{StaticResource WidgetGhostButton}">
+
+                    <Grid Height="22" Margin="0,0,0,7">
+                        <Button Click="HistorySection_Click" HorizontalAlignment="Left" Height="22" Style="{StaticResource WidgetGhostButton}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock x:Name="HistoryChevron" Text="" Style="{StaticResource WidgetIcon}" FontSize="8" Margin="0,0,6,0" />
                                 <TextBlock Text="历史" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="12" />
-                                <TextBlock x:Name="HistoryCountLabel" FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}" Margin="5,0,0,0" />
+                                <Border CornerRadius="8" Background="{DynamicResource WidgetRaisedBrush}" Padding="6,1" Margin="6,0,0,0">
+                                    <TextBlock x:Name="HistoryCountLabel" FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+                                </Border>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="ClearHistoryBtn" Click="ClearHistory_Click" HorizontalAlignment="Right" Height="21" Padding="6,0" Style="{StaticResource WidgetGhostButton}" Foreground="{DynamicResource WidgetDangerBrush}">
+                        <Button x:Name="ClearHistoryBtn" Click="ClearHistory_Click" HorizontalAlignment="Right" Height="22" Padding="7,0" Style="{StaticResource WidgetGhostButton}" Foreground="{DynamicResource WidgetDangerBrush}">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,8,0" FontSize="11" />
-                                <TextBlock Text="清理全部" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="10.5" />
+                                <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,5,0" FontSize="11" />
+                                <TextBlock Text="清理全部" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
                             </StackPanel>
                         </Button>
                     </Grid>
-                    <Border x:Name="HistoryCard" CornerRadius="9" Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetBorderBrush}" BorderThickness="0.75">
-                        <Grid Margin="-0.75">
-                            <TextBlock x:Name="HistoryEmpty" Height="34" Text="启动过的实例会保留在这里" FontSize="10" Foreground="{DynamicResource WidgetTextTertiaryBrush}" HorizontalAlignment="Center" />
+
+                    <Border x:Name="HistoryCard" CornerRadius="10" Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetHairlineBrush}" BorderThickness="1" ClipToBounds="True">
+                        <Grid>
+                            <TextBlock x:Name="HistoryEmpty" Height="40" Text="启动过的实例身份会保留在这里" FontSize="11" FontWeight="Normal" Foreground="{DynamicResource WidgetTextTertiaryBrush}" HorizontalAlignment="Center" />
                             <ItemsControl x:Name="HistoryList">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid Height="54" Margin="9,0">
+                                        <Grid Height="58" Margin="10,0">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="58" />
+                                                <ColumnDefinition Width="60" />
                                                 <ColumnDefinition Width="9" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="7" />
-                                                <ColumnDefinition Width="121" />
+                                                <ColumnDefinition Width="6" />
+                                                <ColumnDefinition Width="126" />
                                             </Grid.ColumnDefinitions>
-                                            <ContentControl Width="58" Height="36" VerticalAlignment="Center" Content="{Binding}" ContentTemplate="{StaticResource WidgetThumbnail}" SizeChanged="Thumbnail_SizeChanged" Tag="{Binding}" MouseEnter="Thumbnail_MouseEnter" MouseLeave="Thumbnail_MouseLeave" />
+                                            <ContentControl Width="60" Height="38" VerticalAlignment="Center" Content="{Binding}" ContentTemplate="{StaticResource WidgetThumbnail}" SizeChanged="Thumbnail_SizeChanged" Tag="{Binding}" MouseEnter="Thumbnail_MouseEnter" MouseLeave="Thumbnail_MouseLeave" />
                                             <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding PageTitle}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock FontSize="10" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0">
+                                                <TextBlock FontSize="10.5" FontWeight="Normal" Foreground="{DynamicResource WidgetTextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0">
                                                     <Run Text="{Binding Name, Mode=OneWay}" />
                                                     <Run Text=" · " />
                                                     <Run Text="{Binding RuntimeTitle, Mode=OneWay}" />
-                                                    <Run Text=" " />
-                                                    <Run Text="{Binding RuntimeVersion, Mode=OneWay}" />
                                                 </TextBlock>
                                             </StackPanel>
-                                            <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
-                                                <Button x:Name="RestoreButton" Width="55" Margin="0,0,9,0" Click="Restore_Click" Tag="{Binding Instance}" Style="{StaticResource WidgetPrimaryButton}">
+                                            <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                                <Button x:Name="RestoreButton" Width="58" Height="28" Padding="6,0" Margin="0,0,5,0" Click="Restore_Click" Tag="{Binding Instance}" Style="{StaticResource WidgetPrimaryButton}">
                                                     <StackPanel Orientation="Horizontal">
                                                         <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,4,0" FontSize="10" />
                                                         <TextBlock Text="打开" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
                                                     </StackPanel>
                                                 </Button>
-                                                <Button Click="RenameHistory_Click" ToolTip="修改名称" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}" Margin="0,0,9,0">
+                                                <Button Click="RenameHistory_Click" ToolTip="修改名称" Tag="{Binding Instance}" Style="{StaticResource WidgetIconButton}" Margin="0,0,5,0">
                                                     <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" />
                                                 </Button>
                                                 <Button Click="DeleteHistory_Click" ToolTip="删除历史" Tag="{Binding Instance}" Style="{StaticResource WidgetDangerIconButton}">
                                                     <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" />
                                                 </Button>
                                             </StackPanel>
-                                            <Border Grid.ColumnSpan="5" Height="0.5" VerticalAlignment="Bottom" Margin="30,0,0,0" Background="{DynamicResource WidgetHairlineBrush}" />
+                                            <Border Grid.ColumnSpan="5" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource WidgetHairlineBrush}" />
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </Grid>
                     </Border>
-                    <Button x:Name="MoreHistoryBtn" Click="OpenManager_Click" Content="在全部管理中查看其余历史" Height="20" FontSize="10" Style="{StaticResource WidgetGhostButton}" Visibility="Collapsed" />
-                    <TextBlock x:Name="InstanceActionStatus" FontSize="10" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,5,0,0" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
+
+                    <Button x:Name="MoreHistoryBtn" Click="OpenManager_Click" Content="在全部管理中查看其余历史" Height="24" Margin="0,6,0,0" FontSize="11" Style="{StaticResource WidgetGhostButton}" Visibility="Collapsed" />
+                    <TextBlock x:Name="InstanceActionStatus" FontSize="10.5" FontWeight="Normal" TextWrapping="Wrap" Visibility="Collapsed" Margin="2,6,2,0" Foreground="{DynamicResource WidgetTextSecondaryBrush}" />
                 </StackPanel>
             </ScrollViewer>
-            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,9">
-                <Button x:Name="DirectBtn" Width="91" Background="{DynamicResource WidgetLaunchSecondaryBrush}" Click="DirectLaunch_Click" Style="{StaticResource WidgetButton}">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,6,0" />
-                        <TextBlock Text="无代理启动" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
-                    </StackPanel>
-                </Button>
-                <Border Width="6" />
-                <Button x:Name="ProxyBtn" Width="137" Click="ProxyLaunch_Click" Style="{StaticResource WidgetPrimaryButton}">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,6,0" />
-                        <TextBlock Text="使用HTTP代理启动" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="11" />
-                    </StackPanel>
-                </Button>
-            </StackPanel>
+
+            <!-- Row 4: Footer Bar -->
             <Grid Grid.Row="4" Height="32">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="7" />
-                    <ColumnDefinition Width="86" />
+                    <ColumnDefinition Width="88" />
                     <ColumnDefinition Width="7" />
-                    <ColumnDefinition Width="107" />
+                    <ColumnDefinition Width="112" />
                 </Grid.ColumnDefinitions>
                 <Button Height="32" Click="OpenManager_Click" HorizontalContentAlignment="Stretch" Padding="11,0" Style="{StaticResource WidgetButton}" Background="{DynamicResource WidgetDeepBrush}" BorderBrush="{DynamicResource WidgetBorderBrush}">
                     <DockPanel LastChildFill="True">
-                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,9,0" />
+                        <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0,0,8,0" />
                         <TextBlock Text="" Style="{StaticResource WidgetIcon}" Margin="0" DockPanel.Dock="Right" FontSize="9" />
                         <TextBlock Text="全部管理" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontSize="12" />
                     </DockPanel>

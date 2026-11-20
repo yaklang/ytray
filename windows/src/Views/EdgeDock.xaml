@@ -4,21 +4,21 @@
         Title="YTrayEdge" Width="28" Height="108"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" Topmost="True" ShowActivated="False"
-        ResizeMode="NoResize" WindowStartupLocation="Manual">
+        ResizeMode="NoResize" WindowStartupLocation="Manual" UseLayoutRounding="True">
     <Grid x:Name="RootGrid"
           MouseEnter="OnMouseEnter" MouseLeave="OnMouseLeave"
           MouseLeftButtonDown="OnMouseLeftDown" MouseLeftButtonUp="OnMouseLeftUp"
           MouseMove="OnMouseMove" MouseRightButtonUp="OnMouseRightUp">
-        <Border x:Name="TabStrip" Width="9" Height="72" CornerRadius="5"
+        <Border x:Name="TabStrip" Width="8" Height="74" CornerRadius="4"
                 HorizontalAlignment="Right" VerticalAlignment="Center"
-                Background="{StaticResource BrandOrangeBrush}" Opacity="0.9">
+                Background="{DynamicResource BrandOrangeBrush}" BorderBrush="#44FFFFFF" BorderThickness="0.75" Opacity="0.92">
             <Border.Effect>
-                <DropShadowEffect Color="#55F2823D" BlurRadius="7" ShadowDepth="0" Opacity="0.55"/>
+                <DropShadowEffect Color="#66F97324" BlurRadius="8" ShadowDepth="0" Opacity="0.5"/>
             </Border.Effect>
             <StackPanel x:Name="DotsPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0">
-                <Ellipse Width="3" Height="3" Fill="White" Margin="0,2"/>
-                <Ellipse Width="3" Height="3" Fill="White" Margin="0,2"/>
-                <Ellipse Width="3" Height="3" Fill="White" Margin="0,2"/>
+                <Ellipse Width="3" Height="3" Fill="White" Margin="0,2.5"/>
+                <Ellipse Width="3" Height="3" Fill="White" Margin="0,2.5"/>
+                <Ellipse Width="3" Height="3" Fill="White" Margin="0,2.5"/>
             </StackPanel>
         </Border>
     </Grid>

@@ -14,6 +14,7 @@ import {
   AUDIT_CATEGORY_LABELS, AUDIT_OUTCOME_LABELS, HANDOFF_REASON_LABELS, waitingHandoff,
 } from '@/features/handoff/presentation';
 import { connectedEngineName, connectedTransportLabel } from '@/features/engine-bridge/presentation';
+import { bindLaunchTarget, compatibleEngineName, webSocketLaunchTarget } from '@/features/engine-bridge/launch-target';
 import { cookieKey, cookieRemovalInput } from '@/features/cookies/presentation';
 import { AutoSwitchView } from '@/features/proxy/ui/AutoSwitchView';
 import { ProxyProfilesView } from '@/features/proxy/ui/ProxyProfilesView';
@@ -812,7 +813,8 @@ function ContextTool({ tab, run, busy }: { tab?: ActiveTabInfo; run: (task: () =
 
 function EngineSettings({ state, setState, bridge, setBridge, tabs, run, busy }: { state: ExtensionState; setState: (state: ExtensionState) => void; bridge: BridgeStatus; setBridge: (status: BridgeStatus) => void; tabs: ActiveTabInfo[]; run: (task: () => Promise<void>, success?: string) => Promise<void>; busy: boolean }) {
   const [draft, setDraft] = useState(state.bridge);
-  const [pairing, setPairing] = useState<BridgePairingStatus>({ state: 'idle', message: state.bridge.pairedEngine ? '当前浏览器已配对' : '点击下方按钮查找正在运行的 Yakit' });
+  const [pairing, setPairing] = useState<BridgePairingStatus>({ state: 'idle', message: '' });
+  const [searched, setSearched] = useState(false);
   const [engines, setEngines] = useState<DiscoveredYakEngine[]>([]);
   const [nativeEngines, setNativeEngines] = useState<BridgeLaunchTarget[]>([]);
   const [panelDraft, setPanelDraft] = useState(state.floatingPanel);
@@ -842,61 +844,60 @@ function EngineSettings({ state, setState, bridge, setBridge, tabs, run, busy }:
     setState(next);
     setPanelDraft(next.floatingPanel);
   }, '悬浮面板策略已保存');
-  const pairWithEngine = async (engine: DiscoveredYakEngine) => {
-    const next = await request('bridge.config.save', { ...state.bridge, transport: 'websocket', endpoint: engine.endpoint });
+  const connectToTarget = async (target: BridgeLaunchTarget) => {
+    const next = await request('bridge.config.save', bindLaunchTarget(state.bridge, target));
     setState(next);
     setDraft(next.bridge);
     setEngines([]);
-    setPairing(await request('bridge.pair'));
-  };
-  const pairWithNativeEngine = async (engine: BridgeLaunchTarget) => {
-    setPairing(await request('bridge.native.pair', { engineInstanceId: engine.engineInstanceId! }));
     setNativeEngines([]);
+    setSearched(false);
+    if (next.bridge.pairedEngine) setBridge(await request('bridge.status'));
+    else setPairing(await request('bridge.pair'));
   };
+  const pairWithEngine = (engine: DiscoveredYakEngine) => {
+    const pinned = state.bridge.launchTarget;
+    return connectToTarget(engine.challengeOnly && pinned?.challengeOnly && pinned.engineInstanceId === engine.engineInstanceId
+      && pinned.engineIdentityId === engine.engineIdentityId && pinned.endpoint === engine.endpoint
+      ? pinned : webSocketLaunchTarget(engine));
+  };
+  const pairWithNativeEngine = (engine: BridgeLaunchTarget) => connectToTarget(engine);
   const findLocalEngines = () => run(async () => {
-    setEngines([]);
-    setNativeEngines([]);
-    const native = await request('bridge.native.discover');
-    if (native.length === 1) {
-      await pairWithNativeEngine(native[0]);
-      return;
-    }
-    if (native.length > 1) {
-      setNativeEngines(native);
-      setPairing({ state: 'idle', message: '请选择要连接的本机引擎' });
-      return;
-    }
-    if (state.bridge.launchTarget?.mode === 'auto' || state.bridge.launchTarget?.pipeName || state.bridge.launchTarget?.socketName) {
-      setPairing(await request('bridge.pair'));
-      return;
-    }
-    const found = await request('bridge.discover');
-    if (found.length === 1) {
-      await pairWithEngine(found[0]);
-    } else if (found.length > 1) {
-      setEngines(found);
-      setPairing({ state: 'idle', message: `发现 ${found.length} 个正在运行的引擎，请选择一个连接` });
-    } else {
-      setPairing(await request('bridge.pair'));
-    }
+    const [native, compatible] = await Promise.all([request('bridge.native.discover'), request('bridge.discover')]);
+    const found = compatible.filter((engine) => !native.some((target) =>
+      target.engineIdentityId === engine.engineIdentityId && target.engineInstanceId === engine.engineInstanceId));
+    setNativeEngines(native);
+    setEngines(found);
+    setSearched(true);
   });
+  const candidateCount = engines.length + nativeEngines.length;
+  const pairingDetail = ['pending', 'error', 'expired', 'rejected'].includes(pairing.state) ? pairing.message
+    : state.bridge.launchTarget?.mode === 'engine' ? `接入目标 · ${state.bridge.launchTarget.frontendName}`
+    : state.bridge.launchTarget?.mode === 'none' ? '仅浏览器' : '';
   return <div className="section-view engine-view">
-    <div className="page-heading"><div><h1>引擎连接</h1><p>管理当前浏览器实例的引擎接入。</p></div><span className={`large-status ${bridge.state}`}><Radio size={16} />{bridge.state === 'connected' ? connectedEngineName(state, bridge) + ' 在线' : bridge.message}</span></div>
+    <div className="page-heading"><div><h1>引擎连接</h1><p>管理当前浏览器实例的引擎接入。</p></div><span className={`large-status ${bridge.state}`}><Radio size={16} />{bridge.state === 'connected' ? connectedEngineName(state, bridge) + ' 在线' : searched && bridge.state === 'error' ? '未连接' : bridge.message}</span></div>
     {policy.managed && <div className="managed-policy-banner"><ShieldCheck size={16} /><span><strong>此浏览器由组织策略管理</strong><small>{policy.policy.disableWebSocket ? '必须使用 Native Messaging' : policy.policy.bridgeTransport ? `传输锁定为 ${policy.policy.bridgeTransport}` : '连接与授权限制已应用'}{policy.policy.maxGrantMinutes ? ` · 授权最长 ${policy.policy.maxGrantMinutes} 分钟` : ''}{policy.policy.allowProgramEval === false ? ' · 程序 Eval 已禁用' : ''}</small>{policy.warnings.map((warning) => <i key={warning}>{warning}</i>)}</span></div>}
-    {bridge.state === 'connected' && <div className="bridge-identity-strip"><div><span>当前连接方式</span><strong>{connectedTransportLabel(bridge) || '未知'}</strong></div><div><span>引擎实例</span><code title={bridge.engineInstanceId}>{bridge.engineInstanceId?.slice(0, 18)}</code></div><div><span>连接 ID</span><code title={bridge.connectionId}>{bridge.connectionId?.slice(0, 18)}</code></div><div><span>会话</span><code title={bridge.sessionId}>{bridge.sessionId?.slice(0, 18)}</code></div><div><span>心跳</span><strong>{bridge.latencyMs === undefined ? '等待首个回执' : `${bridge.latencyMs} ms`}</strong></div><div><span>恢复</span><strong>{bridge.resumed ? '已恢复 task session' : '新会话'}</strong></div></div>}
+    {bridge.state === 'connected' && <div className="bridge-identity-strip"><div><span>当前连接方式</span><strong>{connectedTransportLabel(bridge) || '未知'}</strong></div>{bridge.endpoint && <div><span>实际连接地址</span><code title={bridge.endpoint}>{new URL(bridge.endpoint).host}</code></div>}<div><span>引擎实例</span><code title={bridge.engineInstanceId}>{bridge.engineInstanceId?.slice(0, 18)}</code></div><div><span>连接 ID</span><code title={bridge.connectionId}>{bridge.connectionId?.slice(0, 18)}</code></div><div><span>会话</span><code title={bridge.sessionId}>{bridge.sessionId?.slice(0, 18)}</code></div><div><span>心跳</span><strong>{bridge.latencyMs === undefined ? '等待首个回执' : `${bridge.latencyMs} ms`}</strong></div><div><span>恢复</span><strong>{bridge.resumed ? '已恢复 task session' : '新会话'}</strong></div></div>}
     <div className="engine-layout"><div className="settings-form">
       <section className={`pairing-workspace ${state.bridge.pairedEngine ? 'paired' : pairing.state}`}>
-        <div className="pairing-workspace__heading"><span className="pairing-icon"><KeyRound size={19} /></span><div><h2>{state.bridge.pairedEngine ? '浏览器已安全配对' : pairing.state === 'pending' ? '等待 Yakit 确认' : '连接本机引擎'}</h2><p>{state.bridge.launchTarget?.mode === 'engine' ? `YTray 指定接入：${state.bridge.launchTarget.frontendName}。目标离线时保持等待，不切换到其他引擎。` : state.bridge.launchTarget?.mode === 'none' ? 'YTray 已选择仅启动浏览器，尚未接入前端。' : state.bridge.launchTarget?.mode === 'auto' ? '通过 Native Messaging 自动查找本机引擎。' : state.bridge.pairedEngine ? '设备身份已锁定到首次批准的 Yak 引擎。' : pairing.message}</p></div></div>
+        <div className="pairing-workspace__heading"><span className="pairing-icon"><KeyRound size={19} /></span><div>
+          <h2>{state.bridge.pairedEngine ? '浏览器已配对' : pairing.state === 'pending' ? '等待引擎确认' : '连接本机引擎'}</h2>
+          {pairingDetail && <p>{pairingDetail}</p>}
+          {state.bridge.automaticWebSocketFallback && state.bridge.transport === 'websocket' &&
+            <p role="status"><strong>自动切换到 WebSocket（兼容）</strong> · 查找时未发现可用的 Native 引擎</p>}
+        </div></div>
+        {searched && <div className="engine-discovery-summary" role="status">{candidateCount
+          ? `${candidateCount} 个可用引擎${state.bridge.launchTarget?.mode === 'auto' && nativeEngines.length === 0 ? ' · WebSocket（兼容）' : ''}`
+          : '未发现可用引擎'}</div>}
         {pairing.state === 'pending' && <div className="pairing-code" aria-live="polite"><span>配对验证码</span><strong>{pairing.code?.slice(0, 3)} {pairing.code?.slice(3)}</strong><small>{pairing.expiresAt ? `${Math.max(0, Math.ceil((pairing.expiresAt - Date.now()) / 1000))} 秒内有效` : ''}</small></div>}
         {state.bridge.pairedEngine && <div className="paired-engine-meta"><div><span>引擎身份</span><code title={state.bridge.pairedEngine.engineIdentityId}>{state.bridge.pairedEngine.engineIdentityId.slice(0, 24)}</code></div><div><span>设备 ID</span><code title={state.bridge.pairedEngine.deviceId}>{state.bridge.pairedEngine.deviceId.slice(0, 24)}</code></div></div>}
-        {nativeEngines.length > 1 && <div className="engine-discovery-list" aria-live="polite">{nativeEngines.map((engine) =>
+        {nativeEngines.length > 0 && <div className="engine-discovery-list" aria-live="polite">{nativeEngines.map((engine) =>
           <div className="engine-discovery-row" key={engine.engineInstanceId}><span className="engine-discovery-icon"><Server size={17} /></span>
             <div><strong>{engine.frontendName}</strong><small>{engine.socketName ? 'Unix Socket' : 'Windows 命名管道'} · {engine.engineInstanceId?.slice(0, 18)}</small></div>
             <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => pairWithNativeEngine(engine))}>连接</Button>
           </div>)}</div>}
-        {engines.length > 1 && <div className="engine-discovery-list" aria-live="polite">{engines.map((engine, index) => <div className="engine-discovery-row" key={`${engine.engineIdentityId}:${engine.engineInstanceId}`}><span className="engine-discovery-icon"><Server size={17} /></span><div><strong>{engine.frontendName || '本机 Yak 引擎'} {index + 1}</strong><small>端口 {new URL(engine.endpoint).port}</small></div><Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => pairWithEngine(engine))}>连接</Button></div>)}</div>}
+        {engines.length > 0 && <div className="engine-discovery-list" aria-live="polite">{engines.map((engine) => <div className="engine-discovery-row" key={`${engine.engineIdentityId}:${engine.engineInstanceId}`}><span className="engine-discovery-icon"><Server size={17} /></span><div><strong>{compatibleEngineName(engine)}</strong><small>WebSocket · {new URL(engine.endpoint).host} · {engine.engineInstanceId.slice(0, 18)}</small></div><Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => pairWithEngine(engine))}>连接</Button></div>)}</div>}
         <div className="editor-actions">
-          {!state.bridge.pairedEngine && pairing.state !== 'pending' && <Button variant="primary" disabled={busy || pairing.state === 'requesting'} onClick={() => void findLocalEngines()}><Search size={16} />{busy ? '正在查找' : '查找本机引擎'}</Button>}
+          {state.bridge.launchTarget?.mode !== 'none' && pairing.state !== 'pending' && <Button variant={state.bridge.pairedEngine ? 'ghost' : 'primary'} disabled={busy || pairing.state === 'requesting'} onClick={() => void findLocalEngines()}><Search size={16} />{busy ? '正在查找' : '查找本机引擎'}</Button>}
           {!state.bridge.pairedEngine && pairing.state === 'pending' && <Button disabled={busy} onClick={() => void run(async () => setPairing(await request('bridge.pair.cancel')))}><X size={16} />取消申请</Button>}
           {state.bridge.pairedEngine && <Button variant="primary" disabled={busy} onClick={() => void run(async () => { if (bridge.state === 'connected') await request('bridge.disconnect'); else await request('bridge.connect'); setBridge(await request('bridge.status')); }, bridge.state === 'connected' ? 'Bridge 已断开' : 'Bridge 正在连接')}><Power size={16} />{bridge.state === 'connected' ? '断开连接' : '连接引擎'}</Button>}
           {state.bridge.pairedEngine && <Button variant="ghost" disabled={busy} onClick={() => { if (window.confirm('解除当前 Yak 引擎的本地配对？浏览器安装身份会保留，重新配对时 Yakit 将更新原可信记录。')) void run(async () => { const next = await request('bridge.unpair'); setState(next); setDraft(next.bridge); }, '本地配对凭据已清除'); }}><Trash2 size={16} />解除配对</Button>}
@@ -906,7 +907,7 @@ function EngineSettings({ state, setState, bridge, setBridge, tabs, run, busy }:
         <div className="segmented"><button disabled={Boolean(policy.policy.bridgeTransport || policy.policy.disableWebSocket)} className={draft.transport === 'websocket' ? 'active' : ''} onClick={() => setDraft({ ...draft, transport: 'websocket' })}>本机 WebSocket（兼容）</button><button disabled={Boolean(policy.policy.bridgeTransport || policy.policy.disableWebSocket)} className={draft.transport === 'native' ? 'active' : ''} onClick={() => setDraft({ ...draft, transport: 'native' })}>Native Host</button></div>
         {draft.transport === 'native' ? <Field label="Native Host" hint="YTray 启动的实例会使用本机 Native Host"><input disabled={Boolean(policy.policy.nativeHost)} value={draft.nativeHost} onChange={(event) => setDraft({ ...draft, nativeHost: event.target.value })} /></Field> : <Field label="WebSocket Endpoint" hint="只允许 127.0.0.1、localhost 或 ::1"><input disabled={Boolean(policy.policy.bridgeEndpoint)} value={draft.endpoint} onChange={(event) => setDraft({ ...draft, endpoint: event.target.value })} /></Field>}
         <label className="toggle-row"><span><strong>启动扩展时自动连接</strong><small>{draft.transport === 'native' ? '由浏览器拉起已注册的 Yakit Host' : 'Service Worker 使用心跳维持本机连接'}</small></span><Switch disabled={policy.policy.autoConnect !== undefined || !draft.pairedEngine} checked={draft.autoConnect} onCheckedChange={(checked) => setDraft({ ...draft, autoConnect: checked })} /></label>
-        <div className="editor-actions"><Button disabled={busy} onClick={() => void save()}><Save size={16} />保存高级设置</Button></div>
+        <div className="editor-actions"><Button disabled={busy} onClick={() => void save()}><Save size={16} />保存高级设置</Button>{!state.bridge.pairedEngine && state.bridge.launchTarget?.mode === 'legacy' && state.bridge.transport === 'websocket' && pairing.state !== 'pending' && <Button disabled={busy} onClick={() => void run(async () => setPairing(await request('bridge.pair')))}>连接已保存的地址</Button>}</div>
       </div></details>
       <section className="panel-policy-settings"><h2>网页侧边工具</h2>
         <label className="toggle-row"><span><strong>启用悬浮面板</strong><small>轻量启动器常驻，React 工作台仅在展开时加载</small></span><Switch disabled={policy.policy.floatingPanelEnabled !== undefined} checked={panelDraft.enabled} onCheckedChange={(enabled) => setPanelDraft({ ...panelDraft, enabled })} /></label>

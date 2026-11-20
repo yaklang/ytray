@@ -1,8 +1,8 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
-using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -23,18 +23,39 @@ namespace YTray.Views.Pages
             public string Version => Runtime.VersionLabel;
         }
 
-        private sealed class NetworkChoice
+        private sealed class NetworkChoice : INotifyPropertyChanged
         {
-            public bool UsesProxy { get; set; }
+            private Brush _dotBrush = Brushes.Transparent;
+            private Brush _titleBrush = Brushes.Transparent;
             public ProxyPreset? Preset { get; set; }
             public string Title { get; set; } = "";
             public string Subtitle { get; set; } = "";
+            public string DisplayAddress => Subtitle.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? "HTTPS · " + Subtitle.Substring("https://".Length)
+                : Subtitle.Replace("http://", "");
+
+            public Brush DotBrush
+            {
+                get => _dotBrush;
+                set { if (!ReferenceEquals(_dotBrush, value)) { _dotBrush = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DotBrush))); } }
+            }
+
+            public Brush TitleBrush
+            {
+                get => _titleBrush;
+                set { if (!ReferenceEquals(_titleBrush, value)) { _titleBrush = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TitleBrush))); } }
+            }
+
+            public event PropertyChangedEventHandler? PropertyChanged;
         }
 
         private readonly InstanceStore _store;
         private bool _subscribed;
         private bool _refreshScheduled;
         private bool _isRebindingRuntimeChoices;
+        private bool _isRebindingNetworkChoices;
+        private bool _usePresetProxy = true;
+        private int _toastGeneration;
         private string? _runtimeChoicesSignature;
         private List<RuntimeChoice> _runtimeChoices = new List<RuntimeChoice>();
         private List<BrowserEnvironment> _environmentChoices = new List<BrowserEnvironment>();
@@ -46,8 +67,17 @@ namespace YTray.Views.Pages
             InitializeComponent();
             _store = store;
             EngineCombo.Configure(store.DefaultBrowserEngine);
-            EngineCombo.SelectionChanged += (_, __) => EngineDefaultButton.Content = "设为默认";
+            EngineCombo.SelectionChanged += (_, __) =>
+            {
+                EngineDefaultButton.Content = "设为默认";
+                EngineDefaultButton.SetResourceReference(ForegroundProperty, "TextSecondaryBrush");
+            };
             EnvironmentCombo.SelectionChanged += (_, __) => ApplyEnvironmentSelection();
+            NetworkCombo.SelectionChanged += (_, __) =>
+            {
+                if (!_isRebindingNetworkChoices) _usePresetProxy = true;
+                UpdateNetworkModeVisuals();
+            };
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
             Refresh();
@@ -80,6 +110,56 @@ namespace YTray.Views.Pages
         private BrowserInstancePresentation Present(BrowserInstance instance) =>
             new BrowserInstancePresentation(instance, _store.RuntimeFor(instance));
 
+        internal void SelectNetworkMode(bool useProxy)
+        {
+            _usePresetProxy = useProxy;
+            UpdateNetworkModeVisuals();
+        }
+
+        private void DirectMode_Click(object sender, RoutedEventArgs e) => SelectNetworkMode(false);
+        private void ProxyMode_Click(object sender, RoutedEventArgs e) => SelectNetworkMode(true);
+
+        private void EditProxy_Click(object sender, RoutedEventArgs e)
+        {
+            if (Window.GetWindow(this) is ManagerView manager)
+                manager.NavigateTo("launch");
+        }
+
+        private void ManageEnvironments_Click(object sender, RoutedEventArgs e)
+        {
+            if (Window.GetWindow(this) is ManagerView manager)
+                manager.NavigateTo("environments");
+        }
+
+        private void UpdateNetworkModeVisuals()
+        {
+            if (DirectModeButton == null || NetworkCombo == null) return;
+
+            DirectModeButton.Background = !_usePresetProxy ? (Brush)FindResource("SurfaceRaisedBrush") : Brushes.Transparent;
+            DirectModeButton.BorderBrush = !_usePresetProxy ? (Brush)FindResource("HairlineBrush") : Brushes.Transparent;
+            DirectModeLabel.SetResourceReference(TextBlock.ForegroundProperty, !_usePresetProxy ? "TextPrimaryBrush" : "TextSecondaryBrush");
+            DirectModeDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, !_usePresetProxy ? "SuccessBrush" : "TextTertiaryBrush");
+
+            NetworkCombo.Background = _usePresetProxy ? (Brush)FindResource("SurfaceRaisedBrush") : Brushes.Transparent;
+            NetworkCombo.BorderBrush = _usePresetProxy ? (Brush)FindResource("BrandOrangeBrush") : Brushes.Transparent;
+            NetworkCombo.Opacity = _usePresetProxy ? 1.0 : 0.72;
+
+            var activeDot = (Brush)FindResource("BrandOrangeBrush");
+            var mutedDot = (Brush)FindResource("TextTertiaryBrush");
+            var primaryText = (Brush)FindResource("TextPrimaryBrush");
+            var secondaryText = (Brush)FindResource("TextSecondaryBrush");
+            var selected = NetworkCombo.SelectedItem as NetworkChoice;
+            if (NetworkCombo.ItemsSource is IEnumerable<NetworkChoice> choices)
+            {
+                foreach (var item in choices)
+                {
+                    var isSelectedActive = _usePresetProxy && ReferenceEquals(item, selected);
+                    item.DotBrush = isSelectedActive ? activeDot : mutedDot;
+                    item.TitleBrush = isSelectedActive ? activeDot : (_usePresetProxy ? primaryText : secondaryText);
+                }
+            }
+        }
+
         private void Refresh()
         {
             if (RuntimeCombo == null) return;
@@ -87,9 +167,10 @@ namespace YTray.Views.Pages
             if (!HomeUrlBox.IsKeyboardFocusWithin) HomeUrlBox.Text = _store.Settings.HomeURL;
             RefreshLaunchChoices();
             ApplyEnvironmentSelection();
+            UpdateNetworkModeVisuals();
 
             var running = _store.RunningInstances.Select(Present).ToList();
-            var history = _store.HistoryInstances.Take(3).Select(Present).ToList();
+            var history = _store.HistoryInstances.Take(5).Select(Present).ToList();
             RunningList.ItemsSource = running;
             HistoryList.ItemsSource = history;
             RunningEmpty.Visibility = running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -115,18 +196,25 @@ namespace YTray.Views.Pages
             var selectedNetwork = NetworkCombo.SelectedItem as NetworkChoice;
             var networks = new List<NetworkChoice>
             {
-                new NetworkChoice { Title = "无代理", Subtitle = "直连网络" },
-                new NetworkChoice { Title = "当前代理", Subtitle = settings.PresetProxyServer, UsesProxy = true }
+                new NetworkChoice { Title = "当前代理", Subtitle = settings.PresetProxyServer }
             };
             networks.AddRange(settings.RecentProxyPresets.Where(item =>
                 !string.Equals(item.Server, settings.PresetProxyServer, StringComparison.OrdinalIgnoreCase)
                 || item.Username != settings.PresetProxyUsername).Select(item => new NetworkChoice {
                     Title = string.IsNullOrWhiteSpace(item.Remark) ? "已保存的代理" : item.Remark,
-                    Subtitle = item.Server, UsesProxy = true, Preset = item,
+                    Subtitle = item.Server, Preset = item,
                 }));
-            NetworkCombo.ItemsSource = networks;
-            NetworkCombo.SelectedItem = selectedNetwork == null ? networks[1] : networks.FirstOrDefault(item =>
-                item.UsesProxy == selectedNetwork.UsesProxy && item.Preset?.Id == selectedNetwork.Preset?.Id) ?? networks[0];
+            _isRebindingNetworkChoices = true;
+            try
+            {
+                NetworkCombo.ItemsSource = networks;
+                NetworkCombo.SelectedItem = networks.FirstOrDefault(item => item.Preset?.Id == selectedNetwork?.Preset?.Id) ?? networks[0];
+            }
+            finally
+            {
+                _isRebindingNetworkChoices = false;
+            }
+            UpdateNetworkModeVisuals();
 
             var environmentId = SelectedEnvironment?.Id;
             EnvironmentCombo.Items.Clear();
@@ -149,9 +237,24 @@ namespace YTray.Views.Pages
             finally { _isRebindingRuntimeChoices = false; }
 
             var network = _store.EnvironmentNetworkDescription(environment);
-            NetworkCombo.Visibility = network == null ? Visibility.Visible : Visibility.Collapsed;
-            EnvironmentNetwork.Visibility = network == null ? Visibility.Collapsed : Visibility.Visible;
+            NetworkModeSelector.Visibility = network == null ? Visibility.Visible : Visibility.Collapsed;
+            ProxyPresetFields.Visibility = network == null ? Visibility.Visible : Visibility.Collapsed;
+            EnvironmentNetworkBadge.Visibility = network == null ? Visibility.Collapsed : Visibility.Visible;
             EnvironmentNetwork.Text = network ?? "";
+
+            if (EnvironmentContextHint != null)
+            {
+                if (environment != null)
+                {
+                    EnvironmentContextHint.Text = $"已启用模板「{environment.Name}」";
+                    EnvironmentContextHint.SetResourceReference(TextBlock.ForegroundProperty, "BrandOrangeBrush");
+                }
+                else
+                {
+                    EnvironmentContextHint.Text = "独立用户目录 · 自动避让调试端口";
+                    EnvironmentContextHint.SetResourceReference(TextBlock.ForegroundProperty, "TextTertiaryBrush");
+                }
+            }
         }
 
         private void RefreshRuntimeChoices()
@@ -161,10 +264,6 @@ namespace YTray.Views.Pages
                 + ":default=" + _store.Settings.DefaultRuntimeID;
             if (_runtimeChoicesSignature == signature) return;
 
-            // A cached overview page can still contain the runtime that was selected before the
-            // user changed the default on the browser page. The persisted setting is authoritative
-            // when this list is rebuilt; using the stale ComboBox value here would select it and
-            // SelectionChanged would immediately write it back as the default.
             var selectedId = RuntimeSelectionPolicy.TargetRuntimeId(
                 _store.Settings.DefaultRuntimeID,
                 _store.DefaultRuntime?.Id);
@@ -203,16 +302,33 @@ namespace YTray.Views.Pages
                 _store.SelectDefaultRuntime(choice.Runtime);
         }
 
-        private void ChoiceCombo_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void NetworkCombo_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (!(sender is ComboBox combo) || !combo.IsEnabled) return;
-
-            // The popup's item clicks still belong to the ComboBox logically. Do not
-            // intercept them or the selected value would never be committed.
             var source = e.OriginalSource as DependencyObject;
             if (source != null && ItemsControl.ContainerFromElement(combo, source) is ComboBoxItem)
                 return;
+            if (!_usePresetProxy)
+            {
+                SelectNetworkMode(true);
+                if (e.GetPosition(combo).X < Math.Max(0, combo.ActualWidth - 32))
+                {
+                    combo.Focus();
+                    e.Handled = true;
+                    return;
+                }
+            }
+            combo.Focus();
+            combo.IsDropDownOpen = !combo.IsDropDownOpen;
+            e.Handled = true;
+        }
 
+        private void ChoiceCombo_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (!(sender is ComboBox combo) || !combo.IsEnabled) return;
+            var source = e.OriginalSource as DependencyObject;
+            if (source != null && ItemsControl.ContainerFromElement(combo, source) is ComboBoxItem)
+                return;
             combo.Focus();
             combo.IsDropDownOpen = !combo.IsDropDownOpen;
             e.Handled = true;
@@ -223,7 +339,7 @@ namespace YTray.Views.Pages
             _store.Settings.HomeURL = HomeUrlBox.Text.Trim();
             _store.SaveSettings();
             var network = NetworkCombo.SelectedItem as NetworkChoice;
-            if (!_store.LaunchConfigured(network?.UsesProxy == true, network?.Preset, SelectedEnvironment, EngineCombo.Target) && !_store.LaunchWasCancelled)
+            if (!_store.LaunchConfigured(_usePresetProxy, network?.Preset, SelectedEnvironment, EngineCombo.Target) && !_store.LaunchWasCancelled)
                 ShowLaunchError();
         }
 
@@ -231,7 +347,11 @@ namespace YTray.Views.Pages
         {
             if (EngineCombo.Target is not BrowserEngineTarget target) return;
             _store.SetDefaultBrowserEngine(target);
-            if (sender is Button button) button.Content = "已设为默认";
+            if (sender is Button button)
+            {
+                button.Content = "✓ 已默认";
+                button.SetResourceReference(ForegroundProperty, "SuccessBrush");
+            }
         }
 
         private void ShowLaunchError() => MessageBox.Show(
@@ -242,6 +362,12 @@ namespace YTray.Views.Pages
             MessageBoxImage.Warning);
 
         private void Focus_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) _store.Focus(i); }
+        private async void Capture_Click(object sender, RoutedEventArgs e)
+        {
+            if (!(((FrameworkElement)sender).Tag is BrowserInstance i)) return;
+            var output = await _store.CaptureAsync(i);
+            ShowToast(!string.IsNullOrWhiteSpace(output) ? "页面截图已导出" : (_store.ErrorMessage ?? "截图失败"), string.IsNullOrWhiteSpace(output));
+        }
         private async void Stop_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) await _store.StopAsync(i); }
         private void Restore_Click(object sender, RoutedEventArgs e) { if (((FrameworkElement)sender).Tag is BrowserInstance i) _store.RestoreHistory(i); }
         private void ClearAll_Click(object sender, RoutedEventArgs e) => _store.RemoveAllHistory();
@@ -249,6 +375,18 @@ namespace YTray.Views.Pages
         {
             var wizard = new CustomLaunchWizard(_store, SelectedEnvironment, EngineCombo.Target) { Owner = Window.GetWindow(this) };
             wizard.ShowDialog();
+        }
+
+        private async void ShowToast(string text, bool isError = false)
+        {
+            var generation = ++_toastGeneration;
+            ActionToastText.Text = text;
+            ActionToastText.Foreground = (Brush)FindResource(isError ? "DangerBrush" : "SuccessBrush");
+            ActionToastBorder.Background = (Brush)FindResource(isError ? "DangerPaleBrush" : "SuccessPaleBrush");
+            ActionToastBorder.Visibility = Visibility.Visible;
+            await System.Threading.Tasks.Task.Delay(2400);
+            if (generation == _toastGeneration && IsLoaded)
+                ActionToastBorder.Visibility = Visibility.Collapsed;
         }
     }
 }

@@ -83,9 +83,12 @@ namespace YTray.Core.BrowserUse
                 using var input = Console.OpenStandardInput();
                 using var output = Console.OpenStandardOutput();
                 var first = BrowserUseWire.ReadAsync(input, CancellationToken.None).GetAwaiter().GetResult();
-                if ((string?)first["type"] == "yak_engine_discover")
+                var messageType = (string?)first["type"];
+                if (messageType == "yak_engine_discover" || messageType == "yak_engine_discover_compatible")
                 {
-                    var targets = BrowserEngineNative.DiscoverAsync().GetAwaiter().GetResult();
+                    var targets = messageType == "yak_engine_discover"
+                        ? BrowserEngineNative.DiscoverAsync().GetAwaiter().GetResult()
+                        : BrowserEngineDiscovery.FindAsync(null).GetAwaiter().GetResult().Where(target => target.PipeName == null);
                     BrowserUseWire.WriteAsync(output, new JObject
                     {
                         ["targets"] = new JArray(targets.Select(target => target.ToWire())),

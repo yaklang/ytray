@@ -78,8 +78,15 @@ namespace YTray.Views.Pages
                 .FirstOrDefault(row => row.Plugin.Id == _selected?.Id);
             PluginCountLabel.Text = $"{_store.Plugins.Count} 个插件";
             PluginCountDot.Fill = (Brush)FindResource(_store.Plugins.Count == 0 ? "TextTertiaryBrush" : "SuccessBrush");
-            PluginEmpty.Visibility = _store.Plugins.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            PluginList.Visibility = _store.Plugins.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            var hasAnyPlugins = _store.Plugins.Count > 0;
+            PluginEmpty.Visibility = hasAnyPlugins ? Visibility.Collapsed : Visibility.Visible;
+            PluginList.Visibility = hasAnyPlugins ? Visibility.Visible : Visibility.Collapsed;
+            if (DetailCardBorder != null)
+            {
+                DetailCardBorder.Visibility = hasAnyPlugins ? Visibility.Visible : Visibility.Collapsed;
+                DetailGapColumn.Width = hasAnyPlugins ? new GridLength(16) : new GridLength(0);
+                DetailCardColumn.Width = hasAnyPlugins ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            }
             RefreshDetails();
         }
 

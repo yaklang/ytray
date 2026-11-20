@@ -17,20 +17,40 @@ export function validEngineSocket(socket: unknown, instanceId: unknown): socket 
     && socket === 'yak-browser-bridge-v1-' + instanceId + '.sock';
 }
 
+export function compatibleEngineName(engine: DiscoveredYakEngine): string {
+  if (engine.ownerFrontendId === 'memfit') return 'Memfit AI';
+  if (engine.ownerFrontendId === 'yakit') return 'Yakit';
+  return engine.frontendName ? `${engine.frontendName}（引擎自报）` : '本机 Yak 引擎';
+}
+
+export function webSocketLaunchTarget(engine: DiscoveredYakEngine): BridgeLaunchTarget {
+  return { mode: 'engine', exactInstance: true, endpoint: engine.endpoint, challengeOnly: engine.challengeOnly,
+    ownerFrontendId: engine.ownerFrontendId,
+    engineIdentityId: engine.engineIdentityId, engineInstanceId: engine.engineInstanceId,
+    frontendId: engine.frontendId || 'yak', frontendName: compatibleEngineName(engine) };
+}
+
 export function bindLaunchTarget(config: BridgeConfig, target: BridgeLaunchTarget): BridgeConfig {
   // A launcher without discovery support must preserve the user's existing connection and credentials.
-  if (target.mode === 'legacy') return { ...config, launchTarget: { mode: 'legacy' },
+  if (target.mode === 'legacy') return { ...config, launchTarget: { mode: 'legacy' }, automaticWebSocketFallback: undefined,
     autoConnect: config.launchTarget?.mode === 'none' ? true : config.autoConnect };
-  // An automatic relaunch of this browser keeps an already selected native engine.
   if (target.mode === 'auto' && hasNativeEngineTarget(config.launchTarget)) return config;
+  if (target.mode === 'auto' && config.transport === 'websocket'
+    && (config.pairedEngine || config.launchTarget?.mode === 'legacy')) {
+    return {
+      ...config,
+      launchTarget: config.launchTarget?.mode === 'engine' ? config.launchTarget : { mode: 'legacy' },
+      autoConnect: config.launchTarget?.mode === 'none' ? true : config.autoConnect,
+    };
+  }
   const previous = config.pairedEngine && { ...config.pairedEngine,
     frontendId: config.pairedEngine.frontendId || launchFrontendId(config.launchTarget)
       || (target.mode === 'engine' && config.endpoint === target.endpoint ? launchFrontendId(target) : undefined) };
   const records = [...new Map([...(config.trustedEngines || []), ...(previous ? [previous] : [])]
     .map((engine) => [`${engine.engineIdentityId}:${engine.frontendId || ''}`, engine])).values()].slice(-32);
-  if (target.mode === 'auto') return { ...config, launchTarget: target, transport: 'native',
+  if (target.mode === 'auto') return { ...config, launchTarget: target, transport: 'native', automaticWebSocketFallback: undefined,
     nativeHost: YTRAY_ENGINE_HOST, autoConnect: true, trustedEngines: records, pairedEngine: undefined };
-  return { ...config, launchTarget: target,
+  return { ...config, launchTarget: target, automaticWebSocketFallback: undefined,
     transport: target.mode === 'engine' ? hasNativeEngineTarget(target) ? 'native' : 'websocket' : config.transport,
     autoConnect: target.mode === 'engine',
     nativeHost: target.mode === 'engine' && hasNativeEngineTarget(target) ? YTRAY_ENGINE_HOST : config.nativeHost,
@@ -78,7 +98,9 @@ export function normalizeLaunchTarget(value: unknown): BridgeLaunchTarget | unde
 
 export function selectLaunchTarget(target: BridgeLaunchTarget, engines: DiscoveredYakEngine[]): DiscoveredYakEngine {
   const matches = engines.filter((engine) => engine.engineIdentityId === target.engineIdentityId
-    && (engine.frontendId || 'yak') === target.frontendId);
+    && (engine.frontendId || 'yak') === target.frontendId
+    && (!target.ownerFrontendId || (engine.ownerFrontendId || engine.frontendId) === target.ownerFrontendId
+      || (!engine.ownerFrontendId && engine.endpoint === target.endpoint && engine.engineInstanceId === target.engineInstanceId)));
   const exact = matches.find((engine) => engine.engineInstanceId === target.engineInstanceId);
   if (exact) return exact;
   if (matches.length === 1 && !target.exactInstance && !target.ownerFrontendId) return matches[0];

@@ -13,6 +13,7 @@ using System.Windows.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using YTray.Core.SystemControl;
+using YTray.Native;
 
 namespace YTray.Views
 {
@@ -33,7 +34,9 @@ namespace YTray.Views
         private ControlTraceWindow(SystemControlController controller)
         {
             InitializeComponent();
+            WindowChromeHelper.Attach(this);
             MarkSelected(StepModeButton, true);
+            MarkSelected(TimeModeButton, false);
             _controller = controller;
             _refresh.Tick += (_, __) => {
                 _refresh.Stop(); Interlocked.Exchange(ref _refreshQueued, 0);
@@ -41,11 +44,98 @@ namespace YTray.Views
             };
             _controller.Trace.Changed += TraceChanged;
             Loaded += async (_, __) => {
-                _saved = await controller.Trace.ReadSavedAsync();
+                if (_saved.Length == 0) _saved = await controller.Trace.ReadSavedAsync();
                 _savedLoaded = true;
                 if (!_closed) RefreshLists();
             };
             Closed += (_, __) => { _closed = true; _refresh.Stop(); _controller.Trace.Changed -= TraceChanged; };
+        }
+
+        internal static ControlTraceWindow CreateDesignPreview(SystemControlController controller)
+        {
+            var baseTime = new DateTimeOffset(2026, 11, 18, 14, 30, 12, TimeSpan.FromHours(8));
+            var window = new ControlTraceWindow(controller)
+            {
+                _savedLoaded = true,
+                _saved = new[]
+                {
+                    new JObject
+                    {
+                        ["id"] = "trace-step-1", ["run_id"] = "task:yakit-login-flow", ["task_id"] = "yakit-login-flow",
+                        ["session"] = "9f4b21c8e1a44d09b32177a9", ["client"] = "Claude Desktop", ["tool"] = "get_window_state", ["label"] = "观察窗口",
+                        ["started_at"] = baseTime.ToString("O", CultureInfo.InvariantCulture), ["duration_ms"] = 84, ["status"] = "completed", ["http_status"] = 200,
+                        ["request"] = new JObject { ["name"] = "get_window_state", ["arguments"] = new JObject { ["window_id"] = 198420, ["include_screenshot"] = true } },
+                        ["operation"] = new JObject
+                        {
+                            ["description"] = "观察「YTray · 多身份工作台」",
+                            ["steps"] = new JArray(
+                                new JObject { ["step"] = "target", ["status"] = "completed", ["offset_ms"] = 0, ["duration_ms"] = 9 },
+                                new JObject { ["step"] = "read_controls", ["status"] = "completed", ["offset_ms"] = 9, ["duration_ms"] = 36 },
+                                new JObject { ["step"] = "capture_window", ["status"] = "completed", ["offset_ms"] = 45, ["duration_ms"] = 39 })
+                        },
+                        ["response"] = new JObject { ["structuredContent"] = new JObject { ["title"] = "YTray · 多身份工作台", ["controls_shown"] = 28, ["controls_total"] = 28, ["screenshot_source"] = "window_render", ["image_width"] = 1268, ["image_height"] = 800 } }
+                    },
+                    new JObject
+                    {
+                        ["id"] = "trace-step-2", ["run_id"] = "task:yakit-login-flow", ["task_id"] = "yakit-login-flow",
+                        ["session"] = "9f4b21c8e1a44d09b32177a9", ["client"] = "Claude Desktop", ["tool"] = "type_text", ["label"] = "输入文字",
+                        ["started_at"] = baseTime.AddMilliseconds(120).ToString("O", CultureInfo.InvariantCulture), ["duration_ms"] = 116, ["status"] = "completed", ["http_status"] = 200,
+                        ["request"] = new JObject { ["name"] = "type_text", ["arguments"] = new JObject { ["window_id"] = 198420, ["element_index"] = 6, ["text"] = "https://target.internal/admin", ["replace"] = true } },
+                        ["operation"] = new JObject
+                        {
+                            ["description"] = "向「起始地址」输入目标 URL", ["control_label"] = "起始地址",
+                            ["steps"] = new JArray(
+                                new JObject { ["step"] = "target", ["status"] = "completed", ["offset_ms"] = 0, ["duration_ms"] = 8 },
+                                new JObject { ["step"] = "locate", ["status"] = "completed", ["offset_ms"] = 8, ["duration_ms"] = 19 },
+                                new JObject { ["step"] = "focus", ["status"] = "completed", ["offset_ms"] = 27, ["duration_ms"] = 14 },
+                                new JObject { ["step"] = "replace", ["status"] = "completed", ["offset_ms"] = 41, ["duration_ms"] = 18 },
+                                new JObject { ["step"] = "type_text", ["status"] = "completed", ["offset_ms"] = 59, ["duration_ms"] = 31 },
+                                new JObject { ["step"] = "readback", ["status"] = "completed", ["offset_ms"] = 90, ["duration_ms"] = 26 })
+                        },
+                        ["response"] = new JObject { ["structuredContent"] = new JObject { ["title"] = "YTray · 多身份工作台", ["controls_shown"] = 28, ["visual_verification"] = "matched" } }
+                    },
+                    new JObject
+                    {
+                        ["id"] = "trace-step-3", ["run_id"] = "task:yakit-login-flow", ["task_id"] = "yakit-login-flow",
+                        ["session"] = "9f4b21c8e1a44d09b32177a9", ["client"] = "Claude Desktop", ["tool"] = "click", ["label"] = "点击「启动隔离实例」",
+                        ["started_at"] = baseTime.AddMilliseconds(280).ToString("O", CultureInfo.InvariantCulture), ["duration_ms"] = 142, ["status"] = "completed", ["http_status"] = 200,
+                        ["request"] = new JObject { ["name"] = "click", ["arguments"] = new JObject { ["window_id"] = 198420, ["element_index"] = 7, ["button"] = "left", ["count"] = 1 } },
+                        ["operation"] = new JObject
+                        {
+                            ["description"] = "点击「启动隔离实例」按钮", ["control_label"] = "启动隔离实例",
+                            ["steps"] = new JArray(
+                                new JObject { ["step"] = "target", ["status"] = "completed", ["offset_ms"] = 0, ["duration_ms"] = 7 },
+                                new JObject { ["step"] = "activate", ["status"] = "completed", ["offset_ms"] = 7, ["duration_ms"] = 18 },
+                                new JObject { ["step"] = "verify_capture", ["status"] = "completed", ["offset_ms"] = 25, ["duration_ms"] = 28 },
+                                new JObject { ["step"] = "click", ["status"] = "completed", ["offset_ms"] = 53, ["duration_ms"] = 34 },
+                                new JObject { ["step"] = "readback", ["status"] = "completed", ["offset_ms"] = 87, ["duration_ms"] = 55 })
+                        },
+                        ["response"] = new JObject
+                        {
+                            ["structuredContent"] = new JObject { ["title"] = "YTray · 多身份工作台", ["controls_shown"] = 31, ["visual_verification"] = "matched", ["screenshot_source"] = "window_render", ["image_width"] = 1268, ["image_height"] = 800 },
+                            ["content"] = new JArray(new JObject { ["type"] = "text", ["text"] = "Window: YTray · 多身份工作台 (4 running instances)\n[7] Button 启动隔离实例 (focused)" })
+                        }
+                    },
+                    new JObject
+                    {
+                        ["id"] = "trace-run2-1", ["run_id"] = "task:terminal-audit", ["task_id"] = "terminal-audit",
+                        ["session"] = "7c12a880f31e4201", ["client"] = "Cursor Agent", ["tool"] = "press_key", ["label"] = "按键校验失败",
+                        ["started_at"] = baseTime.AddSeconds(-48).ToString("O", CultureInfo.InvariantCulture), ["duration_ms"] = 63, ["status"] = "failed", ["http_status"] = 200,
+                        ["request"] = new JObject { ["name"] = "press_key", ["arguments"] = new JObject { ["window_id"] = 304112, ["key"] = "ctrl+shift+f99" } },
+                        ["operation"] = new JObject
+                        {
+                            ["description"] = "向终端窗口发送快捷键",
+                            ["error"] = new JObject { ["code"] = "InvalidKey", ["execution_state"] = "NotStarted", ["message"] = "未识别的按键名称 f99，动作未投递。" },
+                            ["steps"] = new JArray(
+                                new JObject { ["step"] = "target", ["status"] = "completed", ["offset_ms"] = 0, ["duration_ms"] = 12 },
+                                new JObject { ["step"] = "press_key", ["status"] = "failed", ["offset_ms"] = 12, ["duration_ms"] = 51 })
+                        },
+                        ["response"] = new JObject { ["isError"] = true }
+                    }
+                }
+            };
+            window._requestedCall = "trace-step-3";
+            return window;
         }
 
         internal static void ShowFor(SystemControlController controller, Window? owner = null, string? callId = null)
@@ -84,6 +174,7 @@ namespace YTray.Views
             var selectedRun = _requestedCall != null ? requestedRun : runs.FirstOrDefault(run => run.Id == previousRun) ?? runs.FirstOrDefault();
             _updating = true;
             RunCountText.Text = runs.Length.ToString(CultureInfo.InvariantCulture);
+            RunEmptyHint.Visibility = runs.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
             RunList.ItemsSource = runs;
             RunList.SelectedItem = selectedRun;
             if (selectedRun != null) RunList.ScrollIntoView(selectedRun);
@@ -136,7 +227,7 @@ namespace YTray.Views
             var row = CallList.SelectedItem as CallRow;
             _details = row?.Snapshot();
             CallDetails.Visibility = row == null ? Visibility.Collapsed : Visibility.Visible;
-            EmptyText.Visibility = row == null ? Visibility.Visible : Visibility.Collapsed;
+            EmptyStatePanel.Visibility = EmptyText.Visibility = row == null ? Visibility.Visible : Visibility.Collapsed;
             if (row == null || _details == null) {
                 EmptyText.Text = !_savedLoaded ? "正在读取调用记录…" : _requestedCall != null ? "未找到这条调用记录" : "等待 MCP 调用";
                 return;
@@ -188,6 +279,7 @@ namespace YTray.Views
             var readable = _detailTab == DetailTab.Readable;
             ReadableDetails.Visibility = readable ? Visibility.Visible : Visibility.Collapsed;
             PayloadText.Visibility = readable ? Visibility.Collapsed : Visibility.Visible;
+            if (CopyPayloadButton != null) CopyPayloadButton.Visibility = readable ? Visibility.Collapsed : Visibility.Visible;
             if (!readable) {
                 var value = _details?[_detailTab == DetailTab.Response ? "response" : "request"];
                 var text = value?.ToString(Formatting.Indented) ?? ((string?)_details?["status"] == "running" ? "等待调用完成" : "该调用没有响应正文");
@@ -198,11 +290,28 @@ namespace YTray.Views
             MarkSelected(ResponseButton, _detailTab == DetailTab.Response);
         }
 
+        private async void CopyPayload_Click(object sender, RoutedEventArgs e)
+        {
+            var text = PayloadText.Text;
+            if (!string.IsNullOrWhiteSpace(text))
+                await McpClipboard.TryCopyAsync(this, () => text);
+        }
+
         private static void MarkSelected(Button button, bool selected)
         {
-            if (selected) button.SetResourceReference(BackgroundProperty, "BrandPaleBrush");
-            else button.Background = Brushes.Transparent;
-            button.FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal;
+            if (selected)
+            {
+                button.SetResourceReference(BackgroundProperty, "SurfaceRaisedBrush");
+                button.SetResourceReference(BorderBrushProperty, "HairlineBrush");
+                button.SetResourceReference(ForegroundProperty, "BrandOrangeBrush");
+            }
+            else
+            {
+                button.Background = Brushes.Transparent;
+                button.BorderBrush = Brushes.Transparent;
+                button.SetResourceReference(ForegroundProperty, "TextSecondaryBrush");
+            }
+            button.FontWeight = selected ? FontWeights.SemiBold : FontWeights.Medium;
         }
 
         private void Details_Click(object sender, RoutedEventArgs e) { _detailTab = DetailTab.Readable; ShowPayload(); }

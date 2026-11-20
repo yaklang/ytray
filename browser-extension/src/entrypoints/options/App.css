@@ -717,6 +717,7 @@ input[type='checkbox'] { width: 15px; height: 15px; flex: 0 0 auto; padding: 0; 
 .pairing-code strong { font-family: var(--font-mono); font-size: 30px; font-weight: 700; letter-spacing: .12em; }
 .pairing-code small { color: var(--muted); font-size: var(--text-sm); }
 .engine-discovery-list { display: grid; gap: 8px; }
+.engine-discovery-summary { color: var(--muted); font-size: var(--text-sm); }
 .engine-discovery-row { padding: 10px 12px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-subtle); text-align: left; }
 .engine-discovery-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--accent-strong); background: var(--accent-soft); }
 .engine-discovery-row strong, .engine-discovery-row small { display: block; }

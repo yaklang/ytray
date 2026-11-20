@@ -1035,9 +1035,9 @@ namespace YTray.Tests
             ThemeManager.ApplyPalette(resources, dark: true);
 
             Assert.AreSame(background, resources["AppBackgroundBrush"]);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#15181A"), background.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#34383B"), hairline.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#3A3E41"), windowBorder.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#121417"), background.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#2A3038"), hairline.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#363D47"), windowBorder.Color);
             Assert.IsTrue(hairline.Color.R < 64 && hairline.Color.G < 64 && hairline.Color.B < 64,
                 "Dark-theme separators must stay gray instead of becoming white.");
 
@@ -1051,20 +1051,20 @@ namespace YTray.Tests
                 ["WidgetSurfaceBrush"] = floatingSurface,
             };
             ThemeManager.ApplyLocalPalette(floatingResources, dark: true);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF3A3C42"), floatingBorder.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF2C2E33"), floatingHairline.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF212226"), floatingSurface.GradientStops[0].Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF1A1B1E"), floatingSurface.GradientStops[1].Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF343B46"), floatingBorder.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF282E37"), floatingHairline.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF1D2127"), floatingSurface.GradientStops[0].Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FF171A1F"), floatingSurface.GradientStops[1].Color);
 
             ThemeManager.ApplyPalette(resources, dark: false);
             ThemeManager.ApplyLocalPalette(floatingResources, dark: false);
 
             Assert.AreSame(background, resources["AppBackgroundBrush"]);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#F4F4F2"), background.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#DDDDD9"), hairline.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#D1D1CC"), windowBorder.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FFD5D5D1"), floatingBorder.Color);
-            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FFE6E6E2"), floatingHairline.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#F5F6F8"), background.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#E3E6EB"), hairline.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#D0D5DD"), windowBorder.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FFD4D8E0"), floatingBorder.Color);
+            Assert.AreEqual((Color)ColorConverter.ConvertFromString("#FFE4E7EC"), floatingHairline.Color);
         }
 
         [TestMethod]

@@ -192,6 +192,18 @@ const launchTarget = v.pipe(v.strictObject({
   return normalizeLaunchTarget(value)?.mode === 'engine';
 }, 'YTray 接入目标必须包含完整引擎身份及本机地址'));
 
+const managedInstanceBinding = v.strictObject({
+  ...managedInstance.entries,
+  launchTarget: v.optional(launchTarget),
+  browserUseTicket: v.optional(v.pipe(v.string(), v.regex(/^[A-Za-z0-9+/]{43}=$/))),
+  browserName: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120))),
+  browserVersion: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(80))),
+  startupProxy: v.optional(v.union([v.literal('direct'), v.pipe(httpUrl, v.check((value) => {
+    const parsed = new URL(value);
+    return !parsed.username && !parsed.password && !parsed.search && !parsed.hash && parsed.pathname === '/';
+  }, '启动代理只能包含协议、主机和端口'))])),
+});
+
 const pairedEngine = v.strictObject({
   engineIdentityId: id, deviceId: id,
   frontendId: v.optional(id),
@@ -202,6 +214,7 @@ const pairedEngine = v.strictObject({
 
 const bridgeConfig = v.strictObject({
   transport: v.picklist(['native', 'websocket']),
+  automaticWebSocketFallback: v.optional(v.literal(true)),
   nativeHost: v.pipe(v.string(), v.trim(), v.maxLength(253)),
   endpoint: v.pipe(v.string(), v.trim(), v.maxLength(2_048)),
   autoConnect: v.boolean(),
@@ -507,17 +520,8 @@ const payloadSchemas = {
   'metrics.get': noPayload,
   'metrics.reset': noPayload,
   'bridge.config.save': bridgeConfig,
-  'bridge.managed-instance.bind': v.strictObject({
-    ...managedInstance.entries,
-    launchTarget: v.optional(launchTarget),
-    browserUseTicket: v.optional(v.pipe(v.string(), v.regex(/^[A-Za-z0-9+/]{43}=$/))),
-    browserName: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120))),
-    browserVersion: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(80))),
-    startupProxy: v.optional(v.union([v.literal('direct'), v.pipe(httpUrl, v.check((value) => {
-      const parsed = new URL(value);
-      return !parsed.username && !parsed.password && !parsed.search && !parsed.hash && parsed.pathname === '/';
-    }, '启动代理只能包含协议、主机和端口'))])),
-  }),
+  'bridge.managed-instance.bind': managedInstanceBinding,
+  'bridge.managed-instance.bind.v2': managedInstanceBinding,
   'bridge.managed-connection.get': v.strictObject({ instanceId: managedInstance.entries.instanceId }),
   'bridge.managed-connection.set': v.strictObject({ instanceId: managedInstance.entries.instanceId, launchTarget }),
   'bridge.pair': noPayload,

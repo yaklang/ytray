@@ -200,8 +200,8 @@ function helloAck() {
   };
 }
 
-async function connect(bridge: EngineBridge): Promise<FakeWebSocket> {
-  const pending = bridge.connect(fixture.state.bridge);
+async function connect(bridge: EngineBridge, managed = false): Promise<FakeWebSocket> {
+  const pending = managed ? bridge.connectManaged(fixture.state.bridge) : bridge.connect(fixture.state.bridge);
   const socket = FakeWebSocket.instances.at(-1)!;
   socket.open();
   socket.receive({
@@ -246,18 +246,73 @@ describe('Engine Bridge transport lifecycle', () => {
     expect(bridge.getStatus().transport).toBeUndefined();
   });
 
-  it('waits for Native Messaging in a managed browser without probing WebSocket ports', async () => {
+  it.each(['win', 'mac'])('checks compatible WebSocket engines when Native discovery is empty on %s', async (os) => {
     const bridge = new EngineBridge();
+    fixture.platformInfo.mockResolvedValueOnce({ os });
     fixture.state.bridge = bindLaunchTarget(bridgeConfig(false), { mode: 'auto' });
     fixture.sendNativeMessage.mockResolvedValueOnce({ targets: [] });
     await bridge.connectManaged(fixture.state.bridge);
 
     expect(bridge.getStatus()).toMatchObject({
-      state: 'error', message: expect.stringContaining('Native Messaging'),
+      state: 'error', message: expect.stringContaining('Native 或 WebSocket'),
     });
-    expect(bridge.discoverLocalEngines).not.toHaveBeenCalled();
+    expect(bridge.discoverLocalEngines).toHaveBeenCalledWith(expect.objectContaining({ transport: 'websocket' }));
     expect(FakeWebSocket.instances).toHaveLength(0);
     bridge.disconnect();
+  });
+
+  it('waits for an explicit choice after discovering multiple compatible engines', async () => {
+    const bridge = new EngineBridge();
+    fixture.state.bridge = bindLaunchTarget(bridgeConfig(false), { mode: 'auto' });
+    const compatible = [64333, 64334, 64335].map((port) => ({
+      protocolVersion: BRIDGE_PROTOCOL_VERSION, engineIdentityId: 'engine-' + port,
+      engineInstanceId: 'process-' + port, endpoint: `ws://127.0.0.1:${port}/extension`,
+    }));
+    vi.mocked(bridge.discoverLocalEngines).mockResolvedValue(compatible);
+    await bridge.connectManaged(fixture.state.bridge);
+    expect(bridge.getStatus().message).toContain('请在连接页选择');
+    vi.mocked(bridge.discoverLocalEngines).mockResolvedValue(compatible.slice(0, 1));
+    expect(await bridge.discoverCompatibleEngines()).toHaveLength(1);
+    expect(fixture.state.bridge.autoConnect).toBe(false);
+    await new EngineBridge().connectManaged(fixture.state.bridge);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(fixture.state.bridge.launchTarget?.mode).toBe('auto');
+    bridge.disconnect();
+  });
+
+  it('pins a lone compatible engine to its discovered identity and port', async () => {
+    const bridge = new EngineBridge();
+    fixture.state.bridge = bindLaunchTarget(bridgeConfig(false), { mode: 'auto' });
+    const engine = { protocolVersion: BRIDGE_PROTOCOL_VERSION, engineIdentityId: 'legacy-engine',
+      engineInstanceId: 'legacy-run', endpoint: 'ws://127.0.0.1:64334/extension', frontendId: 'yakit' };
+    vi.mocked(bridge.discoverLocalEngines).mockResolvedValue([engine]);
+    const pending = bridge.connectManaged(fixture.state.bridge);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fixture.state.bridge.launchTarget).toMatchObject({ mode: 'engine', exactInstance: true,
+      engineIdentityId: engine.engineIdentityId, engineInstanceId: engine.engineInstanceId, endpoint: engine.endpoint });
+    expect(FakeWebSocket.instances.map((socket) => socket.url)).toEqual(['ws://127.0.0.1:64334/pairing']);
+    expect(fixture.state.bridge.automaticWebSocketFallback).toBe(true);
+    expect(bindLaunchTarget(fixture.state.bridge, fixture.state.bridge.launchTarget!).automaticWebSocketFallback).toBeUndefined();
+    bridge.cancelPairing();
+    await pending;
+    bridge.disconnect();
+  });
+
+  it('uses the Windows host to discover the actual owner of old WebSocket engines', async () => {
+    const bridge = new EngineBridge();
+    fixture.state.bridge = bindLaunchTarget(bridgeConfig(false), { mode: 'auto' });
+    const memfit = { mode: 'engine', exactInstance: true, frontendId: 'yakit', frontendName: 'Memfit AI',
+      ownerFrontendId: 'memfit', engineIdentityId: 'memfit-engine', engineInstanceId: 'memfit-run',
+      endpoint: 'ws://127.0.0.1:64335/extension' };
+    fixture.sendNativeMessage.mockResolvedValueOnce({ targets: [memfit] });
+    const result = await bridge.discoverCompatibleEngines();
+    expect(result).toEqual([expect.objectContaining({
+      endpoint: memfit.endpoint, frontendId: 'yakit', ownerFrontendId: 'memfit', frontendName: 'Memfit AI',
+    })]);
+    expect(fixture.sendNativeMessage).toHaveBeenCalledWith('com.yaklang.ytray_engine', { type: 'yak_engine_discover_compatible' });
+    expect(bridge.discoverLocalEngines).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(0);
   });
 
   it('reconnects the selected macOS engine while ignoring another frontend', async () => {
@@ -574,13 +629,15 @@ describe('Engine Bridge transport lifecycle', () => {
     await expect(pending).resolves.toMatchObject({ state: 'rejected' });
   });
 
-  it('reuses an existing pairing without discovery support on an old engine', async () => {
-    fixture.state.bridge = bindLaunchTarget(bridgeConfig(true), { mode: 'legacy' });
+  it.each(['win', 'mac'])('reconnects the old paired engine on %s after an automatic relaunch', async (os) => {
+    fixture.platformInfo.mockResolvedValueOnce({ os });
+    fixture.state.bridge = bindLaunchTarget({ ...bridgeConfig(true), autoConnect: true }, { mode: 'auto' });
     const original = structuredClone(fixture.state.bridge);
     const bridge = new EngineBridge();
-    const socket = await connect(bridge);
-    expect(bridge.getStatus().state).toBe('connected');
+    const socket = await connect(bridge, true);
+    expect(bridge.getStatus()).toMatchObject({ state: 'connected', transport: 'websocket' });
     expect(bridge.discoverLocalEngines).not.toHaveBeenCalled();
+    expect(fixture.sendNativeMessage).not.toHaveBeenCalled();
     expect(fixture.state.bridge).toEqual(original);
     expect(socket.url).toBe(original.endpoint);
     bridge.disconnect();

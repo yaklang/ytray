@@ -34,7 +34,6 @@ namespace YTray.Core
             : Uri.TryCreate(Endpoint, UriKind.Absolute, out var address) ? address.Authority : "等待目标引擎";
         public BrowserEngineTarget Clone() => (BrowserEngineTarget)MemberwiseClone();
         [JsonIgnore] public string EffectiveFrontendId => FrontendOwnerId ?? FrontendId;
-        [JsonIgnore] internal bool RequiresExactInstance => EffectiveFrontendId != FrontendId;
         public bool SameFrontend(BrowserEngineTarget other) => EngineIdentityId == other.EngineIdentityId && EffectiveFrontendId == other.EffectiveFrontendId;
         internal JObject ToWire()
         {
@@ -48,7 +47,7 @@ namespace YTray.Core
             else payload["endpoint"] = Endpoint;
             payload["exactInstance"] = true;
             if (ChallengeOnly) payload["challengeOnly"] = true;
-            if (RequiresExactInstance) payload["ownerFrontendId"] = EffectiveFrontendId;
+            if (FrontendOwnerId != null) payload["ownerFrontendId"] = FrontendOwnerId;
             return payload;
         }
     }
@@ -102,7 +101,7 @@ namespace YTray.Core
                 if (target != null && pid != 0 && pid == TcpListenerProcess.FindOwnerProcessId(port))
                 {
                     var owner = BrowserEngineOwner.Find(pid);
-                    if (owner == "memfit" || owner == "yakit" && target.FrontendId == "memfit")
+                    if (owner == "memfit" || owner == "yakit")
                     {
                         target.FrontendOwnerId = owner;
                         target.FrontendName = owner == "memfit" ? "Memfit AI" : "Yakit";
@@ -139,7 +138,11 @@ namespace YTray.Core
             challenge["type"] = "engine";
             challenge["frontendId"] = owner;
             var target = Parse(challenge.ToString(Formatting.None), port);
-            if (target != null) target.ChallengeOnly = true;
+            if (target != null)
+            {
+                target.ChallengeOnly = true;
+                target.FrontendOwnerId = owner;
+            }
             return target;
         }
 
@@ -180,13 +183,11 @@ namespace YTray.Core
         }
 
         internal static BrowserEngineTarget ResolveForLaunch(BrowserEngineTarget? remembered,
-            IReadOnlyList<BrowserEngineTarget> online, bool restoring)
+            IReadOnlyList<BrowserEngineTarget> online)
         {
             if (remembered != null && remembered.Mode != "auto")
                 return ResolveRemembered(remembered, online) ?? remembered.Clone();
-            if (restoring) return new BrowserEngineTarget { Mode = "auto" };
-            var native = online.Where(target => target.PipeName != null).ToArray();
-            return native.Length == 1 ? native[0].Clone() : new BrowserEngineTarget { Mode = "auto" };
+            return new BrowserEngineTarget { Mode = "auto" };
         }
     }
 }

@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
-import type { BridgeLaunchTarget } from '@/types/models';
+import type { BridgeLaunchTarget, DiscoveredYakEngine } from '@/types/models';
+import { BRIDGE_PROTOCOL_VERSION } from '@/protocol/bridge';
 
 import { hasNativeEngineTarget, normalizeLaunchTarget, YTRAY_ENGINE_HOST } from './launch-target';
 
@@ -20,6 +21,24 @@ export async function discoverNativeEngines(): Promise<BridgeLaunchTarget[]> {
   } catch {
     return [];
   }
+}
+
+export async function discoverWindowsCompatibleEngines(): Promise<DiscoveredYakEngine[]> {
+  try {
+    if ((await browser.runtime.getPlatformInfo()).os !== 'win') return [];
+    const result = await browser.runtime.sendNativeMessage(YTRAY_ENGINE_HOST, { type: 'yak_engine_discover_compatible' });
+    if (!Array.isArray(result?.targets)) return [];
+    return result.targets.flatMap((value: unknown) => {
+      const target = normalizeLaunchTarget(value);
+      if (target?.mode !== 'engine' || !target.endpoint) return [];
+      return [{
+        protocolVersion: BRIDGE_PROTOCOL_VERSION, endpoint: target.endpoint,
+        engineIdentityId: target.engineIdentityId!, engineInstanceId: target.engineInstanceId!,
+        frontendId: target.frontendId, frontendName: target.frontendName,
+        challengeOnly: target.challengeOnly, ownerFrontendId: target.ownerFrontendId,
+      }];
+    });
+  } catch { return []; }
 }
 
 export function selectNativeEngine(target: BridgeLaunchTarget, candidates: BridgeLaunchTarget[]): BridgeLaunchTarget {
