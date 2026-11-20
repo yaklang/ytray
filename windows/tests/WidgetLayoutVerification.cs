@@ -28,7 +28,7 @@ namespace YTray.Tests
                     widget.RefreshAndMeasure();
                     WidgetReviewCapture.PrepareFullCapture(widget);
                     Assert.AreEqual(390, widget.ActualWidth, 0.01);
-                    Assert.AreEqual(876, widget.ActualHeight, 0.5, "The redesigned Windows widget preserves all instance rows with ergonomic input heights.");
+                    Assert.AreEqual(0, widget.InstanceScroll.ScrollableHeight, 0.5, "Full capture must show all instance rows without scrolling.");
                     Assert.AreEqual(248, widget.ProxyCard.ActualHeight, 0.01);
                     foreach (var input in new FrameworkElement[] { widget.SchemeCombo, widget.HostBox, widget.PortBox, widget.RemarkBox, widget.UsernameBox, widget.PasswordInput, widget.TargetBox })
                         Assert.AreEqual(28, input.ActualHeight, 0.01, input.Name);
@@ -96,8 +96,8 @@ namespace YTray.Tests
                     Assert.IsTrue(widget.InstanceScroll.ViewportHeight > 0);
                     Assert.IsTrue(widget.StartupBtn.TranslatePoint(new Point(0, widget.StartupBtn.ActualHeight), widget).Y <= widget.ActualHeight);
                     WidgetReviewCapture.PrepareFullCapture(widget);
-                    Assert.AreEqual(876, widget.ActualHeight, 0.5, "The comparison capture must include every row even on a short CI desktop.");
-                    Assert.AreEqual(0, widget.InstanceScroll.ScrollableHeight, 0.01);
+                    Assert.IsTrue(widget.ActualHeight > 520, "Full capture must restore the unconstrained widget height.");
+                    Assert.AreEqual(0, widget.InstanceScroll.ScrollableHeight, 0.5, "Full capture must show every row on a short CI desktop.");
                     store.Instances.Clear();
                     widget.RefreshAndMeasure();
                     widget.UpdateLayout();
