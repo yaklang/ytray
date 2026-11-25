@@ -31,6 +31,7 @@ namespace YTray.Core.SystemControl
         private readonly Dictionary<string, WindowsControlTarget> _targets = new Dictionary<string, WindowsControlTarget>();
         private readonly Dictionary<string, Observation> _observations = new Dictionary<string, Observation>();
         private readonly Dictionary<string, (string Hash, Task<JObject> Task, long Created)> _requests = new Dictionary<string, (string, Task<JObject>, long)>();
+        private IntPtr _managerWindowHandle;
         private Dictionary<string, JObject> _tools = new Dictionary<string, JObject>();
         private NativeControlConnection? _connection;
         private CancellationTokenSource? _lifetime;
@@ -55,6 +56,11 @@ namespace YTray.Core.SystemControl
         public string Endpoint => "http://127.0.0.1:" + ControlGateway.Port + "/system/mcp";
         internal string Generation => _generation;
         internal int? WorkerProcessId => _connection?.ProcessId;
+        private IntPtr ManagerWindowHandle => Volatile.Read(ref _managerWindowHandle);
+
+        internal void RegisterManagerWindow(IntPtr handle) => Volatile.Write(ref _managerWindowHandle, handle);
+        internal void UnregisterManagerWindow(IntPtr handle) => Interlocked.CompareExchange(ref _managerWindowHandle, IntPtr.Zero, handle);
+
         internal SystemControlController(string applicationDirectory)
         {
             _dispatcher = Dispatcher.CurrentDispatcher;
@@ -260,7 +266,7 @@ namespace YTray.Core.SystemControl
                 RequireGeneration(generation); WindowsControlTarget.RequireDesktop();
                 if (name == "list_apps" || name == "list_windows") {
                     if (arguments.Count != 0) throw new ControlException("InvalidArguments", "请使用返回的精确 target_ref 选择目标");
-                    var windows = WindowsControlTarget.Enumerate().Where(t => Allowed(t)).ToArray();
+                    var windows = WindowsControlTarget.Enumerate(currentProcessWindow: ManagerWindowHandle).Where(Allowed).ToArray();
                     var array = new JArray(); lock (_sync) { foreach (var target in windows) {
                         var previous = _targets.Values.FirstOrDefault(t => t.Handle == target.Handle && t.Pid == target.Pid && t.Created == target.Created);
                         if (previous != null) target.Reference = previous.Reference;
@@ -312,7 +318,7 @@ namespace YTray.Core.SystemControl
             }
             if (desktop && _grant?.AllowDesktop != true) throw new ControlException("ScopeDenied", "本会话未授权主屏范围");
             var scopedCapture = _grant?.AllowDesktop != true;
-            var verifyCapture = !desktop && name == "click" && compact?.Value<bool>("verify_capture") == true;
+            var verifyCapture = !desktop && (name is "click" or "drag") && compact?.Value<bool>("verify_capture") == true;
             if (capture == WindowCaptureMode.NativeFirst && original["include_screenshot"] == null) {
                 arguments["include_screenshot"] = false;
                 arguments["_capture_if_no_layout"] = true;
@@ -325,6 +331,8 @@ namespace YTray.Core.SystemControl
                 var mode = (string?)arguments["delivery_mode"] ?? "background";
                 if (mode != "background" && !(mode == "foreground" && _grant?.AllowForeground == true)) throw new ControlException("ScopeDenied", "前台输入需要本机单独授权并在调用中显式选择");
                 if (desktop && mode != "foreground") throw new ControlException("BackgroundUnavailable", "主屏输入仅支持明确授权的前台模式");
+                if (name == "drag" && (!verifyCapture || mode != "foreground"))
+                    throw new ControlException("ScreenshotRequired", "拖拽需要前台窗口和已绑定的截图。");
                 arguments["delivery_mode"] = mode;
                 var key = desktop ? "desktop_primary" : target!.Reference;
                 lock (_sync) _observations.TryGetValue(key, out observation);
@@ -340,6 +348,9 @@ namespace YTray.Core.SystemControl
                 }
                 if (verifyCapture) arguments["_verify_capture_id"] = observation.VisualCaptureId
                     ?? throw new ControlException("CaptureVerificationUnavailable", "当前截图无法复核，请使用返回的新画面重新选点。");
+                if (name == "drag" && (arguments.Value<double>("to_x") < 0 || arguments.Value<double>("to_y") < 0
+                    || arguments.Value<double>("to_x") >= observation.Width || arguments.Value<double>("to_y") >= observation.Height))
+                    throw new ControlException("InvalidCoordinates", "拖拽终点必须位于当前返回的图片范围内。");
                 if (arguments["capture_id"] != null && (string?)arguments["capture_id"] != observation.Id) throw new ControlException("CaptureExpired", "截图不属于最新观察");
                 var centeredScroll = name == "scroll" && compact?["center_scroll"]?.Value<bool>() == true;
                 if (desktop) WindowsControlProtection.RequireSafeInput(arguments, observation.Width, observation.Height, centeredScroll);
@@ -507,7 +518,8 @@ namespace YTray.Core.SystemControl
             content.Add(new JObject { ["type"] = "text", ["text"] = context.ToString(Formatting.None) });
         }
         private bool AllowedApp(string executable) => _grant?.AllowDesktop == true || _grant?.Executables.Contains(executable, StringComparer.OrdinalIgnoreCase) == true;
-        private bool Allowed(WindowsControlTarget target) => target.Pid != Process.GetCurrentProcess().Id && target.Pid != WorkerProcessId && AllowedApp(target.Executable);
+        private bool Allowed(WindowsControlTarget target) => target.Pid != WorkerProcessId && AllowedApp(target.Executable)
+            && (target.Pid != Process.GetCurrentProcess().Id || target.Handle == ManagerWindowHandle);
         private void RequireGeneration(string generation)
         {
             RequirePublicGrant();

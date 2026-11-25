@@ -96,6 +96,17 @@ namespace YTray.Core.SystemControl
             var scroll = Input(); scroll["direction"] = new JObject { ["type"] = "string", ["enum"] = new JArray("up", "down", "left", "right") };
             scroll["amount"] = new JObject { ["type"] = "integer", ["minimum"] = 1, ["maximum"] = 50, ["description"] = "Scroll steps; default 3." };
             scroll["element_index"] = Property("integer", "Optional scrollable control."); scroll["x"] = Property("number"); scroll["y"] = Property("number");
+            JObject TopLevelWindow() => new JObject { ["window_id"] = new JObject { ["type"] = "integer", ["minimum"] = 1,
+                ["description"] = "A top-level application window ID from list_windows or the last observation." }, ["include_screenshot"] = Screenshot() };
+            var drag = TopLevelWindow();
+            drag["state_id"] = Property("string", "State ID from the screenshot containing both endpoints.");
+            foreach (var coordinate in new[] { "from_x", "from_y", "to_x", "to_y" })
+                drag[coordinate] = new JObject { ["type"] = "number", ["minimum"] = 0 };
+            var placement = TopLevelWindow();
+            foreach (var coordinate in new[] { "x", "y" })
+                placement[coordinate] = new JObject { ["type"] = "integer", ["minimum"] = -1000000, ["maximum"] = 1000000 };
+            foreach (var dimension in new[] { "width", "height" })
+                placement[dimension] = new JObject { ["type"] = "integer", ["minimum"] = 100, ["maximum"] = 20000 };
             var tools = new JArray {
                 Tool("list_apps", "Find desktop apps and their running/window status, including a matching notification-area icon when available. Use an app name or EXE with launch_app.", new JObject { ["query"] = Property("string", "Optional app name filter.") }),
                 Tool("list_windows", "List open windows and their window_id values.", new JObject { ["app"] = Property("string", "Optional app name or EXE filter.") }),
@@ -119,6 +130,12 @@ namespace YTray.Core.SystemControl
                 tools.Add(Tool("type_text", "Focus an optional numbered field and type. Use replace and submit where supported. If TextSequenceUnavailable is returned, select, type, and submit as separate calls, checking the text before submission.", type, "window_id", "text"));
                 tools.Add(Tool("press_key", "Send a key or chord to a window. No control number is needed. Returns updated state.", key, "window_id", "key"));
                 tools.Add(Tool("scroll", "Scroll the window or a numbered control. Returns updated state.", scroll, "window_id", "direction"));
+                if (grant?.AllowForeground != false) {
+                    tools.Add(Tool("drag", "Hold and release the left mouse button along a straight path within one visible window. Use pixel endpoints and state_id from the same window screenshot. YTray rechecks the screenshot and path before input.",
+                        drag, "window_id", "state_id", "from_x", "from_y", "to_x", "to_y"));
+                    tools.Add(Tool("set_window_bounds", "Move or resize a top-level window using Windows desktop pixel coordinates, including negative coordinates on other displays. Supply at least one field. Omitted fields use the current restored bounds. Returns the actual bounds and a fresh state_id.",
+                        placement, "window_id"));
+                }
             }
             return tools;
         }
@@ -291,7 +308,8 @@ namespace YTray.Core.SystemControl
                             timing.Operation?.Bind(window);
                         }
                         EnterOperation(timing, step);
-                    }, (selected, processes) => RestoreTrayAppAsync(selected, processes, timing, cancellation), RequirePublicGrant).ConfigureAwait(false);
+                    }, (selected, processes) => RestoreTrayAppAsync(selected, processes, timing, cancellation), RequirePublicGrant,
+                        () => ManagerWindowHandle).ConfigureAwait(false);
                     actionCompleted = true;
                     target = RegisterTarget(opened.Target.Handle.ToInt64());
                     timing.Operation?.Bind(target);
@@ -330,6 +348,25 @@ namespace YTray.Core.SystemControl
                     EnterOperation(timing, "readback");
                     return await ReadActionStateAsync(target, "窗口已切到前台", arguments, timing, cancellation).ConfigureAwait(false);
                 }
+                if (name == "set_window_bounds") {
+                    if (target == null || target.IsOwned) throw new ControlException("InvalidArguments", "调整大小和位置需要指定应用主窗口");
+                    EnterOperation(timing, "set_window_bounds");
+                    var inputAt = timing.Clock.ElapsedMilliseconds;
+                    var placement = await WindowsApplicationControl.SetBoundsAsync(target, (int?)arguments["x"], (int?)arguments["y"],
+                        (int?)arguments["width"], (int?)arguments["height"], cancellation, RequirePublicGrant, MarkPublicInput).ConfigureAwait(false);
+                    timing.Input = timing.Clock.ElapsedMilliseconds - inputAt;
+                    var placed = await FinishSimpleAsync(ControlJson.Result(new JObject()), target, name, arguments, timing, cancellation).ConfigureAwait(false);
+                    if (!placed.Value<bool>("isError") && placed["structuredContent"] is JObject state) {
+                        var requested = WindowBoundsJson(placement.Requested);
+                        var applied = state["window_bounds"] as JObject ?? WindowBoundsJson(placement.Applied);
+                        state["requested_window_bounds"] = requested;
+                        state["applied_window_bounds"] = applied.DeepClone();
+                        state["bounds_matched"] = JToken.DeepEquals(requested, applied);
+                        (placed["content"] as JArray)?.Add(new JObject { ["type"] = "text",
+                            ["text"] = $"应用后的窗口边界为 ({applied["x"]}, {applied["y"]})，{applied["width"]} × {applied["height"]}。" });
+                    }
+                    return placed;
+                }
                 return await ActSimpleAsync(name, arguments, target, timing, cancellation).ConfigureAwait(false);
             } catch (Exception error) when (actionCompleted && cancellation.IsCancellationRequested && (error is ControlException || error is OperationCanceledException)) {
                 return ControlCancellation.Error("Completed").Result();
@@ -338,12 +375,12 @@ namespace YTray.Core.SystemControl
                     return ControlActionResult.Combine(ControlJson.Result(new JObject()),
                         ControlActionResult.ReadbackFailure(target?.Handle.ToInt64() ?? 0, target?.Title ?? "Desktop", error.Message), name);
                 var result = error.Result();
-                if ((error.Code == "PopupChanged" || error.Verification != null) && IsScreenshotClick(name, arguments, target)) EnterOperation(timing, "verify_capture");
+                if ((error.Code == "PopupChanged" || error.Verification != null) && UsesScreenshotVerification(name, arguments, target)) EnterOperation(timing, "verify_capture");
                 FinishOperation(timing.Operation, (JObject)result["structuredContent"]!["error"]!);
                 var staleDesktop = target == null && _grant?.AllowDesktop == true && (error.Code == "StaleObservation" || error.Code == "CaptureExpired");
                 if (error.Code != "Cancelled" && (target?.IsOwned == true || timing.Operation?.CurrentStep != "readback")
                     && !cancellation.IsCancellationRequested && IsRunning && (target != null || staleDesktop)) try {
-                    var refreshWindowImage = IsScreenshotClick(name, arguments, target) && error.Code is "StaleObservation" or "CaptureExpired"
+                    var refreshWindowImage = UsesScreenshotVerification(name, arguments, target) && error.Code is "StaleObservation" or "CaptureExpired"
                         or "CaptureVerificationUnavailable" or "TargetChanged" or "CaptureOccluded" or "WindowNotActive" or "FocusChanged";
                     var owner = FindPopupOwner(target);
                     var state = owner != null
@@ -436,7 +473,7 @@ namespace YTray.Core.SystemControl
         }
         private WindowsControlTarget[] CurrentWindows(string? executable = null)
         {
-            var windows = WindowsControlTarget.Enumerate(executable).Where(Allowed).ToArray();
+            var windows = WindowsControlTarget.Enumerate(executable, ManagerWindowHandle).Where(Allowed).ToArray();
             lock (_sync) foreach (var target in windows) {
                 var previous = _targets.Values.FirstOrDefault(t => t.Handle == target.Handle && t.Pid == target.Pid && t.Created == target.Created && t.Owner == target.Owner);
                 if (previous != null) target.Reference = previous.Reference;
@@ -716,6 +753,12 @@ namespace YTray.Core.SystemControl
         }
         private async Task<JObject> ActSimpleAsync(string name, JObject input, WindowsControlTarget? target, ControlTiming timing, CancellationToken cancellation)
         {
+            if (name == "drag") {
+                if (target == null || target.IsOwned) throw new ControlException("InvalidArguments", "截图拖拽需要指定应用主窗口");
+                input = (JObject)input.DeepClone();
+                input["x"] = input["from_x"]!.DeepClone();
+                input["y"] = input["from_y"]!.DeepClone();
+            }
             var preflightAt = timing.Clock.ElapsedMilliseconds;
             var mode = (string?)input["delivery_mode"] ?? (_grant!.AllowForeground ? "foreground" : "background");
             if (mode == "foreground" && _grant?.AllowForeground != true)
@@ -732,7 +775,7 @@ namespace YTray.Core.SystemControl
             lock (_sync) _observations.TryGetValue(reference, out previous);
             var coordinates = input["x"] != null || input["y"] != null;
             var boundState = (string?)input["state_id"];
-            var verifyCapture = IsScreenshotClick(name, input, target);
+            var verifyCapture = UsesScreenshotVerification(name, input, target);
             if (target?.IsOwned == true && name == "click" && coordinates) {
                 if (!verifyCapture) throw new ControlException("ScreenshotRequired", "点击弹层请提供弹层截图的 window_id、state_id 和像素坐标。");
                 if (mode != "foreground") throw new ControlException("ForegroundRequired", "点击弹层截图需要其窗口组处于前台。");
@@ -801,7 +844,7 @@ namespace YTray.Core.SystemControl
 
             var args = new JObject { ["target_ref"] = reference, ["observation_id"] = observationId,
                 ["request_id"] = Guid.NewGuid().ToString(), ["deadline"] = DateTimeOffset.UtcNow.AddSeconds(25).ToString("O"), ["delivery_mode"] = mode };
-            foreach (var field in new[] { "x", "y", "button", "count", "text", "direction", "amount" })
+            foreach (var field in new[] { "x", "y", "to_x", "to_y", "button", "count", "text", "direction", "amount" })
                 if (input[field] != null) args[field] = input[field]!.DeepClone();
             if (coordinates && !recent) {
                 var width = view.Value<int>("image_width"); var height = view.Value<int>("image_height");
@@ -844,8 +887,11 @@ namespace YTray.Core.SystemControl
             return await FinishSimpleAsync(result, target, name, input, timing, cancellation, browserEnter, (string?)view["window_title"],
                 verifyCapture ? Math.Max(previous!.Width, previous.Height) : null).ConfigureAwait(false);
         }
-        private static bool IsScreenshotClick(string name, JObject input, WindowsControlTarget? target) => name == "click" && target != null
-            && input["state_id"] != null && input["x"] != null && input["y"] != null;
+        private static bool UsesScreenshotVerification(string name, JObject input, WindowsControlTarget? target) => target != null && input["state_id"] != null
+            && (name == "drag" || name == "click" && input["x"] != null && input["y"] != null);
+        private static JObject WindowBoundsJson(Rectangle bounds) => new JObject {
+            ["x"] = bounds.X, ["y"] = bounds.Y, ["width"] = bounds.Width, ["height"] = bounds.Height
+        };
         private static JObject VisualReadOptions(int? maximum = null)
         {
             var options = new JObject { ["include_screenshot"] = true };
@@ -927,7 +973,7 @@ namespace YTray.Core.SystemControl
                     updated = await ReadOwnerAsync().ConfigureAwait(false);
                 } else if (failed && verificationImageDimension.HasValue && target != null) {
                     updated = await PublicStateAsync(await ObserveSimpleAsync(target, VisualReadOptions(verificationImageDimension), timing, cancellation).ConfigureAwait(false),
-                        target, "点击已停止，已返回最新界面", timing: timing, cancellation: cancellation).ConfigureAwait(false);
+                        target, "操作已停止，已返回最新界面", timing: timing, cancellation: cancellation).ConfigureAwait(false);
                 } else if (target == null && failed && options["state_id"] != null && _grant?.AllowDesktop == true) {
                     // A rejected desktop action returns an observation of the primary display.
                     updated = await PublicStateAsync(await ObserveSimpleAsync(null, options, timing, cancellation).ConfigureAwait(false),

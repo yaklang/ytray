@@ -132,7 +132,7 @@ namespace YTray.Core.SystemControl
                 "list_apps" => "查找应用", "list_windows" => "查找窗口", "system_status" => "检查状态",
                 "get_window_state" => "观察窗口", "get_desktop_state" => "观察桌面",
                 "launch_app" => "打开应用", "activate_window" => "切换窗口", "open_folder" => "打开目录",
-                "click" or "type_text" or "press_key" or "scroll" => StepTitle(tool),
+                "click" or "drag" or "set_window_bounds" or "type_text" or "press_key" or "scroll" => StepTitle(tool),
                 _ => tool
             };
         }
@@ -140,7 +140,7 @@ namespace YTray.Core.SystemControl
         internal static string StepTitle(string? step) => step switch {
             "target" => "定位", "launch" => "打开", "activate" => "前台", "locate" => "校验",
             "focus" => "聚焦", "replace" => "全选", "type_text" => "输入", "submit" => "提交",
-            "click" => "点击", "press_key" => "按键", "scroll" => "滚动", "readback" => "读回",
+            "click" => "点击", "drag" => "拖拽", "set_window_bounds" => "调整窗口", "press_key" => "按键", "scroll" => "滚动", "readback" => "读回",
             "read_controls" => "读取原生控件", "capture_window" => "窗口截图", "capture_screen" => "屏幕截图",
             "verify_capture" => "点击前复核", "wait_for_change" => "等待界面变化", "format_state" => "整理回包",
             "find_tray_icon" => "查找托盘图标", "open_tray_overflow" => "展开托盘", "restore_tray" => "从托盘打开应用", "wait_tray_window" => "确认原窗口",

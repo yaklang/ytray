@@ -9,7 +9,7 @@ namespace YTray.Core.SystemControl
 {
     internal static class NativeControlSchema
     {
-        internal static readonly string[] Actions = { "click", "type_text", "press_key", "scroll" };
+        internal static readonly string[] Actions = { "click", "drag", "type_text", "press_key", "scroll" };
         internal static JArray Catalog()
         {
             var result = new JArray();
@@ -18,7 +18,7 @@ namespace YTray.Core.SystemControl
                 foreach (var field in definition.Value) {
                     var type = field == "modifiers" ? "array" : field.StartsWith("include_", StringComparison.Ordinal) ? "boolean"
                         : new[] { "pid", "window_id", "max_elements", "max_depth", "timeout_ms", "max_image_dimension", "count", "amount" }.Contains(field) ? "integer"
-                        : field == "x" || field == "y" ? "number" : "string";
+                        : field is "x" or "y" or "to_x" or "to_y" ? "number" : "string";
                     var property = new JObject { ["type"] = type };
                     if (type == "array") property["items"] = new JObject { ["type"] = "string" };
                     properties[field] = property;
@@ -27,6 +27,7 @@ namespace YTray.Core.SystemControl
                 if (definition.Key == "type_text") required.Add("text");
                 if (definition.Key == "press_key") required.Add("key");
                 if (definition.Key == "scroll") required.Add("direction");
+                if (definition.Key == "drag") foreach (var field in new[] { "x", "y", "to_x", "to_y" }) required.Add(field);
                 result.Add(new JObject { ["name"] = definition.Key, ["inputSchema"] = new JObject { ["type"] = "object", ["properties"] = properties, ["required"] = required } });
             }
             return result;
@@ -35,6 +36,7 @@ namespace YTray.Core.SystemControl
             ["get_window_state"] = new[] { "pid", "window_id", "query", "include_accessibility_tree", "include_screenshot", "max_elements", "max_depth", "timeout_ms", "max_image_dimension", "tree_format" },
             ["get_desktop_state"] = new[] { "max_image_dimension" }, ["check_permissions"] = Array.Empty<string>(),
             ["click"] = new[] { "pid", "window_id", "element_token", "capture_id", "x", "y", "delivery_mode", "button", "count" },
+            ["drag"] = new[] { "pid", "window_id", "x", "y", "to_x", "to_y", "delivery_mode" },
             ["type_text"] = new[] { "pid", "window_id", "element_token", "x", "y", "delivery_mode", "text" },
             ["press_key"] = new[] { "pid", "window_id", "element_token", "delivery_mode", "key", "modifiers" },
             ["scroll"] = new[] { "pid", "window_id", "element_token", "x", "y", "delivery_mode", "direction", "by", "amount" }

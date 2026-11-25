@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 — 2026-11-25
+
+- Windows 电脑控制 MCP 可发现、恢复并操作 YTray 主窗口，Agent 可以从 YTray 内发起浏览器隔离实例。
+- Windows 电脑控制 MCP 新增截图拖拽 `drag` 和窗口调整 `set_window_bounds`。拖拽前复核截图并核对路径。窗口调整支持多显示器坐标，并返回实际位置和尺寸。
+- Trace 展示拖拽起终点、窗口调整的请求边界、实际边界和复核结果。
+- Windows 与 macOS 安装包继续内置 Yakit Browser Agent 0.2.22。[浏览器插件更新说明](https://github.com/yaklang/ytray/blob/v0.3.4/browser-extension/release-notes.json)。
+
 ## 0.3.3 — 2026-11-20
 
 - Windows 重整运行中心、实例详情、启动向导、设置及 MCP 管理界面，统一深浅主题和下拉框交互。浏览器环境可保存为模板，并用于快速启动、自定义启动和 Browser Use。

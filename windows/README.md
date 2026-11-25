@@ -58,7 +58,11 @@ YTray 通过已注册的 Native Messaging Host 与扩展连接。工具按浏览
 
 小组件的电脑控制卡片包含滑动开关、状态、“复制电脑控制配置”和“高级”。复制后原位置短暂显示“已复制”。高级打开独立的电脑控制设置窗口，并复用已经打开的窗口。底部“MCP 配置”打开服务总览。管理页提供授权开启/关闭、复制电脑控制配置、查看工具和权限修复。
 
-核心工具共 12 个，分别是 `list_apps`、`list_windows`、`launch_app`、`open_folder`、`activate_window`、`get_window_state`、`get_desktop_state`、`click`、`type_text`、`press_key`、`scroll` 和 `system_status`。通过标准 MCP 初始化和发现工具。客户端可沿用原有工具参数，使用控件编号或截图坐标时应同时带上该次观察的 `state_id`。
+电脑控制 MCP 提供 `list_apps`、`list_windows`、`launch_app`、`open_folder`、`activate_window`、`get_window_state`、`get_desktop_state`、`click`、`type_text`、`press_key`、`scroll`、`drag`、`set_window_bounds` 和 `system_status`。通过标准 MCP 初始化和发现工具。使用控件编号或截图坐标时应同时带上该次观察的 `state_id`。
+
+`drag` 在同一个应用主窗口内按住并释放鼠标左键。先获取该窗口的截图，再传 `window_id`、`state_id`、`from_x`、`from_y`、`to_x`、`to_y`。起点和终点都使用原始截图的像素坐标。YTray 在投递前复核截图与路径，返回最新窗口状态。
+
+`set_window_bounds` 通过 Windows 调整主窗口的位置或大小。传 `window_id` 和至少一项 `x`、`y`、`width`、`height`。位置使用桌面像素坐标，支持其他显示器上的负坐标。最大化或最小化的窗口会先还原，未指定的字段沿用还原后的窗口边界。回包中的 `applied_window_bounds` 是实际边界，`bounds_matched` 表示它与请求值是否一致。如果下一步需要截图坐标，可要求 `include_screenshot:true` 或重新观察窗口。
 
 `open_folder({"path":"C:\\Code\\golang\\ytray"})` 请 Windows 使用已注册的文件夹处理程序打开已有目录。返回 Windows 的受理状态 `accepted` 和规范化后的 `path`。路径使用运行 YTray 的 Windows 可访问的绝对文件系统路径。用 `list_windows` 确认实际打开的窗口。
 

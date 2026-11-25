@@ -25,7 +25,7 @@ namespace YTray.Tests
         {
             using var controller = new SystemControlController(Path.Combine(Path.GetTempPath(), "ytray-simple-schema-" + Guid.NewGuid().ToString("N")));
             var tools = controller.Tools().OfType<JObject>().ToArray();
-            CollectionAssert.AreEquivalent(new[] { "list_apps", "list_windows", "get_window_state", "get_desktop_state", "system_status", "launch_app", "open_folder", "activate_window", "click", "type_text", "press_key", "scroll" }, tools.Select(t => (string)t["name"]!).ToArray());
+            CollectionAssert.AreEquivalent(new[] { "list_apps", "list_windows", "get_window_state", "get_desktop_state", "system_status", "launch_app", "open_folder", "activate_window", "click", "type_text", "press_key", "scroll", "drag", "set_window_bounds" }, tools.Select(t => (string)t["name"]!).ToArray());
             foreach (var tool in tools) {
                 var properties = (JObject)tool["inputSchema"]!["properties"]!;
                 foreach (var name in new[] { "session_id", "runtime_generation", "observation_id", "request_id", "deadline", "target_ref" }) Assert.IsNull(properties[name]);
@@ -38,6 +38,14 @@ namespace YTray.Tests
             Assert.IsFalse((bool)folder["annotations"]!["readOnlyHint"]!);
             Assert.ThrowsExactly<ControlException>(() => ControlJson.Validate(new JObject(), (JObject)folder["inputSchema"]!));
             ControlJson.Validate(new JObject { ["path"] = @"C:\Code" }, (JObject)folder["inputSchema"]!);
+            var drag = (JObject)tools.Single(t => (string)t["name"]! == "drag")["inputSchema"]!;
+            var gesture = new JObject { ["window_id"] = 42, ["from_x"] = 10, ["from_y"] = 20, ["to_x"] = 100, ["to_y"] = 120 };
+            Assert.ThrowsExactly<ControlException>(() => ControlJson.Validate(gesture, drag));
+            gesture["state_id"] = "latest-image";
+            ControlJson.Validate(gesture, drag);
+            var resize = (JObject)tools.Single(t => (string)t["name"]! == "set_window_bounds")["inputSchema"]!;
+            ControlJson.Validate(new JObject { ["window_id"] = 42, ["x"] = -1200, ["width"] = 1000 }, resize);
+            Assert.ThrowsExactly<ControlException>(() => ControlJson.Validate(new JObject { ["window_id"] = 42, ["height"] = -1 }, resize));
             var read = (JObject)tools.Single(t => (string)t["name"]! == "get_window_state")["inputSchema"]!;
             ControlJson.Validate(new JObject { ["window_id"] = 42, ["region"] = new JObject { ["x"] = 10, ["y"] = 20, ["width"] = 300, ["height"] = 100 } }, read);
             Assert.ThrowsExactly<ControlException>(() => ControlJson.Validate(new JObject { ["window_id"] = 42, ["region"] = new JObject { ["x"] = 0, ["y"] = 0, ["width"] = 0, ["height"] = 100 } }, read));

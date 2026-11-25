@@ -19,7 +19,7 @@ namespace YTray.Core.SystemControl
         internal ControlOperation? LatestFailure => _latestFailure;
         internal event Action<string>? TraceDetailsRequested;
 
-        internal static bool HasOperationFeedback(string name) => name is "launch_app" or "open_folder" or "activate_window" or "click" or "type_text" or "press_key" or "scroll";
+        internal static bool HasOperationFeedback(string name) => name is "launch_app" or "open_folder" or "activate_window" or "click" or "drag" or "set_window_bounds" or "type_text" or "press_key" or "scroll";
 
         internal void ToggleOperationPreview()
         {
