@@ -251,6 +251,8 @@ namespace YTray.Native
             var window = target?.Handle ?? IntPtr.Zero;
             var compact = args["_compact_action"] as JObject;
             var visualCaptureId = (string?)args["_verify_capture_id"];
+            if (method == "drag" && (!foreground || target == null || target.IsOwned || visualCaptureId == null))
+                throw new ControlException("ScreenshotRequired", "拖拽需要绑定主窗口最新截图并在前台执行。");
             var popup = visualCaptureId != null && target?.IsOwned == true ? target : null;
             var expected = compact?["expected_control"] as JObject;
             IElement? element = null;
@@ -282,18 +284,22 @@ namespace YTray.Native
                     point = WindowsInputGeometry.VisibleCenter(frame, bounds);
                 else point = new Point(frame.Left + frame.Width / 2, frame.Top + frame.Height / 2);
             }
-            if (args["x"] != null && args["y"] != null) {
+            Point ImagePoint(string xField, string yField) {
                 var dimensions = args["_image_size"] as JObject;
                 var width = (double?)dimensions?["width"] ?? bounds.Width; var height = (double?)dimensions?["height"] ?? bounds.Height;
-                var x = args.Value<double>("x"); var y = args.Value<double>("y");
+                var x = args.Value<double>(xField); var y = args.Value<double>(yField);
                 if (double.IsNaN(x) || double.IsInfinity(x) || double.IsNaN(y) || double.IsInfinity(y) || x < 0 || y < 0 || x >= width || y >= height)
                     throw new ControlException("InvalidCoordinates", "坐标必须位于当前返回的图片范围内");
-                point = new Point(bounds.Left + (int)(args.Value<double>("x") * bounds.Width / Math.Max(1, width)), bounds.Top + (int)(args.Value<double>("y") * bounds.Height / Math.Max(1, height)));
+                return new Point(bounds.Left + (int)(x * bounds.Width / Math.Max(1, width)), bounds.Top + (int)(y * bounds.Height / Math.Max(1, height)));
+            }
+            if (args["x"] != null && args["y"] != null) {
+                point = ImagePoint("x", "y");
                 if (!foreground && element == null && target != null && !target.IsObscured(IntPtr.Zero)) {
                     var hit = _automation.ElementFromPoint(new NativePoint { X = point.X, Y = point.Y });
                     if (BelongsTo(hit, window)) element = hit;
                 }
             }
+            var dragEnd = method == "drag" ? ImagePoint("to_x", "to_y") : Point.Empty;
             Action? nativeClick = null;
             IScroll? nativeScroll = null;
             if (!foreground && compact?.Value<bool>("prefer_native_control") == true) {
@@ -316,6 +322,7 @@ namespace YTray.Native
                 } catch { /* Focus decoration cannot prevent keyboard input. */ }
             }
             var label = method == "click" ? ((string?)args["button"] == "right" ? "右键" : (int?)args["count"] == 2 ? "双击" : "点击")
+                : method == "drag" ? "拖拽"
                 : method == "type_text" ? "输入"
                 : method == "scroll" ? "滚动 " + ((string?)args["direction"] == "up" ? "↑" : (string?)args["direction"] == "left" ? "←" : (string?)args["direction"] == "right" ? "→" : "↓")
                 : "按键 " + string.Join(" + ", (args["modifiers"] as JArray ?? new JArray()).Values<string>().Concat(new[] { (string?)args["key"] ?? "" }));
@@ -366,6 +373,11 @@ namespace YTray.Native
                 }
                 if (watch) _feedback.WatchWindowChange(target!);
                 switch (method) {
+                    case "drag":
+                        stage("drag");
+                        WindowsNativeInput.Drag(window, point, dragEnd, cancellation);
+                        feedback.Retarget(window, dragEnd, label);
+                        break;
                     case "click":
                         var button = (string?)args["button"] ?? "left"; var count = (int?)args["count"] ?? 1;
                         if (nativeClick != null) {

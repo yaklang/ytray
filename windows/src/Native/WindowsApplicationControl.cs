@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -171,7 +172,7 @@ namespace YTray.Native
         internal static async Task<(WindowsControlTarget Target, bool Reused, bool RestoredFromTray)> LaunchAsync(App app, bool newWindow, string? url = null,
             CancellationToken cancellation = default, Action<string, WindowsControlTarget?>? progress = null,
             Func<App, List<(int Pid, long Created)>, Task<(WindowsControlTarget Target, bool Invoked)>>? restoreTray = null,
-            Action? requireActive = null)
+            Action? requireActive = null, Func<IntPtr>? getCurrentProcessWindow = null)
         {
             requireActive?.Invoke();
             ControlCancellation.Check(cancellation);
@@ -179,7 +180,8 @@ namespace YTray.Native
             if (url != null && (!app.IsBrowser || !Uri.TryCreate(url, UriKind.Absolute, out destination) || destination.UserInfo.Length != 0
                 || destination.Scheme != "https" && destination.Scheme != "http"))
                 throw new ControlException("InvalidArguments", "url 仅支持浏览器的 http/https 地址");
-            var before = WindowsControlTarget.Enumerate(app.Path);
+            List<WindowsControlTarget> AppWindows(string path) => WindowsControlTarget.Enumerate(path, getCurrentProcessWindow?.Invoke() ?? IntPtr.Zero);
+            var before = AppWindows(app.Path);
             if (!newWindow && destination == null) {
                 var existing = OrderAppWindows(before).FirstOrDefault();
                 if (existing != null) {
@@ -223,9 +225,9 @@ namespace YTray.Native
             try { while (elapsed.Elapsed < TimeSpan.FromSeconds(12)) {
                 requireActive?.Invoke();
                 ControlCancellation.Check(cancellation, "Unknown");
-                IEnumerable<WindowsControlTarget> candidates = WindowsControlTarget.Enumerate(app.Path);
+                IEnumerable<WindowsControlTarget> candidates = AppWindows(app.Path);
                 if (redirected is { } instance)
-                    candidates = candidates.Concat(WindowsControlTarget.Enumerate(instance.Path)
+                    candidates = candidates.Concat(AppWindows(instance.Path)
                         .Where(window => window.Pid == instance.Pid && window.Created == instance.Created));
                 if (app.IsBrowser) candidates = candidates.Where(window => window.Bounds.Right - window.Bounds.Left >= 400 && window.Bounds.Bottom - window.Bounds.Top >= 300);
                 var windows = OrderAppWindows(candidates).ToArray();
@@ -265,6 +267,76 @@ namespace YTray.Native
             }
             return (long)(bounds.Right - bounds.Left) * (bounds.Bottom - bounds.Top);
         }
+        internal static async Task<(Rectangle Requested, Rectangle Applied)> SetBoundsAsync(WindowsControlTarget target,
+            int? x, int? y, int? width, int? height, CancellationToken cancellation, Action requireActive, Action markInput)
+        {
+            if (x == null && y == null && width == null && height == null)
+                throw new ControlException("InvalidArguments", "至少指定一项窗口位置或尺寸。");
+
+            var window = target.Handle;
+            bool dispatched = false;
+            void CheckTarget() {
+                ControlCancellation.Check(cancellation, dispatched ? "Unknown" : "NotStarted");
+                requireActive();
+                target.Revalidate();
+                if (!IsWindowVisible(window)) throw new ControlException("WindowNotReady", "请先打开要调整的窗口。");
+            }
+            Rectangle ReadBounds() {
+                var bounds = WindowsControlTarget.ReadBounds(window);
+                return Rectangle.FromLTRB(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+            }
+            Rectangle RequestedBounds(Rectangle current) => new Rectangle(x ?? current.X, y ?? current.Y,
+                width ?? current.Width, height ?? current.Height);
+            void RequireVisibleDestination(Rectangle bounds) {
+                if (bounds.Width <= 0 || bounds.Height <= 0 || !System.Windows.Forms.Screen.AllScreens.Any(screen => screen.Bounds.IntersectsWith(bounds)))
+                    throw new ControlException("InvalidWindowBounds", "窗口目标区域必须与一块显示器相交。");
+            }
+
+            try {
+                CheckTarget();
+                var current = ReadBounds();
+                if (IsIconic(window) || IsZoomed(window)) {
+                    if (x.HasValue && y.HasValue && width.HasValue && height.HasValue)
+                        RequireVisibleDestination(RequestedBounds(current));
+                    markInput();
+                    const int restore = 9;
+                    if (!ShowWindowAsync(window, restore)) throw new ControlException("WindowRestoreFailed", "Windows 未接受窗口还原请求。");
+                    dispatched = true;
+                    var settling = Stopwatch.StartNew();
+                    while (IsIconic(window) || IsZoomed(window)) {
+                        if (settling.ElapsedMilliseconds >= 750) throw new ControlException("WindowRestoreFailed", "窗口尚未完成还原。", "Unknown");
+                        await Task.Delay(40, cancellation).ConfigureAwait(false);
+                        CheckTarget();
+                    }
+                    current = ReadBounds();
+                }
+                var requested = RequestedBounds(current);
+                RequireVisibleDestination(requested);
+                if (requested == current) return (requested, current);
+
+                CheckTarget();
+                const uint noZOrder = 0x0004, noActivate = 0x0010, asyncPosition = 0x4000;
+                markInput();
+                if (!SetWindowPos(window, IntPtr.Zero, requested.X, requested.Y, requested.Width, requested.Height, noZOrder | noActivate | asyncPosition))
+                    throw new ControlException("WindowBoundsFailed", "Windows 未接受窗口位置或大小的修改。");
+                dispatched = true;
+                var waiting = Stopwatch.StartNew();
+                var previous = current;
+                while (true) {
+                    await Task.Delay(50, cancellation).ConfigureAwait(false);
+                    CheckTarget();
+                    var applied = ReadBounds();
+                    if (applied == requested || applied != current && applied == previous || waiting.ElapsedMilliseconds >= 750)
+                        return (requested, applied);
+                    previous = applied;
+                }
+            } catch (OperationCanceledException) when (dispatched && cancellation.IsCancellationRequested) {
+                throw ControlCancellation.Error("Unknown");
+            } catch (ControlException error) when (dispatched && error.ExecutionState == "NotStarted") {
+                throw new ControlException(error.Code, error.Message, "Unknown");
+            }
+        }
+
         internal static async Task ActivateAsync(WindowsControlTarget target, CancellationToken cancellation = default, Action? requireActive = null)
         {
             requireActive?.Invoke();
@@ -330,6 +402,9 @@ namespace YTray.Native
         [DllImport("user32.dll")] private static extern bool GetWindowPlacement(IntPtr window, ref WindowPlacement placement);
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
         [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
         [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr window);
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);

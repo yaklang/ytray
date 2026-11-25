@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -151,6 +152,43 @@ namespace YTray.Native
                 throw;
             }
         }
+        internal static void Drag(IntPtr window, Point start, Point end, WaitHandle? cancellation)
+        {
+            RequireForeground(window);
+            const uint leftDown = 0x0002, leftUp = 0x0004;
+            if ((GetAsyncKeyState(0x01) & 0x8000) != 0)
+                throw new ControlException("PointerBusy", "鼠标左键正被按住，请松开后重新观察。");
+            if (start == end) throw new ControlException("InvalidCoordinates", "拖拽起点和终点必须不同。");
+            if (!GetCursorPos(out var original)) throw new ControlException("InputUnavailable", "无法读取当前鼠标位置");
+
+            var screen = System.Windows.Forms.SystemInformation.VirtualScreen;
+            const int segments = 8;
+            var inputs = new List<Input>(segments + 4);
+            for (var step = 0; step <= segments; step++) {
+                var point = new WindowsAutomation.NativePoint {
+                    X = start.X + (end.X - start.X) * step / segments,
+                    Y = start.Y + (end.Y - start.Y) * step / segments
+                };
+                if (!screen.Contains(point.X, point.Y)) throw new ControlException("InvalidCoordinates", "拖拽路径超出了当前桌面。");
+                RequirePointerTarget(window, point, includeOwnedWindows: false);
+                inputs.Add(AbsoluteMove(point, screen));
+                if (step == 0) inputs.Add(MouseEvent(leftDown));
+            }
+            inputs.Add(MouseEvent(leftUp));
+            inputs.Add(AbsoluteMove(original, screen));
+            RequireForeground(window);
+            ControlCancellation.Check(cancellation);
+            // Batch the gesture and pointer restoration so physical mouse events cannot interleave.
+            var packet = inputs.ToArray();
+            var sent = SendInput((uint)packet.Length, packet, Marshal.SizeOf(typeof(Input)));
+            if (sent != packet.Length) {
+                if (sent >= 2 && sent < packet.Length - 1) Send(MouseEvent(leftUp), AbsoluteMove(original, screen));
+                else if (sent > 0) Send(AbsoluteMove(original, screen));
+                throw new ControlException("InputFailed", "Windows 未完整投递拖拽，请重新观察。", sent >= 2 ? "Unknown" : "NotStarted");
+            }
+            CorrectPointerRounding(original);
+        }
+
         internal static void Scroll(IntPtr window, int x, int y, string direction, int amount, bool foreground, WaitHandle? cancellation = null)
         {
             var horizontal = direction == "left" || direction == "right";
@@ -194,6 +232,10 @@ namespace YTray.Native
             events[events.Length - 1] = AbsoluteMove(original, screen);
             ControlCancellation.Check(cancellation);
             Send(events);
+            CorrectPointerRounding(original);
+        }
+        private static void CorrectPointerRounding(WindowsAutomation.NativePoint original)
+        {
             // The normalized Windows coordinates can round by a pixel. Correct
             // that rounding only while the pointer is still at the return point.
             if (GetCursorPos(out var restored) && (restored.X != original.X || restored.Y != original.Y)
@@ -215,6 +257,7 @@ namespace YTray.Native
         }
         [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, [In] Input[] input, int size);
         [DllImport("user32.dll")] private static extern bool GetCursorPos(out WindowsAutomation.NativePoint point);
+        [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
         [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
         [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(WindowsAutomation.NativePoint point);
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);

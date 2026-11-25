@@ -26,7 +26,7 @@ namespace YTray.Native
         internal bool IsNonActivating => (GetWindowLong(Handle, -20) & 0x08000000) != 0; // GWL_EXSTYLE, WS_EX_NOACTIVATE
         internal JObject Json() => new JObject { ["target_ref"] = Reference, ["pid"] = Pid, ["window_id"] = Handle.ToInt64().ToString(),
             ["title"] = Title, ["executable"] = Executable, ["bounds"] = new JObject { ["x"] = Bounds.Left, ["y"] = Bounds.Top, ["width"] = Bounds.Right - Bounds.Left, ["height"] = Bounds.Bottom - Bounds.Top } };
-        internal static List<WindowsControlTarget> Enumerate(string? executable = null)
+        internal static List<WindowsControlTarget> Enumerate(string? executable = null, IntPtr currentProcessWindow = default)
         {
             HashSet<uint>? processes = null;
             if (executable != null) {
@@ -43,7 +43,7 @@ namespace YTray.Native
                 try {
                     if (handle == desktop || !IsWindowVisible(handle) || GetWindowTextLength(handle) == 0) return true;
                     GetWindowThreadProcessId(handle, out var pid);
-                    if (pid == 0 || pid == currentPid || processes != null && !processes.Contains(pid)) return true;
+                    if (pid == 0 || pid == currentPid && handle != currentProcessWindow || processes != null && !processes.Contains(pid)) return true;
                     var target = Resolve(handle);
                     if (executable == null || WindowsApplicationControl.SamePath(target.Executable, executable)) results.Add(target);
                 } catch { } return true;

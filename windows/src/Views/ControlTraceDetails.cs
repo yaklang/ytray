@@ -81,7 +81,15 @@ namespace YTray.Views
             if (Number(arguments?["element_index"]) is long index)
                 Add(input, "目标控件", control.Length == 0 ? "编号 " + index : control + "（编号 " + index + "）");
             if (Coordinate(arguments?["x"]) is string x && Coordinate(arguments?["y"]) is string y)
-                Add(input, "图片坐标", "(" + x + ", " + y + ")");
+                Add(input, tool == "set_window_bounds" ? "桌面坐标" : "图片坐标", "(" + x + ", " + y + ")");
+            if (tool == "drag") {
+                Add(input, "拖拽起点", "(" + Coordinate(arguments?["from_x"]) + ", " + Coordinate(arguments?["from_y"]) + ")");
+                Add(input, "拖拽终点", "(" + Coordinate(arguments?["to_x"]) + ", " + Coordinate(arguments?["to_y"]) + ")");
+            }
+            if (tool == "set_window_bounds") {
+                Add(input, "请求边界", RectangleText(state?["requested_window_bounds"]));
+                Add(output, "应用后边界", RectangleText(state?["applied_window_bounds"]));
+            }
             var key = Text(arguments?["key"]).ToUpperInvariant().Replace("+", " + ");
             Add(input, "按键", key);
             Add(input, "输入文字", Text(arguments?["text"]));
@@ -117,7 +125,7 @@ namespace YTray.Views
             if (Flag(state?["restored_from_tray"]) == true) result = "已从托盘打开现有应用窗口";
             else if (Flag(state?["reused_window"]) == true) result = "已复用现有应用窗口";
             Add(output, "结果", result);
-            if (Text(state?["visual_verification"]) == "matched") Add(output, "点击前复核", Text(state?["visual_verification_caret"]) switch {
+            if (Text(state?["visual_verification"]) == "matched") Add(output, tool == "drag" ? "拖拽前复核" : "点击前复核", Text(state?["visual_verification_caret"]) switch {
                 "win32" => "按系统光标状态复核，画面匹配",
                 "painted" => "局部闪烁消失后，画面匹配",
                 _ => "画面匹配"
@@ -247,6 +255,8 @@ namespace YTray.Views
                     "type_text" => "写入文字",
                     "submit" => "按回车提交",
                     "click" => "执行点击",
+                    "drag" => "执行拖拽",
+                    "set_window_bounds" => "移动或调整窗口大小",
                     "press_key" => key.Length == 0 ? "发送按键" : "按下 " + key,
                     "scroll" => "执行滚动",
                     _ => Text(row["label"])

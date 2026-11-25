@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using YTray.Core;
@@ -38,6 +39,15 @@ namespace YTray.Views
                 MaximizeIcon.Data = Geometry.Parse(WindowState == WindowState.Maximized
                     ? "M 2.5 0.5 L 9.5 0.5 L 9.5 7.5 M 0.5 2.5 L 7.5 2.5 L 7.5 9.5 L 0.5 9.5 Z"
                     : "M 0.5 0.5 L 9.5 0.5 L 9.5 9.5 L 0.5 9.5 Z");
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            var control = _store.SystemControl;
+            var handle = new WindowInteropHelper(this).Handle;
+            control.RegisterManagerWindow(handle);
+            Closed += (_, _) => control.UnregisterManagerWindow(handle);
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
